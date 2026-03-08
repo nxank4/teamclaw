@@ -1,0 +1,88 @@
+import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { useWsStore } from "../ws";
+import { KanbanColumn } from "./KanbanColumn";
+
+const COLUMNS: { id: string; title: string; statuses: string[] }[] = [
+  { id: "backlog", title: "Backlog", statuses: ["backlog"] },
+  { id: "todo", title: "To Do", statuses: ["pending"] },
+  { id: "in_progress", title: "In Progress", statuses: ["in_progress"] },
+  {
+    id: "needs_approval",
+    title: "Needs Approval",
+    statuses: ["needs_approval", "TIMEOUT_WARNING"],
+  },
+  { id: "done", title: "Done", statuses: ["completed", "failed"] },
+];
+
+const COLUMN_ID_TO_STATUS: Record<string, string> = {
+  backlog: "backlog",
+  todo: "pending",
+  in_progress: "in_progress",
+  needs_approval: "needs_approval",
+  done: "completed",
+};
+
+function statusToColumnId(status: string): string {
+  for (const col of COLUMNS) {
+    if (col.statuses.includes(status)) return col.id;
+  }
+  return "backlog";
+}
+
+export function KanbanBoard() {
+  const task_queue = useWsStore((s) => s.task_queue);
+  const sendMessage = useWsStore((s) => s.sendMessage);
+
+  const tasksByColumn = COLUMNS.map((col) => ({
+    ...col,
+    tasks: task_queue.filter((t) => {
+      const s = (t.status as string) ?? "pending";
+      return col.statuses.includes(s);
+    }),
+  }));
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+    const taskId = active.id as string;
+    let targetColumnId = over.id as string;
+    if (COLUMN_ID_TO_STATUS[targetColumnId] === undefined) {
+      const overTask = task_queue.find((t) => (t.task_id as string) === targetColumnId);
+      targetColumnId = overTask ? statusToColumnId((overTask.status as string) ?? "pending") : "todo";
+    }
+    const newStatus = COLUMN_ID_TO_STATUS[targetColumnId];
+    if (!newStatus) return;
+
+    const task = task_queue.find((t) => (t.task_id as string) === taskId);
+    if (!task) return;
+
+    const updates: Record<string, string> = { status: newStatus };
+    if (targetColumnId === "todo") {
+      updates.priority = "HIGH";
+    }
+
+    sendMessage({
+      type: "UPDATE_TASK",
+      taskId,
+      updates,
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200">Task Queue</h2>
+      <DndContext onDragEnd={handleDragEnd}>
+        <div className="flex gap-4 overflow-x-auto pb-4">
+          {tasksByColumn.map((col) => (
+            <KanbanColumn
+              key={col.id}
+              id={col.id}
+              title={col.title}
+              tasks={col.tasks}
+            />
+          ))}
+        </div>
+      </DndContext>
+    </div>
+  );
+}
