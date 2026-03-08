@@ -20,7 +20,7 @@
     "check": "node dist/cli.js check",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src",
+    "lint": "eslint src && echo \"Lint OK\"",
     "typecheck": "tsc --noEmit && echo \"Typecheck OK\""
   },
   "keywords": [
@@ -52,10 +52,12 @@
   "devDependencies": {
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
     "concurrently": "^9.2.1",
     "eslint": "^9.16.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "nodemon": "^3.1.14",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

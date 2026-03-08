@@ -15,20 +15,14 @@ export function useTimeboxCountdown(task: Record<string, unknown>): TimeboxCount
   const enabled =
     status === "in_progress" && typeof inProgressAt === "string" && inProgressAt.length > 0;
 
-  const computeRemaining = (): number | null => {
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(() => {
     if (!enabled) return null;
     const startedMs = Date.parse(inProgressAt as string);
     if (!Number.isFinite(startedMs)) return null;
-    const now = Date.now();
     const totalMs = timeboxMinutes * 60_000;
-    const elapsedMs = now - startedMs;
-    const remainingMs = totalMs - elapsedMs;
-    return Math.max(0, Math.floor(remainingMs / 1000));
-  };
-
-  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(() =>
-    computeRemaining()
-  );
+    const elapsedMs = Date.now() - startedMs;
+    return Math.max(0, Math.floor((totalMs - elapsedMs) / 1000));
+  });
 
   useEffect(() => {
     if (!enabled) {
@@ -36,16 +30,17 @@ export function useTimeboxCountdown(task: Record<string, unknown>): TimeboxCount
       return;
     }
 
-    setRemainingSeconds(computeRemaining());
-
-    const id = setInterval(() => {
-      setRemainingSeconds(computeRemaining());
-    }, 1000);
-
-    return () => {
-      clearInterval(id);
+    const computeRemaining = (): number | null => {
+      const startedMs = Date.parse(inProgressAt as string);
+      if (!Number.isFinite(startedMs)) return null;
+      const totalMs = timeboxMinutes * 60_000;
+      const elapsedMs = Date.now() - startedMs;
+      return Math.max(0, Math.floor((totalMs - elapsedMs) / 1000));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    setRemainingSeconds(computeRemaining());
+    const id = setInterval(() => setRemainingSeconds(computeRemaining()), 1000);
+    return () => clearInterval(id);
   }, [enabled, inProgressAt, timeboxMinutes]);
 
   return {

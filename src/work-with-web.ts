@@ -25,7 +25,7 @@ async function waitForHttp(baseUrl: string, maxAttempts = 30): Promise<boolean> 
 
 async function isPortFree(port: number): Promise<boolean> {
   try {
-    const res = await fetch(`http://localhost:${port}`, {
+    await fetch(`http://localhost:${port}`, {
       signal: AbortSignal.timeout(500),
     });
     return false;
@@ -154,7 +154,6 @@ export async function runWorkWithWeb(args: string[]): Promise<void> {
   }
 
   const baseUrl = `http://localhost:${port}`;
-  const wsUrl = `ws://localhost:${port}/ws`;
 
   let serverProc: ReturnType<typeof spawn> | null = null;
 

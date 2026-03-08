@@ -151,7 +151,15 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
         wsRef.current = null;
       }
     };
-  }, [setConnectionStatus, setFromNodeEvent, setConfig, setLastError, setSendMessage]);
+  }, [
+    setConnectionStatus,
+    setFromNodeEvent,
+    setConfig,
+    setLastError,
+    setSendMessage,
+    pushAlert,
+    setPendingApproval,
+  ]);
 
   return <>{children}</>;
 }
