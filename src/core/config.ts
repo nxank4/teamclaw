@@ -5,6 +5,8 @@
 
 import "dotenv/config";
 
+export type MemoryBackend = "lancedb" | "local_json";
+
 function env(key: string, defaultVal: string): string;
 function env(key: string, defaultVal: number): number;
 function env(key: string, defaultVal: string | number): string | number {
@@ -23,6 +25,13 @@ function envBool(key: string, defaultVal: boolean): boolean {
   return ["true", "1", "yes"].includes(val.toLowerCase());
 }
 
+function envMemoryBackend(defaultVal: MemoryBackend): MemoryBackend {
+  const val = (process.env["MEMORY_BACKEND"] ?? "").trim().toLowerCase();
+  if (val === "lancedb" || val === "local_json") return val;
+  if (val === "chroma") return "lancedb";
+  return defaultVal;
+}
+
 export const CONFIG = {
   llmTemperature: env("LLM_TEMPERATURE", 0.7) as number,
   creativity: env("CREATIVITY", 0.5) as number,
@@ -34,6 +43,7 @@ export const CONFIG = {
   workspaceDir: env("WORKSPACE_DIR", "./teamclaw-workspace") as string,
 
   chromadbPersistDir: env("CHROMADB_PERSIST_DIR", "data/vector_store") as string,
+  memoryBackend: envMemoryBackend("lancedb"),
   verboseLogging: envBool("VERBOSE_LOGGING", true),
 
   openclawWorkerUrl: env("OPENCLAW_WORKER_URL", "") as string,

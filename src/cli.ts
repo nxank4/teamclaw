@@ -52,7 +52,7 @@ function printHelp(): void {
     section("Commands:"),
     "  " + cmd("work") + "       " + desc("Run work session (use --web for dashboard)"),
     "  " + cmd("web") + "        " + desc("Start Web UI (http://localhost:8000)"),
-    "  " + cmd("check") + "      " + desc("Check connectivity (OpenClaw, ChromaDB)"),
+    "  " + cmd("check") + "      " + desc("Check connectivity (OpenClaw workers)"),
     "  " + cmd("onboard") + "    " + desc("Interactive setup wizard (--install-daemon to start services in background)"),
     "  " + cmd("start") + "      " + desc("Start Web in background"),
     "  " + cmd("stop") + "       " + desc("Stop background Web"),

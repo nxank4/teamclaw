@@ -17,6 +17,7 @@ export interface TeamConfig {
   bots?: Array<{ id: string; role_id: string; name?: string; worker_url?: string }>;
   goal?: string;
   creativity?: number;
+  memory_backend?: "lancedb" | "local_json";
   webhooks?: {
     on_task_complete?: string;
     on_cycle_end?: string;
@@ -93,6 +94,12 @@ export async function loadTeamConfig(): Promise<TeamConfig | null> {
       bots: Array.isArray(parsed.bots) ? (parsed.bots as TeamConfig["bots"]) : undefined,
       goal: typeof parsed.goal === "string" ? parsed.goal : undefined,
       creativity,
+      memory_backend:
+        parsed.memory_backend === "lancedb" || parsed.memory_backend === "local_json"
+          ? parsed.memory_backend
+          : parsed.memory_backend === "chroma"
+            ? "lancedb"
+            : undefined,
     };
   } catch {
     _cached = null;

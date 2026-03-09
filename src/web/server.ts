@@ -285,7 +285,11 @@ export async function runWeb(args: string[]): Promise<void> {
   });
 
   fastify.get("/api/lessons", async () => {
-    const vectorMemory = new VectorMemory(CONFIG.chromadbPersistDir);
+    const teamConfig = await loadTeamConfig();
+    const vectorMemory = new VectorMemory(
+      CONFIG.chromadbPersistDir,
+      teamConfig?.memory_backend ?? CONFIG.memoryBackend
+    );
     await vectorMemory.init();
     const lessons = await vectorMemory.getCumulativeLessons();
     return { lessons };
@@ -488,7 +492,10 @@ export async function runWeb(args: string[]): Promise<void> {
             return;
           }
 
-          const vectorMemory = new VectorMemory(CONFIG.chromadbPersistDir);
+          const vectorMemory = new VectorMemory(
+            CONFIG.chromadbPersistDir,
+            teamConfig?.memory_backend ?? CONFIG.memoryBackend
+          );
           await vectorMemory.init();
           const analyst = new PostMortemAnalyst(vectorMemory);
 

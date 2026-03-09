@@ -1,15 +1,15 @@
 /**
- * Vector Knowledge Base - RAG via ChromaDB with local embedding endpoint.
- * Falls back to JSON file when Chroma server is unavailable.
+ * Vector Knowledge Base - RAG via embedded LanceDB with local embedding endpoint.
+ * Falls back to JSON file when LanceDB is unavailable or disabled.
  */
 
-import { ChromaClient } from "chromadb";
+import * as lancedb from "@lancedb/lancedb";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { CONFIG } from "./config.js";
+import { CONFIG, type MemoryBackend } from "./config.js";
 import { logger } from "./logger.js";
 
-const LESSONS_COLLECTION = "lessons";
+const LESSONS_TABLE = "lessons";
 const EMBEDDING_MODEL = "nomic-embed-text";
 const DEFAULT_EMBEDDING_BASE = "http://localhost:11434";
 
@@ -69,6 +69,7 @@ function log(msg: string): void {
 
 export interface VectorMemoryStats {
   enabled: boolean;
+  backend: MemoryBackend;
   persistDirectory?: string;
   lessonsCount?: number;
   embeddingModel?: string;
@@ -78,47 +79,55 @@ export interface VectorMemoryStats {
 export class VectorMemory {
   readonly persistDirectory: string;
   enabled = false;
-  private client: ChromaClient | null = null;
-  private lessonsCollection: Awaited<ReturnType<ChromaClient["getOrCreateCollection"]>> | null = null;
+  readonly backend: MemoryBackend;
+  private db: lancedb.Connection | null = null;
+  private lessonsTable: lancedb.Table | null = null;
+  private embedder: HttpEmbeddingFunction | null = null;
   private fallbackPath: string;
 
-  constructor(persistDirectory = "data/vector_store") {
+  constructor(persistDirectory = "data/vector_store", backend: MemoryBackend = CONFIG.memoryBackend) {
     this.persistDirectory = persistDirectory;
+    this.backend = backend;
     this.fallbackPath = path.join(persistDirectory, "lessons_fallback.json");
   }
 
   async init(): Promise<void> {
-    const chromaHost = process.env.CHROMADB_HOST ?? "localhost";
-    const chromaPort =
-      process.env.CHROMADB_PORT ?? (process.env.CHROMADB_HOST ? "8000" : "8020");
-    const path = `http://${chromaHost}:${chromaPort}`;
+    if (this.backend === "local_json") {
+      this.enabled = false;
+      await this._ensureFallbackDir();
+      log("Vector Memory initialized in local_json mode.");
+      return;
+    }
 
     try {
       const embeddingBase =
         process.env["EMBEDDING_BASE_URL"] ??
         process.env["OPENCLAW_WORKER_URL"] ??
         DEFAULT_EMBEDDING_BASE;
-      const embedder = new HttpEmbeddingFunction({
+      this.embedder = new HttpEmbeddingFunction({
         baseUrl: embeddingBase,
         model: EMBEDDING_MODEL,
         token: process.env["OPENCLAW_TOKEN"],
       });
-
-      this.client = new ChromaClient({ path });
-      this.lessonsCollection = await this.client.getOrCreateCollection({
-        name: LESSONS_COLLECTION,
-        embeddingFunction: embedder,
-        metadata: { description: "Lessons learned from team failures" },
-      });
+      const lanceUri = process.env["LANCEDB_URI"]?.trim() || path.join(this.persistDirectory, "lancedb");
+      await mkdir(lanceUri, { recursive: true });
+      this.db = await lancedb.connect(lanceUri);
+      const tableNames = await this.db.tableNames();
+      if (tableNames.includes(LESSONS_TABLE)) {
+        this.lessonsTable = await this.db.openTable(LESSONS_TABLE);
+      }
 
       this.enabled = true;
-      log(`✅ Vector Memory initialized at ${path}`);
+      log(`✅ Vector Memory (LanceDB) initialized at ${lanceUri}`);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       this.enabled = false;
+      this.db = null;
+      this.lessonsTable = null;
+      this.embedder = null;
       await this._ensureFallbackDir();
       log(
-        `⚠️ ChromaDB unavailable (${detail}). Vector Memory initialized (Mode: Local JSON Fallback).`,
+        `⚠️ LanceDB unavailable (${detail}). Vector Memory initialized (Mode: Local JSON Fallback).`,
       );
     }
   }
@@ -132,15 +141,26 @@ export class VectorMemory {
   }
 
   async addLesson(text: string, metadata: Record<string, unknown> = {}): Promise<boolean> {
-    if (this.enabled && this.lessonsCollection) {
+    if (this.enabled && this.db && this.embedder) {
       try {
+        const vector = (await this.embedder.generate([text]))[0] ?? [];
+        if (!Array.isArray(vector) || vector.length === 0) {
+          throw new Error("empty embedding vector");
+        }
         const id = `lesson_${Date.now()}`;
-        const meta = { ...metadata, type: "lesson", timestamp: Date.now() / 1000 };
-        await this.lessonsCollection.add({
-          ids: [id],
-          documents: [text],
-          metadatas: [meta as Record<string, string | number | boolean>],
-        });
+        const row = {
+          id,
+          text,
+          vector,
+          metadata_json: JSON.stringify(metadata),
+          timestamp: Date.now() / 1000,
+          type: "lesson",
+        };
+        if (!this.lessonsTable) {
+          this.lessonsTable = await this.db.createTable(LESSONS_TABLE, [row]);
+        } else {
+          await this.lessonsTable.add([row]);
+        }
         log(`📚 Stored lesson: "${text.slice(0, 50)}..."`);
         return true;
       } catch (err) {
@@ -172,16 +192,19 @@ export class VectorMemory {
   }
 
   async retrieveRelevantLessons(query: string, nResults = 5): Promise<string[]> {
-    if (this.enabled && this.lessonsCollection) {
+    if (this.enabled && this.lessonsTable && this.embedder) {
       try {
-        const count = await this.lessonsCollection.count();
+        const count = await this.lessonsTable.countRows();
         if (count === 0) return [];
-        const results = await this.lessonsCollection.query({
-          queryTexts: [query],
-          nResults: Math.min(nResults, count),
-        });
-        const docs = results.documents?.[0];
-        return (docs?.filter(Boolean) ?? []) as string[];
+        const vector = (await this.embedder.generate([query]))[0] ?? [];
+        if (!Array.isArray(vector) || vector.length === 0) return [];
+        const results = (await this.lessonsTable
+          .vectorSearch(vector)
+          .limit(Math.min(nResults, count))
+          .toArray()) as Array<Record<string, unknown>>;
+        return results
+          .map((row) => (typeof row["text"] === "string" ? row["text"] : ""))
+          .filter((doc): doc is string => doc.length > 0);
       } catch (err) {
         log(`❌ Retrieval failed: ${err}`);
       }
@@ -199,13 +222,13 @@ export class VectorMemory {
   }
 
   async getCumulativeLessons(): Promise<string[]> {
-    const fromChroma = this.enabled && this.lessonsCollection
-      ? await this._getAllLessonsFromChroma()
+    const fromLanceDb = this.enabled && this.lessonsTable
+      ? await this._getAllLessonsFromLanceDb()
       : [];
     const fromFallback = await this._fallbackGetLessons();
     const seen = new Set<string>();
     const merged: string[] = [];
-    for (const l of [...fromFallback, ...fromChroma]) {
+    for (const l of [...fromFallback, ...fromLanceDb]) {
       if (l && !seen.has(l)) {
         seen.add(l);
         merged.push(l);
@@ -214,11 +237,13 @@ export class VectorMemory {
     return merged;
   }
 
-  private async _getAllLessonsFromChroma(): Promise<string[]> {
-    if (!this.lessonsCollection) return [];
+  private async _getAllLessonsFromLanceDb(): Promise<string[]> {
+    if (!this.lessonsTable) return [];
     try {
-      const result = await this.lessonsCollection.get();
-      return (result.documents ?? []).filter(Boolean) as string[];
+      const rows = (await this.lessonsTable.query().select(["text"]).toArray()) as Array<Record<string, unknown>>;
+      return rows
+        .map((row) => (typeof row["text"] === "string" ? row["text"] : ""))
+        .filter((value): value is string => value.length > 0);
     } catch {
       return [];
     }
@@ -226,10 +251,11 @@ export class VectorMemory {
 
   getStats(): VectorMemoryStats {
     if (!this.enabled) {
-      return { enabled: false, fallbackFile: this.fallbackPath };
+      return { enabled: false, backend: this.backend, fallbackFile: this.fallbackPath };
     }
     return {
       enabled: true,
+      backend: this.backend,
       persistDirectory: this.persistDirectory,
       embeddingModel: EMBEDDING_MODEL,
       fallbackFile: this.fallbackPath,

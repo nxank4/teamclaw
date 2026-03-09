@@ -5,13 +5,18 @@
 import { VectorMemory } from "./core/knowledge-base.js";
 import { CONFIG } from "./core/config.js";
 import { logger } from "./core/logger.js";
+import { loadTeamConfig } from "./core/team-config.js";
 
 export async function runLessonsExport(args: string[]): Promise<void> {
   const format = args.includes("--format") && args[args.indexOf("--format") + 1]
     ? args[args.indexOf("--format") + 1]
     : "markdown";
 
-  const vectorMemory = new VectorMemory(CONFIG.chromadbPersistDir);
+  const teamConfig = await loadTeamConfig();
+  const vectorMemory = new VectorMemory(
+    CONFIG.chromadbPersistDir,
+    teamConfig?.memory_backend ?? CONFIG.memoryBackend
+  );
   await vectorMemory.init();
 
   const lessons = await vectorMemory.getCumulativeLessons();

@@ -13,9 +13,9 @@ import { provisionOpenClaw } from "./core/provisioning.js";
 import { validateStartup } from "./core/startup-validation.js";
 import { appendFile } from "node:fs/promises";
 import { clearSessionWarnings, getSessionWarnings } from "./core/session-warnings.js";
-import { ensureChromaDB } from "./core/ensure-chromadb.js";
 import { logger } from "./core/logger.js";
 import { ensureWorkspaceDir } from "./core/workspace-fs.js";
+import type { MemoryBackend } from "./core/config.js";
 
 function log(level: "info" | "warn" | "error", msg: string): void {
   const levelUp = level.toUpperCase() as "INFO" | "WARN" | "ERROR";
@@ -164,9 +164,15 @@ export async function runWork(input: string[] | { args?: string[]; goal?: string
 
   await ensureWorkspaceDir(CONFIG.workspaceDir);
 
-  await ensureChromaDB((msg) => log("info", `   ${msg}`));
+  const memoryConfig = await loadTeamConfig();
+  const selectedMemoryBackend: MemoryBackend = memoryConfig?.memory_backend ?? CONFIG.memoryBackend;
+  if (selectedMemoryBackend === "local_json") {
+    log("info", "   Using local JSON memory backend (fast startup, no Docker).");
+  } else {
+    log("info", "   Using embedded LanceDB memory backend (fast startup, no Docker).");
+  }
 
-  const vectorMemory = new VectorMemory(CONFIG.chromadbPersistDir);
+  const vectorMemory = new VectorMemory(CONFIG.chromadbPersistDir, selectedMemoryBackend);
   await vectorMemory.init();
 
   if (clearLegacy) {
@@ -184,7 +190,7 @@ export async function runWork(input: string[] | { args?: string[]; goal?: string
 
   const defaultGoal = "Build a small 2D game with sprite assets and sound effects";
 
-  const teamConfigForValidation = await loadTeamConfig();
+  const teamConfigForValidation = memoryConfig ?? (await loadTeamConfig());
   const result = await validateStartup({
     templateId: teamConfigForValidation?.template,
     maxCycles: CONFIG.maxCycles,
@@ -203,7 +209,7 @@ export async function runWork(input: string[] | { args?: string[]; goal?: string
       const runWarnings: string[] = [];
       clearSessionWarnings();
       if (!vectorMemory.enabled) {
-        runWarnings.push("ChromaDB unavailable. Using JSON fallback for lessons.");
+        runWarnings.push("Vector DB unavailable or disabled. Using JSON fallback for lessons.");
       }
 
       if (maxRuns > 1) {
