@@ -61,3 +61,6 @@ teamclaw.config.json
 
 # Local Docker overrides
 docker-compose.override.yml
+
+# GitHub agents
+.github/agents/
