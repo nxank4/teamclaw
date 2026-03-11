@@ -55,7 +55,7 @@ export class TeamOrchestration {
       });
     this.coordinator = new CoordinatorAgent({ llmAdapter: sharedLlmAdapter, workspacePath });
 
-    const workerNode = createWorkerExecuteNode(this.workerBots);
+    const workerNode = createWorkerExecuteNode(this.workerBots, this.team);
     const approvalNode = createApprovalNode(approvalProvider);
 
     const workflow = new StateGraph(GameStateAnnotation)
@@ -93,8 +93,10 @@ export class TeamOrchestration {
           const cycle = s.cycle_count ?? 0;
           if (cycle >= CONFIG.maxCycles) return "__end__";
           const taskQueue = s.task_queue ?? [];
-          const pending = taskQueue.filter((t) => t.status === "pending");
-          if (pending.length > 0 || s.user_goal) return "continue";
+          const active = taskQueue.filter((t) => 
+            t.status === "pending" || t.status === "reviewing" || t.status === "needs_rework" || t.status === "in_progress"
+          );
+          if (active.length > 0 || s.user_goal) return "continue";
           return "__end__";
         },
         { continue: "coordinator", __end__: END }

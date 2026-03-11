@@ -39,6 +39,15 @@ export const TEAM_TEMPLATES: Record<string, TeamTemplate> = {
       { role_id: "game_designer", count: 1, default_traits: {} },
     ],
   },
+  maker_reviewer: {
+    id: "maker_reviewer",
+    name: "Maker-Reviewer Team",
+    description: "Software Engineer with QA Reviewer for cross-review workflow",
+    slots: [
+      { role_id: "software_engineer", count: 1, default_traits: { name: "Maker" } },
+      { role_id: "qa_reviewer", count: 1, default_traits: { name: "Reviewer" } },
+    ],
+  },
   startup: {
     id: "startup",
     name: "Startup Team",
@@ -73,7 +82,7 @@ export function buildTeamFromTemplate(
   const bots: BotDefinition[] = [];
   let idx = 0;
 
-  for (const slot of template.slots) {
+    for (const slot of template.slots) {
     const role = getRoleTemplate(slot.role_id);
     const roleName = role?.name ?? slot.role_id;
 
@@ -84,8 +93,9 @@ export function buildTeamFromTemplate(
       if (slotKey in cust) Object.assign(slotTraits, cust[slotKey]);
       else if (String(idx) in cust) Object.assign(slotTraits, cust[String(idx)]);
 
-      let displayName = roleName;
-      if (slot.count > 1) displayName = `${roleName} ${i + 1}`;
+      const customName = slotTraits.name as string | undefined;
+      let displayName = customName ?? roleName;
+      if (!customName && slot.count > 1) displayName = `${roleName} ${i + 1}`;
 
       bots.push({
         id: botId,

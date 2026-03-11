@@ -28,7 +28,7 @@ export const TaskQueueItemSchema = z.object({
   task_id: z.string(),
   assigned_to: z.string(),
   status: z
-    .enum(["pending", "in_progress", "completed", "failed", "TIMEOUT_WARNING"])
+    .enum(["pending", "in_progress", "reviewing", "needs_rework", "completed", "failed", "TIMEOUT_WARNING"])
     .default("pending"),
   description: z.string(),
   priority: z.string().default("MEDIUM"),
@@ -38,6 +38,10 @@ export const TaskQueueItemSchema = z.object({
   importance: z.number().min(1).max(10).default(5),
   timebox_minutes: z.number().min(1).default(25),
   in_progress_at: z.string().nullable().default(null),
+  retry_count: z.number().min(0).default(0),
+  max_retries: z.number().min(1).default(2),
+  reviewer_feedback: z.string().nullable().default(null),
+  original_maker: z.string().nullable().default(null),
 });
 export type TaskQueueItem = z.infer<typeof TaskQueueItemSchema>;
 

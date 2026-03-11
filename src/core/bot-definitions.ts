@@ -70,6 +70,13 @@ export const ROLE_TEMPLATES: Record<string, RoleTemplate> = {
     task_types: ["edit", "review", "proofread"],
     default_traits: { focus: "content review and polish" },
   },
+  qa_reviewer: {
+    id: "qa_reviewer",
+    name: "QA Reviewer",
+    skills: ["code_review", "testing", "quality", "analysis"],
+    task_types: ["review", "verify", "test", "approve", "reject"],
+    default_traits: { focus: "quality assurance and code review" },
+  },
 };
 
 export function getRoleTemplate(roleId: string): RoleTemplate | null {

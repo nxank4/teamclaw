@@ -142,8 +142,10 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
   async executeTask(task: TaskRequest): Promise<TaskResult> {
     try {
       const systemPrompt = `You are a helpful AI assistant. Execute the given task and return the result.
-You are confined to a strict workspace directory. Treat this workspace as your root directory.
+You are working in a strictly defined workspace. Treat this workspace as your root directory.
 WORKSPACE PATH: ${this.workspacePath}
+IMPORTANT: Do NOT create arbitrary subdirectories unless explicitly specified in the task.
+Output files directly to the root of the provided workspace path unless the task explicitly requires a specific structure (like 'assets/' or 'src/components/').
 All file operations (read, write, create, edit) MUST be performed within this directory.
 Do not attempt to read or write files outside of it.`;
       const messages = [

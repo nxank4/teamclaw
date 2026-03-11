@@ -91,8 +91,10 @@ You MUST decompose the goal into multiple smaller, actionable tasks.
 You MUST create at least one specific task for EACH role provided in the roster.
 Do not output a single monolithic task.
 
-You are confined to a strict workspace directory. Treat this workspace as your root directory.
+You are working in a strictly defined workspace. Treat this workspace as your root directory.
 WORKSPACE PATH: ${this.workspacePath}
+IMPORTANT: Do NOT create arbitrary subdirectories unless explicitly specified in the task.
+Output files directly to the root of the provided workspace path unless the task explicitly requires a specific structure (like 'assets/' or 'src/components/').
 All file operations (read, write, create, edit) MUST be performed within this directory.
 Do not attempt to read or write files outside of it.
 ${lessonsBlock}

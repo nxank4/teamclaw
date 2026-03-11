@@ -32,7 +32,7 @@ import { ensureWorkspaceDir } from "./core/workspace-fs.js";
 import type { MemoryBackend } from "./core/config.js";
 import type { GraphState } from "./core/graph-state.js";
 import type { BotDefinition } from "./core/bot-definitions.js";
-import { log as clackLog, note, spinner } from "@clack/prompts";
+import { log as clackLog, note, spinner, select, text } from "@clack/prompts";
 import { runGatewayHealthCheck } from "./core/health.js";
 import open from "open";
 
@@ -98,61 +98,92 @@ function printRunBanner(
     logger.plain(banner);
 }
 
+function formatDuration(ms: number): string {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
+}
+
 function printSingleRunSummary(
-    goal: string,
+    _goal: string,
     finalState: Record<string, unknown>,
     warnings: string[],
     team: BotDefinition[],
+    workspacePath: string,
+    startTime: number,
 ): void {
     const taskQueue = (finalState.task_queue ?? []) as Record<
         string,
         unknown
     >[];
     const cycleCount = (finalState.cycle_count as number) ?? 0;
+    const botStats = (finalState.bot_stats as Record<string, Record<string, unknown>>) ?? {};
+
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+
+    const totalTasks = taskQueue.length;
+    const completedTasks = taskQueue.filter((t) => t.status === "completed").length;
+    const failedTasks = taskQueue.filter((t) => t.status === "failed").length;
+    let totalReworks = 0;
+    const contributions: string[] = [""];
+    contributions.push(`  Total Tasks: ${totalTasks}`);
+
+    for (const bot of team) {
+        const stats = botStats[bot.id] ?? {};
+        const completed = ((stats.tasks_completed as number) ?? 0);
+        const failed = ((stats.tasks_failed as number) ?? 0);
+        const reworks = ((stats.reworks_triggered as number) ?? 0);
+        totalReworks += reworks;
+
+        if (bot.role_id === "qa_reviewer") {
+            contributions.push(`  ${bot.name}: ${reworks} reworks triggered`);
+        } else if (completed > 0 || failed > 0) {
+            contributions.push(`  ${bot.name}: ${completed} tasks completed, ${failed} failed`);
+        }
+    }
+
+    const approvalRate = totalReworks + completedTasks > 0
+        ? Math.round((completedTasks / (totalReworks + completedTasks)) * 100)
+        : 100;
+
+    let performanceVerdict = "";
+    if (approvalRate >= 90) {
+        performanceVerdict = "Team efficiency was excellent with minimal rework needed.";
+    } else if (approvalRate >= 70) {
+        performanceVerdict = "Team performed well with moderate rework.";
+    } else if (approvalRate >= 50) {
+        performanceVerdict = "Team had significant quality friction - consider clarifying requirements.";
+    } else {
+        performanceVerdict = "High rework rate detected - task definitions may need improvement.";
+    }
 
     const lines: string[] = [
         "",
-        "═".repeat(70),
-        "RUN SUMMARY",
-        "═".repeat(70),
-        "",
-        `Goal: ${goal}`,
-        `Cycles: ${cycleCount}`,
-        "",
-        "Tasks:",
+        "╔═══════════════════════════════════════════════════════════════════════╗",
+        "║                         RUN SUMMARY                                    ║",
+        "╠═══════════════════════════════════════════════════════════════════════╣",
+        `║  📁 Workspace: ${workspacePath.slice(0, 56).padEnd(56)}║`,
+        `║  ⏱️  Duration:  ${formatDuration(duration).padEnd(56)}║`,
+        `║  🎯 Cycles:    ${String(cycleCount).padEnd(56)}║`,
+        "╠═══════════════════════════════════════════════════════════════════════╣",
+        `║  📊 Review Statistics                                                  ║`,
+        `║     Tasks Completed: ${String(completedTasks).padEnd(43)}║`,
+        `║     Tasks Failed:    ${String(failedTasks).padEnd(43)}║`,
+        `║     Total Reworks:   ${String(totalReworks).padEnd(43)}║`,
+        `║     Approval Rate:   ${String(approvalRate + "%").padEnd(43)}║`,
+        "╠═══════════════════════════════════════════════════════════════════════╣",
+        "║  👥 Individual Contributions                                         ║",
+        ...contributions.map((c) => c.padEnd(68) + "║"),
+        "╠═══════════════════════════════════════════════════════════════════════╣",
+        `║  💡 Performance Verdict                                             ║`,
+        ...performanceVerdict.match(/.{1,56}/g)?.map((chunk) => `║     ${chunk.padEnd(56)}║`) ?? [],
+        "╚═══════════════════════════════════════════════════════════════════════╝",
     ];
-
-    if (taskQueue.length === 0) {
-        lines.push("  (none)");
-    } else {
-        for (const t of taskQueue) {
-            const id = (t.task_id as string) ?? "?";
-            const desc = String(t.description ?? "(no description)").slice(
-                0,
-                60,
-            );
-            const status = (t.status as string) ?? "?";
-            const botId = (t.assigned_to as string) ?? "?";
-            const botName = getBotName(botId, team);
-            const result = t.result;
-            const rawOutput =
-                result != null &&
-                typeof result === "object" &&
-                "output" in result
-                    ? String((result as Record<string, unknown>).output ?? "")
-                    : result != null
-                      ? String(result)
-                      : null;
-            const resultPreview = rawOutput
-                ? rawOutput.slice(0, 200).replace(/\n/g, " ")
-                : null;
-            lines.push(`  • ${id} [${status}] ${botName}: ${desc}`);
-            if (resultPreview && rawOutput)
-                lines.push(
-                    `    Output: ${resultPreview}${rawOutput.length > 200 ? "…" : ""}`,
-                );
-        }
-    }
 
     if (warnings.length > 0) {
         lines.push("");
@@ -160,8 +191,6 @@ function printSingleRunSummary(
         warnings.forEach((w) => lines.push(`  ⚠ ${w}`));
     }
 
-    lines.push("");
-    lines.push("═".repeat(70));
     logger.plain(lines.join("\n"));
 }
 
@@ -379,7 +408,7 @@ export async function runWork(
                 log("info", `   Goal: ${goal}`);
             }
 
-            const template = teamConfig?.template ?? "game_dev";
+            const template = teamConfig?.template ?? "maker_reviewer";
             const creativity =
                 typeof teamConfig?.creativity === "number"
                     ? teamConfig.creativity
@@ -393,6 +422,89 @@ export async function runWork(
                 teamConfig?.roster && teamConfig.roster.length > 0
                     ? buildTeamFromRoster(teamConfig.roster)
                     : buildTeamFromTemplate(template);
+
+            let workspacePath = process.cwd();
+            if (canRenderSpinner && runId === 1) {
+                const { isCancel } = await import("@clack/prompts");
+                const { mkdirSync, existsSync } = await import("node:fs");
+
+                const PROTECTED_DIRS = ["/", "/home", "/home/nxank4", "/root", "/etc", "/usr"];
+                let validSelection = false;
+                while (!validSelection) {
+                    const folderChoice = await select({
+                        message: "Where should the team work?",
+                        options: [
+                            { label: "Current Folder (./)", value: "current" },
+                            { label: "Relative Path (e.g. ./output or my-project)", value: "relative" },
+                            { label: "Specific Absolute Path", value: "absolute" },
+                        ],
+                    });
+
+                    if (isCancel(folderChoice)) {
+                        clackLog.info("Cancelled.");
+                        process.exit(0);
+                    }
+
+                    if (folderChoice === "current") {
+                        workspacePath = process.cwd();
+                        validSelection = true;
+                    } else if (folderChoice === "relative") {
+                        const relPath = await text({
+                            message: "Enter relative path:",
+                            placeholder: "my-project or ./output",
+                        });
+                        if (isCancel(relPath)) {
+                            clackLog.info("Cancelled.");
+                            process.exit(0);
+                        }
+                        if (relPath && typeof relPath === "string" && relPath.trim().length > 0) {
+                            const userInput = relPath.trim();
+                            if (userInput.includes("..")) {
+                                clackLog.warn("Path cannot contain '..'");
+                                continue;
+                            }
+                            workspacePath = path.resolve(process.cwd(), userInput);
+
+                            if (!existsSync(workspacePath)) {
+                                mkdirSync(workspacePath, { recursive: true });
+                                clackLog.info(`Created directory: ${workspacePath}`);
+                            }
+                            validSelection = true;
+                        }
+                    } else if (folderChoice === "absolute") {
+                        const absPath = await text({
+                            message: "Enter absolute path:",
+                            placeholder: "/home/user/projects/workspace",
+                        });
+                        if (isCancel(absPath)) {
+                            clackLog.info("Cancelled.");
+                            process.exit(0);
+                        }
+                        if (absPath && typeof absPath === "string") {
+                            const trimmed = absPath.trim();
+                            if (trimmed.includes("..")) {
+                                clackLog.warn("Path cannot contain '..'");
+                                continue;
+                            }
+                            const isProtected = PROTECTED_DIRS.some((p) => trimmed === p || trimmed.startsWith(p + "/"));
+                            if (isProtected) {
+                                clackLog.warn("Cannot work in protected system directory");
+                                continue;
+                            }
+                            if (!existsSync(trimmed)) {
+                                mkdirSync(trimmed, { recursive: true });
+                                clackLog.info(`Created directory: ${trimmed}`);
+                            }
+                            workspacePath = trimmed;
+                            validSelection = true;
+                        }
+                    }
+                }
+                clackLog.info(`📁 Working directory: ${workspacePath}`);
+            } else {
+                workspacePath = process.cwd();
+            }
+
             const workerUrls = getWorkerUrlsForTeam(
                 team.map((b) => b.id),
                 {
@@ -446,7 +558,8 @@ export async function runWork(
                     );
                 }
             }
-            const orchestration = createTeamOrchestration({ team, workerUrls, workspacePath: process.cwd() });
+            const orchestration = createTeamOrchestration({ team, workerUrls, workspacePath });
+            const runStartTime = Date.now();
 
             if (shouldOpenDashboard && runId === 1) {
                 const dashboardUrl = "http://127.0.0.1:18789/__openclaw__/canvas/";
@@ -490,42 +603,54 @@ export async function runWork(
                     `✅ Goal decomposed into ${taskQueue.length} tasks.`,
                 );
 
+                const executionMessages = (finalState.messages ?? []) as string[];
+                for (const msg of executionMessages) {
+                    if (msg.startsWith("▶")) {
+                        clackLog.step(msg);
+                    } else if (msg.startsWith("✅")) {
+                        clackLog.success(msg);
+                    } else if (msg.startsWith("❌")) {
+                        clackLog.error(msg);
+                    } else if (msg.startsWith("👀")) {
+                        clackLog.info(msg);
+                    } else if (msg.startsWith("🔧")) {
+                        clackLog.warn(msg);
+                    } else if (msg.startsWith("📝")) {
+                        clackLog.info(msg);
+                    } else {
+                        clackLog.info(msg);
+                    }
+                }
+
                 for (const t of taskQueue) {
                     const id = (t.task_id as string) ?? "?";
                     const botId = (t.assigned_to as string) ?? "?";
                     const botName = getBotName(botId, team);
-                    const desc = String(
-                        t.description ?? "(no description)",
-                    ).slice(0, 60);
                     const taskStatus = (t.status as string) ?? "pending";
 
-                    clackLog.step(
-                        `▶ [${botName}] Started: ${id} — ${desc}...`,
-                    );
-
-                    const sTask = spinner();
-                    sTask.start(`Executing: ${id}...`);
-                    if (taskStatus === "completed") {
-                        sTask.stop(`✅ [${botName}] Completed: ${id}`);
-                    } else if (taskStatus === "failed") {
-                        const result = (t.result ?? null) as Record<
-                            string,
-                            unknown
-                        > | null;
-                        const rawReason =
-                            result?.output != null
-                                ? String(result.output).trim()
-                                : "Unknown failure";
-                        const oneLineReason = rawReason.replace(/\s+/g, " ");
-                        const shortReason = oneLineReason.slice(0, 120);
-                        sTask.stop(
-                            `❌ [${botName}] Failed: ${id} | Reason: ${shortReason}${oneLineReason.length > 120 ? "…" : ""}`,
-                        );
-                        if (oneLineReason.length > 120) {
-                            clackLog.error(oneLineReason);
+                    if (taskStatus === "completed" || taskStatus === "failed") {
+                        const sTask = spinner();
+                        sTask.start(`Finalizing: ${id}...`);
+                        if (taskStatus === "completed") {
+                            sTask.stop(`✅ [${botName}] Completed: ${id}`);
+                        } else {
+                            const result = (t.result ?? null) as Record<
+                                string,
+                                unknown
+                            > | null;
+                            const rawReason =
+                                result?.output != null
+                                    ? String(result.output).trim()
+                                    : "Unknown failure";
+                            const oneLineReason = rawReason.replace(/\s+/g, " ");
+                            const shortReason = oneLineReason.slice(0, 120);
+                            sTask.stop(
+                                `❌ [${botName}] Failed: ${id} | Reason: ${shortReason}${oneLineReason.length > 120 ? "…" : ""}`,
+                            );
+                            if (oneLineReason.length > 120) {
+                                clackLog.error(oneLineReason);
+                            }
                         }
-                    } else {
-                        sTask.stop(`⚪ [${botName}] ${taskStatus}: ${id}`);
                     }
                 }
             } else {
@@ -606,6 +731,8 @@ export async function runWork(
                         finalState as Record<string, unknown>,
                         allWarnings,
                         team,
+                        workspacePath,
+                        runStartTime,
                     );
                 }
                 log("info", "");
