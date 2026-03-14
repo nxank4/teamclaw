@@ -1,77 +1,77 @@
 # Security Policy
 
-TeamClaw is a Node.js / TypeScript application that orchestrates AI agents using LangGraph, OpenClaw, and optional ChromaDB. This document explains how we handle security and how to report issues responsibly.
+TeamClaw is a Node.js / TypeScript application that orchestrates AI agent teams using LangGraph, Fastify + WebSocket, LanceDB, and the OpenClaw gateway. This document covers how we handle security and how to report issues responsibly.
 
 ## Supported Versions
 
-TeamClaw is currently in early development (pre‑1.0). We only provide security fixes for the latest minor version on the default branch.
+TeamClaw is in early development (pre-1.0). Security fixes target the latest code on the default branch only.
 
-| Version | Status              |
-| ------: | ------------------- |
-| 0.1.x   | Supported           |
-| < 0.1   | Not supported       |
-
-Security patches are generally released against:
-
-- The `main` branch
-- The latest published `0.1.x` version on npm (if applicable)
-
-If you are running a fork or significantly modified version, you are responsible for backporting security fixes.
+| Version | Status        |
+| ------: | ------------- |
+|   0.1.x | Supported     |
+|   < 0.1 | Not supported |
 
 ## Reporting a Vulnerability
 
-If you believe you have found a security vulnerability in TeamClaw:
+**Do not open a public GitHub issue or PR describing a security vulnerability.**
 
-1. **Do not open a public GitHub issue or PR describing the vulnerability.**
-2. **Submit a private report instead:**
-   - Use GitHub’s **“Report a vulnerability”** workflow for this repository (if available), which creates a private security advisory with the maintainers.
-   - If that is not available, contact the maintainers using the contact information listed in the repository or owner profile and mention that your report is security‑sensitive.
+Instead, use one of these channels:
 
-When reporting, please include as much detail as possible:
+1. GitHub's **"Report a vulnerability"** feature on this repository (creates a private security advisory).
+2. If unavailable, contact the maintainers via the repository or owner profile and mark your message as security-sensitive.
 
-- A clear description of the issue and its potential impact
-- Steps to reproduce (including sample configuration, commands, and any relevant logs with secrets redacted)
-- The version/commit you tested, your Node.js version, and OS
-- Any suggested fixes or mitigations, if you have them
+### What to Include
 
-### Our Commitment and Disclosure Process
+- Description of the issue and its potential impact
+- Steps to reproduce (sample config, commands, logs with secrets redacted)
+- Version or commit hash, Node.js version, and OS
+- Suggested fixes or mitigations, if any
 
-- We will **acknowledge your report within 7 calendar days** whenever possible.
-- We will **investigate and provide a follow‑up within 14 calendar days**, which may include:
-  - Confirmation of the vulnerability and an estimated timeline for a fix
-  - Request for additional information
-  - Explanation if we determine the issue is out of scope or not a vulnerability
-- Once a fix is ready and released, we may publish a security advisory with:
-  - A description of the issue and affected versions
-  - The severity (e.g. CVSS score if applicable)
-  - Mitigation and upgrade instructions
+### Response Timeline
 
-We prefer to **coordinate a responsible disclosure timeline** with you so users have time to upgrade before full technical details are widely shared.
+- **Acknowledgement:** within 7 calendar days
+- **Follow-up:** within 14 calendar days (confirmation + ETA for a fix, request for more info, or scope determination)
+- **Advisory:** once a fix ships, we may publish a security advisory covering affected versions, severity, and upgrade steps
 
-## Security Best Practices for Deployers
+We prefer to coordinate responsible disclosure so users have time to upgrade before technical details are public.
 
-When deploying or running TeamClaw in your own environment:
+## Threat Model
 
-- **Keep dependencies and runtime up to date**
-  - Use **Node.js ≥ 20** as required by the project.
-  - Regularly update using `pnpm` and review dependency changelogs and security advisories.
-- **Protect secrets and configuration**
-  - Use `.env` or equivalent mechanisms as described in `.env.example`.
-  - Never commit real API keys, tokens, or credentials to the repository or share them in bug reports.
-- **Secure external services**
-  - Restrict access to OpenClaw, ChromaDB, and any other backing services to trusted networks (e.g. localhost, VPN, or internal subnets).
-  - Apply authentication and TLS where applicable.
-- **Harden your deployment environment**
-  - Run TeamClaw with least‑privilege accounts and minimal filesystem permissions.
-  - Prefer containerized or sandboxed deployments where appropriate.
-  - Monitor logs for unusual activity and configure rate‑limiting or other controls at your ingress layer if exposing endpoints publicly.
+TeamClaw has several trust boundaries worth understanding:
+
+### OpenClaw Gateway
+
+All LLM traffic routes through OpenClaw (`OPENCLAW_WORKER_URL` + `OPENCLAW_TOKEN`). A compromised or man-in-the-middle gateway can inject arbitrary content into agent responses. Always connect over TLS and restrict network access to trusted endpoints.
+
+### WebSocket / Fastify Server
+
+The web dashboard (`pnpm run web`) binds a Fastify server with WebSocket on the configured port (default 8000). This server is intended for local or trusted-network use only. It has no authentication layer. If exposed to an untrusted network, any client can observe and interact with running sessions.
+
+### Agent Output and Prompt Injection
+
+Agents process untrusted content (user goals, external data fetched during tasks). Treat all agent-generated output — file writes, shell commands, summaries — as potentially influenced by prompt injection. Review agent actions before applying them to production systems.
+
+### Configuration and Secrets
+
+TeamClaw stores configuration in a JSON file (`~/.teamclaw/config.json`). This file may contain API tokens. Ensure it has restrictive file permissions (`600`) and is never committed to version control. The `.env.example` file documents required variables; use `.env` for local overrides.
+
+### LanceDB (Embedded)
+
+LanceDB runs in-process with no network listener. The vector store files live on the local filesystem. Protect the data directory with appropriate file permissions if it contains sensitive session history.
+
+## Best Practices for Deployers
+
+- **Runtime:** use Node.js >= 20 and keep dependencies current via `pnpm update`. Review advisories with `pnpm audit`.
+- **Secrets:** never commit real API keys or tokens. Use `.env` or environment variables.
+- **Network:** bind the Fastify/WebSocket server to `127.0.0.1` or a trusted subnet. Do not expose it to the public internet without adding authentication and TLS.
+- **Least privilege:** run TeamClaw under a dedicated, unprivileged user account with minimal filesystem access.
+- **Containers:** prefer containerized or sandboxed deployments to limit blast radius.
+- **Monitoring:** watch logs for unusual activity; configure rate-limiting at your ingress layer if exposing any endpoint externally.
 
 ## Out of Scope
 
-The following are generally considered out of scope for this project’s security policy:
+- Vulnerabilities in third-party dependencies without a published fix (we track and patch once available).
+- Attacks requiring physical access to the host or social engineering of maintainers/users.
+- Misconfigurations in your own infrastructure (cloud provider, Kubernetes, CI/CD) unrelated to defects in TeamClaw's code.
 
-- Vulnerabilities in third‑party dependencies that have not yet published a fix (though we may still track and patch them once available).
-- Issues requiring physical access, social engineering, or attacks against infrastructure not controlled by this project (e.g. your cloud provider, GitHub itself, or OpenClaw/ChromaDB installations not configured by this repository).
-- Misconfigurations in your own deployment (firewalls, Kubernetes, CI/CD, etc.) unrelated to defects in TeamClaw’s code.
-
-If you are unsure whether something is in scope, we still encourage you to submit a private report; we will let you know how we classify it.
+If unsure whether something qualifies, submit a private report anyway — we will let you know.
