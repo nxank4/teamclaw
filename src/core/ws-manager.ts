@@ -1,7 +1,23 @@
+import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { logger } from "./logger.js";
+import {
+  loadOrCreateDeviceIdentity,
+  signDevicePayload,
+  publicKeyRawBase64Url,
+  buildDeviceAuthPayloadV3,
+} from "./device-identity.js";
 
 type MessageHandler = (payload: unknown) => void;
+
+export interface HandshakeOpts {
+  token?: string;
+  role?: string;
+  scopes?: string[];
+  clientId?: string;
+  clientMode?: string;
+  clientVersion?: string;
+}
 
 /**
  * Singleton WebSocket manager used as the single source of truth for outbound WS connections.
@@ -18,10 +34,11 @@ export class WebSocketManager {
   private connectPromise: Promise<boolean> | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pongTimer: NodeJS.Timeout | null = null;
+  private handshakeOpts: HandshakeOpts | undefined;
   private readonly messageHandlers = new Set<MessageHandler>();
   private readonly queue: string[] = [];
 
-  private readonly connectTimeoutMs = 5000;
+  private readonly connectTimeoutMs = 10_000;
   private readonly maxReconnectDelayMs = 30_000;
   private readonly maxReconnectAttempts = 5;
   private readonly heartbeatIntervalMs = 15_000;
@@ -41,10 +58,18 @@ export class WebSocketManager {
 
   /**
    * Connects to a WebSocket endpoint and enables auto-reconnect.
+   * When handshakeOpts is provided, performs the openclaw challenge-response handshake.
    */
-  async connect(url: string): Promise<boolean> {
+  async connect(
+    url: string,
+    handshakeOpts?: HandshakeOpts,
+  ): Promise<boolean> {
     const nextUrl = url.trim();
     if (!nextUrl) return false;
+
+    if (handshakeOpts) {
+      this.handshakeOpts = handshakeOpts;
+    }
 
     const previousUrl = this.currentUrl;
     this.shouldReconnect = true;
@@ -124,8 +149,19 @@ export class WebSocketManager {
   private async openSocket(url: string): Promise<boolean> {
     this.disposeSocket();
 
+    // Extract token from URL query and strip it from the WS URL
+    // to avoid sending credentials in HTTP upgrade headers
+    const parsed = new URL(url);
+    const urlToken = parsed.searchParams.get("token") ?? undefined;
+    parsed.searchParams.delete("token");
+    const cleanUrl = parsed.href;
+
+    // Merge URL token with handshake opts
+    const opts = this.handshakeOpts;
+    const token = opts?.token ?? urlToken ?? "";
+
     return await new Promise<boolean>((resolve) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(cleanUrl);
       this.ws = ws;
 
       let settled = false;
@@ -146,11 +182,16 @@ export class WebSocketManager {
       };
 
       ws.on("open", () => {
-        this.isConnected = true;
-        this.reconnectAttempts = 0;
-        this.startHeartbeat();
-        this.flushQueue();
-        finish(true);
+        if (!opts) {
+          // No handshake needed — legacy behavior
+          this.isConnected = true;
+          this.reconnectAttempts = 0;
+          this.startHeartbeat();
+          this.flushQueue();
+          finish(true);
+          return;
+        }
+        // Wait for the challenge event — handled in the message listener below
       });
 
       ws.on("message", (raw) => {
@@ -161,6 +202,43 @@ export class WebSocketManager {
         } catch {
           // keep raw string as payload
         }
+
+        // Handle handshake messages before the connection is established
+        if (!settled && opts && parsed && typeof parsed === "object") {
+          const msg = parsed as Record<string, unknown>;
+
+          // Step 1: receive connect.challenge
+          if (
+            msg["type"] === "event" &&
+            msg["event"] === "connect.challenge"
+          ) {
+            const payload = msg["payload"] as
+              | Record<string, unknown>
+              | undefined;
+            const nonce = String(payload?.["nonce"] ?? "");
+            this.sendConnectRequest(ws, token, nonce, opts);
+            return;
+          }
+
+          // Step 3: receive connect response
+          if (msg["type"] === "res") {
+            if (msg["ok"] === true) {
+              this.isConnected = true;
+              this.reconnectAttempts = 0;
+              this.startHeartbeat();
+              this.flushQueue();
+              finish(true);
+            } else {
+              logger.warn(
+                `WS handshake rejected: ${JSON.stringify(msg["error"] ?? msg["payload"])}`,
+              );
+              finish(false);
+            }
+            return;
+          }
+        }
+
+        // Normal message dispatch
         for (const handler of this.messageHandlers) {
           try {
             handler(parsed);
@@ -195,6 +273,75 @@ export class WebSocketManager {
         this.scheduleReconnect();
       });
     });
+  }
+
+  /**
+   * Sends the openclaw v3 connect request with device auth.
+   */
+  private sendConnectRequest(
+    ws: WebSocket,
+    token: string,
+    nonce: string,
+    opts: HandshakeOpts,
+  ): void {
+    try {
+      const identity = loadOrCreateDeviceIdentity();
+      const clientId = opts.clientId ?? "gateway-client";
+      const clientMode = opts.clientMode ?? "backend";
+      const role = opts.role ?? "operator";
+      const scopes = opts.scopes ?? ["telemetry"];
+      const signedAt = Date.now();
+      const platform = process.platform;
+
+      const deviceFamily = platform;
+
+      const sigPayload = buildDeviceAuthPayloadV3({
+        deviceId: identity.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        signedAt,
+        token,
+        nonce,
+        platform,
+        deviceFamily,
+      });
+
+      const signature = signDevicePayload(identity.privateKeyPem, sigPayload);
+      const publicKey = publicKeyRawBase64Url(identity.publicKeyPem);
+
+      const frame = {
+        type: "req",
+        id: randomUUID(),
+        method: "connect",
+        params: {
+          minProtocol: 3,
+          maxProtocol: 3,
+          client: {
+            id: clientId,
+            version: opts.clientVersion ?? "0.1.0",
+            platform,
+            deviceFamily,
+            mode: clientMode,
+          },
+          role,
+          scopes,
+          auth: { token },
+          device: {
+            id: identity.deviceId,
+            publicKey,
+            signature,
+            signedAt,
+            nonce,
+          },
+        },
+      };
+
+      ws.send(JSON.stringify(frame));
+    } catch (err) {
+      logger.warn(`WS handshake connect request failed: ${String(err)}`);
+    }
   }
 
   private flushQueue(): void {

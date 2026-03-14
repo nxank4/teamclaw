@@ -131,8 +131,8 @@ describe("WebSocketManager", () => {
 
     it("returns false when connection times out", async () => {
       const promise = manager.connect("ws://localhost:1234");
-      // Advance past the 5s connect timeout
-      vi.advanceTimersByTime(6000);
+      // Advance past the 10s connect timeout
+      vi.advanceTimersByTime(11_000);
       expect(await promise).toBe(false);
     });
 
