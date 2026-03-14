@@ -109,9 +109,7 @@ export async function loadTeamConfig(): Promise<TeamConfig | null> {
       memory_backend:
         parsed.memory_backend === "lancedb" || parsed.memory_backend === "local_json"
           ? parsed.memory_backend
-          : parsed.memory_backend === "chroma"
-            ? "lancedb"
-            : undefined,
+          : undefined,
       agent_models:
         parsed.agent_models && typeof parsed.agent_models === "object" && !Array.isArray(parsed.agent_models)
           ? Object.fromEntries(

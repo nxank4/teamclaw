@@ -1,6 +1,6 @@
 # TeamClaw | Docker Compose
 # Quick start:
-#   docker compose up                         # web + chromadb
+#   docker compose up                         # web UI
 #   docker compose --profile openclaw up     # + OpenClaw worker
 #   docker compose up --build                # rebuild after code changes
 
@@ -14,36 +14,10 @@ services:
     ports:
       - "${WEB_PORT:-8000}:8000"
     environment:
-      - CHROMADB_HOST=chromadb
-      - CHROMADB_PORT=8000
       - MAX_CYCLES=${MAX_CYCLES:-10}
       - MAX_RUNS=${MAX_RUNS:-5}
       - OPENCLAW_WORKER_URL=${OPENCLAW_WORKER_URL:-}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
-    depends_on:
-      chromadb:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - teamclaw-net
-
-  # ChromaDB Vector Database ─────────────────────────────────────────────
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: teamclaw-chromadb
-    ports:
-      - "${CHROMADB_PORT:-8020}:8000"
-    volumes:
-      - chromadb-data:/chroma/chroma
-    environment:
-      - ANONYMIZED_TELEMETRY=FALSE
-      - ALLOW_RESET=TRUE
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')"]
-      interval: 10s
-      timeout: 5s
-      start_period: 15s
-      retries: 5
     restart: unless-stopped
     networks:
       - teamclaw-net
@@ -68,10 +42,6 @@ services:
     # ports: ... 6080:6080  # Optional: VNC for debugging
     networks:
       - teamclaw-net
-
-volumes:
-  chromadb-data:
-    driver: local
 
 networks:
   teamclaw-net:
