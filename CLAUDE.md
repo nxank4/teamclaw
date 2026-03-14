@@ -64,6 +64,8 @@ Each LangGraph node receives `GraphState`, returns `Partial<GraphState>` (change
 
 - Concise action-oriented messages (e.g. `fix: add reducer to graph-state Annotation`).
 - Group related changes; don't bundle unrelated refactors.
+- **Auto-commit cadence:** Commit and push after each major logical unit of work (new feature, bug fix, refactor). Do NOT wait until the entire task is done — commit at natural milestones. Aim for commits in the ~200-1000 lines changed range. Avoid micro-commits for trivial edits (typos, single-line fixes) and avoid mega-commits with 2000+ lines.
+- **Pre-commit safety checks:** Before every commit, run `git status` and `git diff --stat` to review what is staged. Check for accidentally included large files, build artifacts (`dist/`, `node_modules/`), secrets (`.env`, credentials), or binary blobs. If any staged file exceeds 500KB or any folder adds 50+ new files, stop and ask before committing.
 
 ## Git Notes
 
