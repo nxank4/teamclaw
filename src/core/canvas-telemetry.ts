@@ -18,7 +18,6 @@ export interface TaskEvent {
 
 export class CanvasTelemetry {
     private connected = false;
-    private unsubscribeMessage: (() => void) | null = null;
     private readonly gatewayUrl: string;
 
     constructor() {
@@ -42,16 +41,15 @@ export class CanvasTelemetry {
             return true;
         }
 
-        this.unsubscribeMessage?.();
-        this.unsubscribeMessage = wsManager.onMessage((raw) => {
-            if (!raw || typeof raw !== "object") return;
-            const msg = raw as Record<string, unknown>;
-            if (msg["type"] === "auth" && msg["status"] === "ok") {
-                if (isDebugMode()) logger.agent("📡 Canvas telemetry authenticated");
-            }
-        });
+        const token = CONFIG.openclawToken ?? "";
 
-        const ok = await wsManager.connect(this.gatewayUrl);
+        const ok = await wsManager.connect(this.gatewayUrl, {
+            token,
+            role: "operator",
+            scopes: ["telemetry"],
+            clientId: "gateway-client",
+            clientMode: "backend",
+        });
         this.connected = ok;
         if (ok && isDebugMode()) {
             logger.agent("📡 Connected to OpenClaw Gateway for Canvas telemetry");
@@ -227,8 +225,6 @@ export class CanvasTelemetry {
     }
 
     disconnect(): void {
-        this.unsubscribeMessage?.();
-        this.unsubscribeMessage = null;
         this.connected = false;
         wsManager.close();
     }

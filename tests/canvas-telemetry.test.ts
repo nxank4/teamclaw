@@ -10,10 +10,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 /*  Mock wsManager                                                     */
 /* ------------------------------------------------------------------ */
 
-const { mockConnect, mockClose, mockOnMessage, mockSend } = vi.hoisted(() => ({
+const { mockConnect, mockClose, mockSend } = vi.hoisted(() => ({
   mockConnect: vi.fn(),
   mockClose: vi.fn(),
-  mockOnMessage: vi.fn(() => vi.fn()), // returns unsubscribe fn
   mockSend: vi.fn(),
 }));
 
@@ -21,7 +20,6 @@ vi.mock("../src/core/ws-manager.js", () => ({
   wsManager: {
     connect: mockConnect,
     close: mockClose,
-    onMessage: mockOnMessage,
     send: mockSend,
   },
 }));
@@ -75,45 +73,40 @@ describe("CanvasTelemetry", () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("http://example.com:8080");
       await t.connect();
-      expect(mockConnect).toHaveBeenCalledWith(
-        expect.stringMatching(/^ws:\/\/example\.com:8080/),
-      );
+      const url = mockConnect.mock.calls[0][0] as string;
+      expect(url).toMatch(/^ws:\/\/example\.com:8080/);
     });
 
     it("converts https:// to wss://", async () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("https://example.com");
       await t.connect();
-      expect(mockConnect).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/example\.com/),
-      );
+      const url = mockConnect.mock.calls[0][0] as string;
+      expect(url).toMatch(/^wss:\/\/example\.com/);
     });
 
     it("keeps ws:// as-is", async () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("ws://example.com:9000");
       await t.connect();
-      expect(mockConnect).toHaveBeenCalledWith(
-        expect.stringMatching(/^ws:\/\/example\.com:9000/),
-      );
+      const url = mockConnect.mock.calls[0][0] as string;
+      expect(url).toMatch(/^ws:\/\/example\.com:9000/);
     });
 
     it("keeps wss:// as-is", async () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("wss://secure.example.com");
       await t.connect();
-      expect(mockConnect).toHaveBeenCalledWith(
-        expect.stringMatching(/^wss:\/\/secure\.example\.com/),
-      );
+      const url = mockConnect.mock.calls[0][0] as string;
+      expect(url).toMatch(/^wss:\/\/secure\.example\.com/);
     });
 
     it("adds ws:// to bare hostname (no scheme)", async () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("localhost:18789");
       await t.connect();
-      expect(mockConnect).toHaveBeenCalledWith(
-        expect.stringMatching(/^ws:\/\/localhost:18789/),
-      );
+      const url = mockConnect.mock.calls[0][0] as string;
+      expect(url).toMatch(/^ws:\/\/localhost:18789/);
     });
 
     it("does NOT double-prefix (regression: http → ws://ws://)", async () => {
@@ -125,25 +118,30 @@ describe("CanvasTelemetry", () => {
       expect(url).toMatch(/^ws:\/\/example\.com/);
     });
 
-    it("appends token as query param when set", async () => {
+    it("appends token as query param and passes in handshake opts", async () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("http://example.com", "my-secret-token");
       await t.connect();
       const url = mockConnect.mock.calls[0][0] as string;
       expect(url).toContain("token=my-secret-token");
+      expect(mockConnect).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ token: "my-secret-token" }),
+      );
     });
   });
 
   /* ------ connect ------ */
 
   describe("connect", () => {
-    it("calls wsManager.connect with normalized URL", async () => {
+    it("calls wsManager.connect with normalized URL and handshake opts", async () => {
       mockConnect.mockResolvedValue(true);
       const t = await createTelemetry("http://localhost:18789");
       await t.connect();
       expect(mockConnect).toHaveBeenCalledTimes(1);
       expect(mockConnect).toHaveBeenCalledWith(
         expect.stringMatching(/^ws:\/\/localhost:18789/),
+        expect.objectContaining({ role: "operator", scopes: ["telemetry"] }),
       );
     });
 
@@ -181,16 +179,18 @@ describe("CanvasTelemetry", () => {
       expect(mockClose).toHaveBeenCalledTimes(1);
     });
 
-    it("unsubscribes message handler", async () => {
-      const mockUnsub = vi.fn();
-      mockOnMessage.mockReturnValue(mockUnsub);
+    it("allows reconnect after disconnect", async () => {
       mockConnect.mockResolvedValue(true);
-
       const t = await createTelemetry("http://localhost:18789");
       await t.connect();
+      mockClose.mockClear();
 
       t.disconnect();
-      expect(mockUnsub).toHaveBeenCalledTimes(1);
+      expect(mockClose).toHaveBeenCalledTimes(1);
+
+      // Should be able to connect again
+      mockConnect.mockResolvedValue(true);
+      expect(await t.connect()).toBe(true);
     });
   });
 });
