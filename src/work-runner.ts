@@ -48,6 +48,7 @@ import { readLocalOpenClawConfig } from "./core/discovery.js";
 import { rotateAndCreateSessionLog } from "./utils/log-rotation.js";
 import { getTrafficController } from "./core/traffic-control.js";
 import { promptPath } from "./utils/path-autocomplete.js";
+import { randomPhrase } from "./utils/spinner-phrases.js";
 
 import { resolveGoalFromFile, checkWorkspaceContent, promptGoalChoice } from "./work-runner/goal-resolver.js";
 import {
@@ -65,6 +66,7 @@ import type { GatewaySetupConfig } from "./work-runner/gateway-setup.js";
 import { startDashboard } from "./work-runner/dashboard-setup.js";
 import { parseWorkArgs, promptSessionConfig, promptPreLaunchConfirmation } from "./work-runner/session-config.js";
 import { workerEvents } from "./core/worker-events.js";
+import { startGatewayLogTailer } from "./core/gateway-log-tailer.js";
 
 let DEBUG_LOG_PATH = "";
 
@@ -303,6 +305,8 @@ export async function runWork(
         await startDashboard({ webPort });
     }
 
+    const stopGatewayTailer = startGatewayLogTailer();
+
     // ---------------------------------------------------------------------------
     // Gateway setup & health
     // ---------------------------------------------------------------------------
@@ -525,7 +529,7 @@ export async function runWork(
                 const sPlan = spinner();
                 const startTime = Date.now();
                 let elapsedSeconds = 0;
-                sPlan.start("🧠 Coordinator is decomposing the goal...");
+                sPlan.start(randomPhrase("plan"));
 
                 const heartbeatInterval = setInterval(() => {
                     elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -798,6 +802,7 @@ export async function runWork(
     // Session cleanup
     // ---------------------------------------------------------------------------
     workerEvents.off("reasoning", reasoningListener);
+    stopGatewayTailer();
     clearSessionConfig();
     if (maxRuns > 1) {
         const lessons = await vectorMemory.getCumulativeLessons();

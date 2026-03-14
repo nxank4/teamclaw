@@ -1,5 +1,6 @@
 import { exec, spawn, ChildProcess } from "child_process";
 import { text, spinner } from "@clack/prompts";
+import { randomPhrase } from "../utils/spinner-phrases.js";
 import { logger } from "../core/logger.js";
 import { CONFIG } from "../core/config.js";
 import net from "node:net";
@@ -225,7 +226,7 @@ export async function startManagedGateway(
     }
 
     const s = options.useSpinner ? spinner() : null;
-    s?.start(`Starting managed OpenClaw gateway on port ${port}...`);
+    s?.start(randomPhrase("gateway"));
 
     const child = await startGatewayBinary(port);
     const pid = child.pid ?? -1;
@@ -253,10 +254,17 @@ export async function startManagedGateway(
 export function cleanupManagedGateway(): void {
     if (managedGateway && !managedGateway.wasAlreadyRunning) {
         try {
-            process.kill(managedGateway.pid);
-            logger.info(`Killed managed gateway (PID: ${managedGateway.pid})`);
+            // Kill the entire process group (negative PID) since the gateway
+            // is spawned with detached:true and may have child processes.
+            process.kill(-managedGateway.pid, "SIGTERM");
+            logger.info(`Killed managed gateway process group (PID: ${managedGateway.pid})`);
         } catch {
-            // Process may have already exited
+            // Process group may have already exited; try single PID as fallback
+            try {
+                process.kill(managedGateway.pid, "SIGTERM");
+            } catch {
+                // Already gone
+            }
         }
         managedGateway = null;
     }
