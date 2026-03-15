@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { StateGraph, START, END } from "@langchain/langgraph";
+import { StateGraph, START, END, Send } from "@langchain/langgraph";
 import { MemorySaver } from "@langchain/langgraph-checkpoint";
 import type { GraphState } from "./graph-state.js";
 import { GameStateAnnotation } from "./graph-state.js";
@@ -15,7 +15,7 @@ import {
 import { buildTeamFromTemplate } from "./team-templates.js";
 import type { BotDefinition } from "./bot-definitions.js";
 import { CoordinatorAgent } from "../agents/coordinator.js";
-import { createWorkerBots, createWorkerExecuteNode } from "../agents/worker-bot.js";
+import { createWorkerBots, createTaskDispatcher, createWorkerTaskNode, createWorkerCollectNode } from "../agents/worker-bot.js";
 import { getFirstTaskNeedingApproval, createApprovalNode, createHumanApprovalNode } from "../agents/approval.js";
 import type { ApprovalProvider } from "../agents/approval.js";
 import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
@@ -118,7 +118,9 @@ export class TeamOrchestration {
       });
     this.coordinator = new CoordinatorAgent({ llmAdapter: sharedLlmAdapter, workspacePath });
 
-    const workerNode = createWorkerExecuteNode(this.workerBots, this.team);
+    const taskDispatcher = createTaskDispatcher(this.workerBots, this.team);
+    const workerTaskNode = createWorkerTaskNode(this.workerBots, this.team);
+    const collectNode = createWorkerCollectNode();
     const approvalNode = createApprovalNode(approvalProvider);
     const humanApprovalNode = createHumanApprovalNode(autoApprove);
     const sprintPlanningNode = createSprintPlanningNode(workspacePath ?? "", sharedLlmAdapter, signal);
@@ -143,7 +145,8 @@ export class TeamOrchestration {
       };
     };
 
-    const telemetryWorkerNode = wrapWithTelemetry("worker_execute", workerNode);
+    const telemetryWorkerTaskNode = wrapWithTelemetry("worker_task", workerTaskNode);
+    const telemetryCollectNode = wrapWithTelemetry("worker_collect", async (s) => collectNode(s));
     const telemetryApprovalNode = wrapWithTelemetry("approval", approvalNode);
     const telemetryHumanApprovalNode = wrapWithTelemetry("human_approval", humanApprovalNode);
     const telemetrySprintPlanningNode = wrapWithTelemetry("sprint_planning", sprintPlanningNode);
@@ -159,7 +162,8 @@ export class TeamOrchestration {
       .addNode("rfc_phase", telemetryRfcNode)
       .addNode("coordinator", telemetryCoordinatorNode)
       .addNode("approval", telemetryApprovalNode)
-      .addNode("worker_execute", telemetryWorkerNode)
+      .addNode("worker_task", telemetryWorkerTaskNode)
+      .addNode("worker_collect", telemetryCollectNode)
       .addNode("human_approval", telemetryHumanApprovalNode)
       .addNode("increment_cycle", (s): Partial<GraphState> => {
         const taskQueue = s.task_queue ?? [];
@@ -195,19 +199,22 @@ export class TeamOrchestration {
           const pending = taskQueue.filter((t) => t.status === "pending");
           if (pending.length === 0) return "__end__";
           const needsApproval = getFirstTaskNeedingApproval(s) !== null;
-          return needsApproval ? "approval" : "worker_execute";
+          if (needsApproval) return "approval";
+          return taskDispatcher(s);
         },
-        { approval: "approval", worker_execute: "worker_execute", __end__: END }
+        { approval: "approval", worker_collect: "worker_collect", __end__: END }
       )
       .addConditionalEdges(
         "approval",
         (s) => {
           const resp = s.approval_response as { action?: string } | null;
-          return resp?.action === "feedback" ? "coordinator" : "worker_execute";
+          if (resp?.action === "feedback") return "coordinator";
+          return taskDispatcher(s);
         },
-        { coordinator: "coordinator", worker_execute: "worker_execute" }
+        { coordinator: "coordinator", worker_collect: "worker_collect" }
       )
-      .addEdge("worker_execute", "human_approval")
+      .addEdge("worker_task", "worker_collect")
+      .addEdge("worker_collect", "human_approval")
       .addEdge("human_approval", "increment_cycle")
       .addConditionalEdges(
         "increment_cycle",

@@ -25,6 +25,7 @@ const {
   mockAddConditionalEdges,
   mockCoordinateNode,
   mockWorkerExecuteNode,
+  mockTaskDispatcher,
   mockApprovalNode,
   mockHumanApprovalNode,
   mockSendNodeActive,
@@ -44,6 +45,7 @@ const {
   mockAddConditionalEdges: vi.fn(),
   mockCoordinateNode: vi.fn(),
   mockWorkerExecuteNode: vi.fn(),
+  mockTaskDispatcher: vi.fn(),
   mockApprovalNode: vi.fn(),
   mockHumanApprovalNode: vi.fn(),
   mockSendNodeActive: vi.fn(),
@@ -83,6 +85,14 @@ vi.mock("@langchain/langgraph", () => {
     START: "__start__",
     END: "__end__",
     Annotation: AnnotationFn,
+    Send: class FakeSend {
+      node: string;
+      args: Record<string, unknown>;
+      constructor(node: string, args: Record<string, unknown>) {
+        this.node = node;
+        this.args = args;
+      }
+    },
   };
 });
 
@@ -101,7 +111,14 @@ vi.mock("../src/agents/worker-bot.js", () => ({
     bot_0: { adapter: { executeTask: mockExecuteTask } },
     bot_1: { adapter: { executeTask: vi.fn() } },
   }),
-  createWorkerExecuteNode: vi.fn().mockReturnValue(mockWorkerExecuteNode),
+  createTaskDispatcher: vi.fn().mockReturnValue(mockTaskDispatcher),
+  createWorkerTaskNode: vi.fn().mockReturnValue(mockWorkerExecuteNode),
+  createWorkerCollectNode: vi.fn().mockReturnValue(vi.fn().mockReturnValue({
+    last_action: "Dispatched via parallel Send",
+    last_quality_score: 0,
+    deep_work_mode: true,
+    __node__: "worker_collect",
+  })),
 }));
 
 vi.mock("../src/agents/approval.js", () => ({
@@ -367,6 +384,7 @@ beforeEach(() => {
   mockApprovalNode.mockResolvedValue({ __node__: "approval" });
   mockHumanApprovalNode.mockResolvedValue({ __node__: "human_approval" });
   mockGetFirstTaskNeedingApproval.mockReturnValue(null);
+  mockTaskDispatcher.mockReturnValue("worker_task");
 });
 
 /* ================================================================== */

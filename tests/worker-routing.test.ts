@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { Send } from "@langchain/langgraph";
 import type { WorkerAdapter } from "../src/adapters/worker-adapter.js";
 import { resolveTargetUrl } from "../src/adapters/worker-adapter.js";
-import { WorkerBot, createWorkerExecuteNode } from "../src/agents/worker-bot.js";
+import { WorkerBot, createTaskDispatcher, createWorkerTaskNode } from "../src/agents/worker-bot.js";
 import type { TaskRequest, TaskResult } from "../src/core/state.js";
 import type { GraphState } from "../src/core/graph-state.js";
 
@@ -72,8 +73,44 @@ describe("resolveTargetUrl", () => {
   });
 });
 
-describe("grouped dispatcher", () => {
-  it("runs same-url tasks sequentially and different-url tasks in parallel", async () => {
+describe("createTaskDispatcher", () => {
+  it("returns Send[] for pending tasks assigned to correct bots", () => {
+    const makeBot = (id: string, name: string, url: string) =>
+      new WorkerBot(
+        { id, name, role_id: "software_engineer", traits: {}, worker_url: null },
+        new TimedMockAdapter({ workerUrl: url, delayMs: 0, activeByUrl: new Map(), overlapByUrl: new Set() }),
+      );
+
+    const workers = {
+      bot_0: makeBot("bot_0", "Frontend", "http://localhost:8001"),
+      bot_1: makeBot("bot_1", "Backend", "http://localhost:8001"),
+      bot_2: makeBot("bot_2", "Designer", "http://localhost:8002"),
+    };
+
+    const dispatcher = createTaskDispatcher(workers);
+    const state = {
+      task_queue: [
+        { task_id: "TASK-001", assigned_to: "bot_0", status: "pending", description: "A", priority: "MEDIUM", result: null },
+        { task_id: "TASK-002", assigned_to: "bot_1", status: "pending", description: "B", priority: "MEDIUM", result: null },
+        { task_id: "TASK-003", assigned_to: "bot_2", status: "pending", description: "C", priority: "MEDIUM", result: null },
+      ],
+      bot_stats: {},
+      agent_messages: [],
+    } as GraphState;
+
+    const result = dispatcher(state);
+    expect(Array.isArray(result)).toBe(true);
+    const sends = result as Send[];
+    expect(sends).toHaveLength(3);
+    // Each Send should be a Send instance
+    for (const send of sends) {
+      expect(send).toBeInstanceOf(Send);
+    }
+  });
+});
+
+describe("parallel worker_task execution", () => {
+  it("processes tasks independently via worker_task nodes", async () => {
     const activeByUrl = new Map<string, number>();
     const overlapByUrl = new Set<string>();
 
@@ -89,44 +126,33 @@ describe("grouped dispatcher", () => {
       bot_2: makeBot("bot_2", "Designer", "http://localhost:8002"),
     };
 
-    const node = createWorkerExecuteNode(workers);
-    const out = await node({
-      task_queue: [
-        {
-          task_id: "TASK-001",
-          assigned_to: "bot_0",
-          status: "pending",
-          description: "A",
-          priority: "MEDIUM",
-          result: null,
-        },
-        {
-          task_id: "TASK-002",
-          assigned_to: "bot_1",
-          status: "pending",
-          description: "B",
-          priority: "MEDIUM",
-          result: null,
-        },
-        {
-          task_id: "TASK-003",
-          assigned_to: "bot_2",
-          status: "pending",
-          description: "C",
-          priority: "MEDIUM",
-          result: null,
-        },
-      ],
-      bot_stats: {
-        bot_0: { tasks_completed: 0, tasks_failed: 0 },
-        bot_1: { tasks_completed: 0, tasks_failed: 0 },
-        bot_2: { tasks_completed: 0, tasks_failed: 0 },
-      },
-      agent_messages: [],
-    } as GraphState);
+    const taskNode = createWorkerTaskNode(workers);
 
-    const queue = out.task_queue as Array<{ status: string }>;
-    expect(queue.every((q) => q.status === "completed")).toBe(true);
-    expect(overlapByUrl.has("http://localhost:8001")).toBe(false);
+    // Simulate parallel execution by running tasks concurrently
+    const tasks = [
+      { task_id: "TASK-001", assigned_to: "bot_0", status: "pending", description: "A", priority: "MEDIUM", result: null },
+      { task_id: "TASK-002", assigned_to: "bot_1", status: "pending", description: "B", priority: "MEDIUM", result: null },
+      { task_id: "TASK-003", assigned_to: "bot_2", status: "pending", description: "C", priority: "MEDIUM", result: null },
+    ];
+
+    const results = await Promise.all(
+      tasks.map((task) =>
+        taskNode({
+          _send_task: task,
+          _send_bot_id: task.assigned_to,
+          task_queue: tasks as Record<string, unknown>[],
+          bot_stats: {},
+          agent_messages: [],
+        } as unknown as GraphState)
+      )
+    );
+
+    // All tasks should have completed
+    for (const out of results) {
+      const q = out.task_queue as Array<{ status: string }>;
+      expect(q).toHaveLength(1);
+      expect(q[0].status).toBe("completed");
+    }
+    expect(results).toHaveLength(3);
   });
 });

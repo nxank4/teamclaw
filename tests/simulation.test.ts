@@ -22,6 +22,7 @@ const {
   mockAddConditionalEdges,
   mockCoordinateNode,
   mockWorkerExecuteNode,
+  mockTaskDispatcher,
   mockApprovalNode,
   mockHumanApprovalNode,
   mockSendNodeActive,
@@ -35,6 +36,7 @@ const {
   mockAddConditionalEdges: vi.fn(),
   mockCoordinateNode: vi.fn(),
   mockWorkerExecuteNode: vi.fn(),
+  mockTaskDispatcher: vi.fn(),
   mockApprovalNode: vi.fn(),
   mockHumanApprovalNode: vi.fn(),
   mockSendNodeActive: vi.fn(),
@@ -69,6 +71,14 @@ vi.mock("@langchain/langgraph", () => {
     START: "__start__",
     END: "__end__",
     Annotation: AnnotationFn,
+    Send: class FakeSend {
+      node: string;
+      args: Record<string, unknown>;
+      constructor(node: string, args: Record<string, unknown>) {
+        this.node = node;
+        this.args = args;
+      }
+    },
   };
 });
 
@@ -86,7 +96,14 @@ vi.mock("../src/agents/worker-bot.js", () => ({
   createWorkerBots: vi.fn().mockReturnValue({
     bot_0: { adapter: { executeTask: vi.fn() } },
   }),
-  createWorkerExecuteNode: vi.fn().mockReturnValue(mockWorkerExecuteNode),
+  createTaskDispatcher: vi.fn().mockReturnValue(mockTaskDispatcher),
+  createWorkerTaskNode: vi.fn().mockReturnValue(mockWorkerExecuteNode),
+  createWorkerCollectNode: vi.fn().mockReturnValue(vi.fn().mockReturnValue({
+    last_action: "Dispatched via parallel Send",
+    last_quality_score: 0,
+    deep_work_mode: true,
+    __node__: "worker_collect",
+  })),
 }));
 
 vi.mock("../src/agents/approval.js", () => ({
@@ -207,12 +224,22 @@ describe("simulation.ts — TeamOrchestration", () => {
     // Re-wire mocked module exports (cleared by clearAllMocks)
     const workerBotMod = await import("../src/agents/worker-bot.js") as {
       createWorkerBots: ReturnType<typeof vi.fn>;
-      createWorkerExecuteNode: ReturnType<typeof vi.fn>;
+      createTaskDispatcher: ReturnType<typeof vi.fn>;
+      createWorkerTaskNode: ReturnType<typeof vi.fn>;
+      createWorkerCollectNode: ReturnType<typeof vi.fn>;
     };
     workerBotMod.createWorkerBots.mockReturnValue({
       bot_0: { adapter: { executeTask: vi.fn() } },
     });
-    workerBotMod.createWorkerExecuteNode.mockReturnValue(mockWorkerExecuteNode);
+    mockTaskDispatcher.mockReturnValue("worker_task");
+    workerBotMod.createTaskDispatcher.mockReturnValue(mockTaskDispatcher);
+    workerBotMod.createWorkerTaskNode.mockReturnValue(mockWorkerExecuteNode);
+    workerBotMod.createWorkerCollectNode.mockReturnValue(vi.fn().mockReturnValue({
+      last_action: "Dispatched via parallel Send",
+      last_quality_score: 0,
+      deep_work_mode: true,
+      __node__: "worker_collect",
+    }));
 
     const approvalMod = await import("../src/agents/approval.js") as {
       getFirstTaskNeedingApproval: ReturnType<typeof vi.fn>;
@@ -280,7 +307,8 @@ describe("simulation.ts — TeamOrchestration", () => {
       expect(registeredNodes).toContain("rfc_phase");
       expect(registeredNodes).toContain("coordinator");
       expect(registeredNodes).toContain("approval");
-      expect(registeredNodes).toContain("worker_execute");
+      expect(registeredNodes).toContain("worker_task");
+      expect(registeredNodes).toContain("worker_collect");
       expect(registeredNodes).toContain("human_approval");
       expect(registeredNodes).toContain("increment_cycle");
     });
@@ -295,7 +323,8 @@ describe("simulation.ts — TeamOrchestration", () => {
       expect(edges).toContainEqual(["sprint_planning", "system_design"]);
       expect(edges).toContainEqual(["system_design", "rfc_phase"]);
       expect(edges).toContainEqual(["rfc_phase", "coordinator"]);
-      expect(edges).toContainEqual(["worker_execute", "human_approval"]);
+      expect(edges).toContainEqual(["worker_task", "worker_collect"]);
+      expect(edges).toContainEqual(["worker_collect", "human_approval"]);
       expect(edges).toContainEqual(["human_approval", "increment_cycle"]);
     });
 
@@ -656,13 +685,14 @@ describe("simulation.ts — TeamOrchestration", () => {
         expect(coordinatorRoute({ task_queue: [] } as unknown as Partial<GraphState>)).toBe("__end__");
       });
 
-      it("routes to worker_execute when pending tasks exist and no approval needed", async () => {
+      it("routes to worker_task (via dispatcher) when pending tasks exist and no approval needed", async () => {
         const approval = await import("../src/agents/approval.js") as { getFirstTaskNeedingApproval: ReturnType<typeof vi.fn> };
         approval.getFirstTaskNeedingApproval.mockReturnValue(null);
         const result = coordinatorRoute({
           task_queue: [makeTask({ status: "pending" })],
         } as unknown as Partial<GraphState>);
-        expect(result).toBe("worker_execute");
+        // Dispatcher mock returns "worker_task"
+        expect(result).toBe("worker_task");
       });
 
       it("routes to approval when a task needs approval", async () => {
@@ -693,25 +723,25 @@ describe("simulation.ts — TeamOrchestration", () => {
         expect(result).toBe("coordinator");
       });
 
-      it("routes to worker_execute on approved action", () => {
+      it("routes to worker_task (via dispatcher) on approved action", () => {
         const result = approvalRoute({
           approval_response: { action: "approved" },
         } as unknown as Partial<GraphState>);
-        expect(result).toBe("worker_execute");
+        expect(result).toBe("worker_task");
       });
 
-      it("routes to worker_execute when approval_response is null", () => {
+      it("routes to worker_task (via dispatcher) when approval_response is null", () => {
         const result = approvalRoute({
           approval_response: null,
         } as unknown as Partial<GraphState>);
-        expect(result).toBe("worker_execute");
+        expect(result).toBe("worker_task");
       });
 
-      it("routes to worker_execute on edited action", () => {
+      it("routes to worker_task (via dispatcher) on edited action", () => {
         const result = approvalRoute({
           approval_response: { action: "edited" },
         } as unknown as Partial<GraphState>);
-        expect(result).toBe("worker_execute");
+        expect(result).toBe("worker_task");
       });
     });
 
@@ -1090,13 +1120,13 @@ describe("simulation.ts — TeamOrchestration", () => {
       createTeamOrchestration({ team: makeTeam() });
 
       const workerCall = mockAddNode.mock.calls.find(
-        (c: unknown[]) => c[0] === "worker_execute"
+        (c: unknown[]) => c[0] === "worker_task"
       );
       const wrappedFn = workerCall![1] as (s: GraphState) => Promise<Partial<GraphState>>;
 
-      mockWorkerExecuteNode.mockResolvedValueOnce({ __node__: "worker_execute" });
+      mockWorkerExecuteNode.mockResolvedValueOnce({ __node__: "worker_task" });
       const result = await wrappedFn({} as GraphState);
-      expect(result.__node__).toBe("worker_execute");
+      expect(result.__node__).toBe("worker_task");
     });
   });
 

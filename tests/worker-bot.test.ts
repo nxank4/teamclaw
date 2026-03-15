@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
+import { Send } from "@langchain/langgraph";
 import {
   WorkerBot,
   createWorkerBots,
-  createWorkerExecuteNode,
+  createTaskDispatcher,
+  createWorkerTaskNode,
+  createWorkerCollectNode,
 } from "../src/agents/worker-bot.js";
 import type { WorkerAdapter } from "../src/interfaces/worker-adapter.js";
 import type { TaskRequest, TaskResult } from "../src/core/state.js";
@@ -80,8 +83,75 @@ describe("WorkerBot", () => {
   });
 });
 
-describe("createWorkerExecuteNode", () => {
-  it("processes pending task and updates queue and bot_stats", async () => {
+describe("createTaskDispatcher", () => {
+  it("returns Send[] with correct payloads for pending tasks", () => {
+    const mockAdapter = createMockAdapter({
+      task_id: "TASK-001",
+      success: true,
+      output: "done",
+      quality_score: 0.9,
+    });
+    const workerBot = new WorkerBot(
+      { id: "bot_0", name: "Dev", role_id: "software_engineer", traits: {} },
+      mockAdapter
+    );
+
+    const team = [
+      { id: "bot_0", name: "Dev", role_id: "software_engineer", traits: {} },
+    ];
+    const dispatcher = createTaskDispatcher({ bot_0: workerBot }, team);
+    const state = {
+      task_queue: [
+        { task_id: "TASK-001", assigned_to: "bot_0", status: "pending", description: "Build feature" },
+        { task_id: "TASK-002", assigned_to: "bot_0", status: "pending", description: "Fix bug" },
+      ],
+    } as GraphState;
+
+    const result = dispatcher(state);
+    expect(Array.isArray(result)).toBe(true);
+    const sends = result as Send[];
+    expect(sends).toHaveLength(2);
+    expect(sends[0]).toBeInstanceOf(Send);
+  });
+
+  it("returns 'worker_collect' when no actionable tasks", () => {
+    const dispatcher = createTaskDispatcher({});
+    const state = {
+      task_queue: [
+        { task_id: "TASK-001", status: "completed", description: "Done" },
+      ],
+    } as GraphState;
+
+    const result = dispatcher(state);
+    expect(result).toBe("worker_collect");
+  });
+
+  it("assigns reviewer bot for reviewing tasks", () => {
+    const makerAdapter = createMockAdapter({ task_id: "TASK-001", success: true, output: "done", quality_score: 0.9 });
+    const reviewerAdapter = createMockAdapter({ task_id: "TASK-001", success: true, output: "APPROVED", quality_score: 0.9 });
+    const makerBot = new WorkerBot({ id: "bot_0", name: "Dev", role_id: "software_engineer", traits: {} }, makerAdapter);
+    const reviewerBot = new WorkerBot({ id: "bot_1", name: "QA", role_id: "qa_reviewer", traits: {} }, reviewerAdapter);
+
+    const team = [
+      { id: "bot_0", name: "Dev", role_id: "software_engineer", traits: {} },
+      { id: "bot_1", name: "QA", role_id: "qa_reviewer", traits: {} },
+    ];
+    const dispatcher = createTaskDispatcher({ bot_0: makerBot, bot_1: reviewerBot }, team);
+    const state = {
+      task_queue: [
+        { task_id: "TASK-001", assigned_to: "bot_0", status: "reviewing", description: "Review this" },
+      ],
+    } as GraphState;
+
+    const result = dispatcher(state) as Send[];
+    expect(result).toHaveLength(1);
+    // The Send should target bot_1 (reviewer)
+    expect((result[0] as unknown as { args: Record<string, unknown> }).args._send_bot_id).toBe("bot_1");
+  });
+});
+
+describe("createWorkerTaskNode", () => {
+  it("processes a single pending task and returns partial state", async () => {
     const result: TaskResult = {
       task_id: "TASK-001",
       success: true,
@@ -94,41 +164,74 @@ describe("createWorkerExecuteNode", () => {
       mockAdapter
     );
 
-    const node = createWorkerExecuteNode({ bot_0: workerBot });
-    const state: GraphState = {
-      task_queue: [
-        {
-          task_id: "TASK-001",
-          assigned_to: "bot_0",
-          status: "pending",
-          description: "Build feature",
-          priority: "MEDIUM",
-          result: null,
-        },
-      ],
-      bot_stats: { bot_0: { tasks_completed: 0, tasks_failed: 0 } },
+    const node = createWorkerTaskNode({ bot_0: workerBot });
+    const state = {
+      _send_task: {
+        task_id: "TASK-001",
+        assigned_to: "bot_0",
+        status: "pending",
+        description: "Build feature",
+        priority: "MEDIUM",
+        result: null,
+      },
+      _send_bot_id: "bot_0",
+      task_queue: [],
+      bot_stats: {},
       agent_messages: [],
-    } as GraphState;
+    } as unknown as GraphState;
 
     const out = await node(state);
 
     expect(out.task_queue).toBeDefined();
     const q = out.task_queue as Array<{ status: string; result: TaskResult }>;
+    expect(q).toHaveLength(1);
     expect(q[0].status).toBe("completed");
     expect(q[0].result?.success).toBe(true);
-
-    expect(out.bot_stats).toBeDefined();
-    expect((out.bot_stats as Record<string, { tasks_completed: number }>)["bot_0"].tasks_completed).toBe(1);
-
-    expect(out.__node__).toBe("worker_execute");
+    expect(out.__node__).toBe("worker_task");
   });
 
-  it("marks task failed when worker returns success false", async () => {
-    const result: TaskResult = {
-      task_id: "TASK-002",
+  it("never throws even on adapter crash", async () => {
+    const mockAdapter = createMockAdapter({
+      task_id: "TASK-001",
       success: false,
-      output: "Failed",
-      quality_score: 0.2,
+      output: "error",
+      quality_score: 0,
+    });
+    mockAdapter.healthCheck = vi.fn(() => Promise.reject(new Error("CRASH")));
+    const workerBot = new WorkerBot(
+      { id: "bot_0", name: "Dev", role_id: "engineer", traits: {} },
+      mockAdapter
+    );
+
+    const node = createWorkerTaskNode({ bot_0: workerBot });
+    const state = {
+      _send_task: {
+        task_id: "TASK-001",
+        assigned_to: "bot_0",
+        status: "pending",
+        description: "Task",
+        priority: "MEDIUM",
+        result: null,
+      },
+      _send_bot_id: "bot_0",
+      task_queue: [],
+      bot_stats: {},
+      agent_messages: [],
+    } as unknown as GraphState;
+
+    // Should NOT throw
+    const out = await node(state);
+    expect(out.__node__).toBe("worker_task");
+    const q = out.task_queue as Array<{ status: string }>;
+    expect(q[0].status).toBe("failed");
+  });
+
+  it("returns delta bot_stats (not absolute)", async () => {
+    const result: TaskResult = {
+      task_id: "TASK-001",
+      success: true,
+      output: "Done",
+      quality_score: 0.9,
     };
     const mockAdapter = createMockAdapter(result);
     const workerBot = new WorkerBot(
@@ -136,82 +239,57 @@ describe("createWorkerExecuteNode", () => {
       mockAdapter
     );
 
-    const node = createWorkerExecuteNode({ bot_0: workerBot });
-    const state: GraphState = {
-      task_queue: [
-        {
-          task_id: "TASK-002",
-          assigned_to: "bot_0",
-          status: "pending",
-          description: "Fix bug",
-          priority: "HIGH",
-          result: null,
-        },
-      ],
-      bot_stats: { bot_0: { tasks_completed: 0, tasks_failed: 0 } },
-      agent_messages: [],
-    } as GraphState;
-
-    const out = await node(state);
-
-    const q = out.task_queue as Array<{ status: string; result: TaskResult }>;
-    expect(q[0].status).toBe("failed");
-    expect(q[0].result?.success).toBe(false);
-    expect((out.bot_stats as Record<string, { tasks_failed: number }>)["bot_0"].tasks_failed).toBe(1);
-  });
-
-  it("returns early when no pending tasks", async () => {
-    const node = createWorkerExecuteNode({});
-    const state: GraphState = {
-      task_queue: [
-        {
-          task_id: "TASK-001",
-          assigned_to: "bot_0",
-          status: "completed",
-          description: "Done",
-          priority: "MEDIUM",
-          result: {},
-        },
-      ],
+    // No team = no reviewer, so success → completed with delta stats
+    const node = createWorkerTaskNode({ bot_0: workerBot });
+    const state = {
+      _send_task: {
+        task_id: "TASK-001",
+        assigned_to: "bot_0",
+        status: "pending",
+        description: "Build feature",
+        priority: "MEDIUM",
+        result: null,
+      },
+      _send_bot_id: "bot_0",
+      task_queue: [],
       bot_stats: {},
       agent_messages: [],
-    } as GraphState;
+    } as unknown as GraphState;
 
     const out = await node(state);
-
-    expect(out.last_action).toBe("No pending tasks");
-    expect(out.task_queue).toBeUndefined();
+    const stats = out.bot_stats as Record<string, Record<string, number>>;
+    // Delta: tasks_completed = 1, not an absolute count
+    expect(stats.bot_0.tasks_completed).toBe(1);
   });
 
   it("marks task failed when healthCheck returns false", async () => {
-    const result: TaskResult = {
+    const mockAdapter = createMockAdapter({
       task_id: "TASK-001",
       success: false,
       output: "Unreachable",
       quality_score: 0,
-    };
-    const mockAdapter = createMockAdapter(result);
+    });
     mockAdapter.healthCheck = vi.fn(() => Promise.resolve(false));
     const workerBot = new WorkerBot(
       { id: "bot_0", name: "Dev", role_id: "engineer", traits: {} },
       mockAdapter
     );
 
-    const node = createWorkerExecuteNode({ bot_0: workerBot });
-    const state: GraphState = {
-      task_queue: [
-        {
-          task_id: "TASK-001",
-          assigned_to: "bot_0",
-          status: "pending",
-          description: "Task",
-          priority: "MEDIUM",
-          result: null,
-        },
-      ],
-      bot_stats: { bot_0: { tasks_completed: 0, tasks_failed: 0 } },
+    const node = createWorkerTaskNode({ bot_0: workerBot });
+    const state = {
+      _send_task: {
+        task_id: "TASK-001",
+        assigned_to: "bot_0",
+        status: "pending",
+        description: "Task",
+        priority: "MEDIUM",
+        result: null,
+      },
+      _send_bot_id: "bot_0",
+      task_queue: [],
+      bot_stats: {},
       agent_messages: [],
-    } as GraphState;
+    } as unknown as GraphState;
 
     const out = await node(state);
 
@@ -222,27 +300,65 @@ describe("createWorkerExecuteNode", () => {
   });
 
   it("marks task failed when worker not found", async () => {
-    const node = createWorkerExecuteNode({});
-    const state: GraphState = {
-      task_queue: [
-        {
-          task_id: "TASK-001",
-          assigned_to: "missing_bot",
-          status: "pending",
-          description: "Task",
-          priority: "MEDIUM",
-          result: null,
-        },
-      ],
+    const node = createWorkerTaskNode({});
+    const state = {
+      _send_task: {
+        task_id: "TASK-001",
+        assigned_to: "missing_bot",
+        status: "pending",
+        description: "Task",
+        priority: "MEDIUM",
+        result: null,
+      },
+      _send_bot_id: "missing_bot",
+      task_queue: [],
       bot_stats: {},
       agent_messages: [],
-    } as GraphState;
+    } as unknown as GraphState;
 
     const out = await node(state);
 
     const q = out.task_queue as Array<{ status: string; result: { success: boolean } }>;
     expect(q[0].status).toBe("failed");
     expect(q[0].result?.success).toBe(false);
-    expect(String(out.last_action)).toContain("Dispatched");
+  });
+});
+
+describe("createWorkerCollectNode", () => {
+  it("computes average quality score from task results", () => {
+    const node = createWorkerCollectNode();
+    const state = {
+      task_queue: [
+        {
+          task_id: "TASK-001",
+          status: "completed",
+          result: { task_id: "TASK-001", success: true, output: "done", quality_score: 0.8 },
+        },
+        {
+          task_id: "TASK-002",
+          status: "completed",
+          result: { task_id: "TASK-002", success: true, output: "done", quality_score: 0.6 },
+        },
+      ],
+      bot_stats: {},
+    } as unknown as GraphState;
+
+    const out = node(state);
+
+    expect(out.__node__).toBe("worker_collect");
+    expect(out.last_quality_score).toBe(70); // (0.8+0.6)/2 * 100
+    expect(out.deep_work_mode).toBe(true);
+  });
+
+  it("returns 0 quality when no tasks have results", () => {
+    const node = createWorkerCollectNode();
+    const state = {
+      task_queue: [
+        { task_id: "TASK-001", status: "pending", result: null },
+      ],
+    } as unknown as GraphState;
+
+    const out = node(state);
+    expect(out.last_quality_score).toBe(0);
   });
 });
