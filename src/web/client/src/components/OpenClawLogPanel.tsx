@@ -33,11 +33,19 @@ const SOURCE_FILTERS: { label: string; value: OpenClawSourceFilter }[] = [
   { label: "LLM", value: "llm-client" },
   { label: "Worker", value: "worker-adapter" },
   { label: "Gateway", value: "gateway" },
+  { label: "Console", value: "console" },
 ];
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
   return d.toTimeString().slice(0, 8);
+}
+
+function sourceIcon(source: string) {
+  if (source === "llm-client") return <i className="bi bi-globe2 text-[11px]" />;
+  if (source === "gateway") return <i className="bi bi-hdd-network text-[11px]" />;
+  if (source === "console") return <i className="bi bi-terminal text-[11px]" />;
+  return <i className="bi bi-cpu text-[11px]" />;
 }
 
 export function OpenClawLogPanel() {
@@ -51,6 +59,7 @@ export function OpenClawLogPanel() {
   const listRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [copyLabel, setCopyLabel] = useState("Copy");
 
   const filtered = logs.filter((l) => {
     if (filter !== "all" && l.level !== filter) return false;
@@ -71,10 +80,28 @@ export function OpenClawLogPanel() {
     }
   }, [filtered.length, autoScroll]);
 
+  const handleCopy = useCallback(() => {
+    const text = filtered
+      .map((entry) => {
+        let line = `[${formatTime(entry.timestamp)}] [${entry.level.toUpperCase()}] [${entry.source}] ${entry.message}`;
+        if (entry.meta && Object.keys(entry.meta).length > 0) {
+          for (const [k, v] of Object.entries(entry.meta)) {
+            line += `\n  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`;
+          }
+        }
+        return line;
+      })
+      .join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyLabel("Copied!");
+      setTimeout(() => setCopyLabel("Copy"), 1500);
+    });
+  }, [filtered]);
+
   if (logs.length === 0) {
     return (
       <div className="flex h-full items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-400 dark:text-stone-500 text-sm">
-        No OpenClaw logs yet. Logs appear when LLM requests are made.
+        No logs yet. Logs appear when the session starts.
       </div>
     );
   }
@@ -124,6 +151,13 @@ export function OpenClawLogPanel() {
           </span>
           <button
             type="button"
+            onClick={handleCopy}
+            className="rounded px-2 py-0.5 text-[11px] text-stone-500 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-800 transition-colors"
+          >
+            {copyLabel}
+          </button>
+          <button
+            type="button"
             onClick={clearLogs}
             className="rounded px-2 py-0.5 text-[11px] text-stone-500 dark:text-stone-400 hover:bg-stone-200 dark:hover:bg-stone-800 transition-colors"
           >
@@ -136,19 +170,30 @@ export function OpenClawLogPanel() {
       <div
         ref={listRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto text-[12px] font-mono"
+        className="flex-1 overflow-y-auto text-[12px] font-mono select-text"
       >
         {filtered.map((entry) => {
           const style = LEVEL_STYLES[entry.level] ?? LEVEL_STYLES.info;
           const isExpanded = expandedId === entry.id;
+          const hasMeta = entry.meta && Object.keys(entry.meta).length > 0;
 
           return (
             <div
               key={entry.id}
-              className={`flex flex-col border-l-2 ${style.border} border-b border-stone-100 dark:border-stone-800 hover:bg-stone-100/50 dark:hover:bg-stone-900/50 cursor-pointer`}
-              onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+              className={`flex flex-col border-l-2 ${style.border} border-b border-stone-100 dark:border-stone-800 hover:bg-stone-100/50 dark:hover:bg-stone-900/50`}
             >
               <div className="flex items-center gap-2 px-3 py-1">
+                {hasMeta ? (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                    className="shrink-0 w-4 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300"
+                  >
+                    <i className={`bi ${isExpanded ? "bi-chevron-down" : "bi-chevron-right"} text-[10px]`} />
+                  </button>
+                ) : (
+                  <span className="shrink-0 w-4" />
+                )}
                 <span className="shrink-0 text-stone-400 dark:text-stone-500 w-[60px]">
                   {formatTime(entry.timestamp)}
                 </span>
@@ -156,27 +201,25 @@ export function OpenClawLogPanel() {
                   {entry.level}
                 </span>
                 <span className="shrink-0 text-stone-400 dark:text-stone-500" title={entry.source}>
-                  {entry.source === "llm-client" ? (
-                    <i className="bi bi-globe2 text-[11px]" />
-                  ) : entry.source === "gateway" ? (
-                    <i className="bi bi-hdd-network text-[11px]" />
-                  ) : (
-                    <i className="bi bi-terminal text-[11px]" />
-                  )}
+                  {sourceIcon(entry.source)}
                 </span>
-                <span className="shrink-0 rounded bg-stone-200 dark:bg-stone-700 px-1.5 py-0 text-[10px] text-stone-600 dark:text-stone-300 max-w-[120px] truncate">
-                  {entry.model}
-                </span>
-                <span className="shrink-0 rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0 text-[10px] text-indigo-600 dark:text-indigo-300 max-w-[80px] truncate">
-                  {entry.botId}
-                </span>
+                {entry.model && (
+                  <span className="shrink-0 rounded bg-stone-200 dark:bg-stone-700 px-1.5 py-0 text-[10px] text-stone-600 dark:text-stone-300 max-w-[120px] truncate">
+                    {entry.model}
+                  </span>
+                )}
+                {entry.botId && (
+                  <span className="shrink-0 rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0 text-[10px] text-indigo-600 dark:text-indigo-300 max-w-[80px] truncate">
+                    {entry.botId}
+                  </span>
+                )}
                 <span className="truncate text-stone-700 dark:text-stone-300">
                   {entry.message}
                 </span>
               </div>
-              {isExpanded && entry.meta && Object.keys(entry.meta).length > 0 && (
+              {isExpanded && hasMeta && (
                 <div className="mx-3 mb-1.5 rounded bg-stone-100 dark:bg-stone-800/60 p-2 text-[11px] text-stone-600 dark:text-stone-400">
-                  {Object.entries(entry.meta).map(([k, v]) => (
+                  {Object.entries(entry.meta!).map(([k, v]) => (
                     <div key={k}>
                       <span className="font-semibold text-stone-500 dark:text-stone-400">{k}:</span>{" "}
                       {typeof v === "object" ? JSON.stringify(v) : String(v)}

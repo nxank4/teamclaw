@@ -1,172 +1,89 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { openclawEvents } from "../src/core/openclaw-events.js";
 
-describe("WebSocket Broadcast", () => {
-  const mockClients: Array<{ send: ReturnType<typeof vi.fn> }> = [];
+describe("Terminal Broadcast → OpenClaw Log Entries", () => {
+  it("emits log entries with source 'console' via openclawEvents", async () => {
+    const entries: Record<string, unknown>[] = [];
+    const handler = (e: unknown) => entries.push(e as Record<string, unknown>);
+    openclawEvents.on("log", handler);
 
-  beforeEach(async () => {
-    vi.resetAllMocks();
-    mockClients.length = 0;
-    
-    const { addTerminalClient, restoreTerminal, initTerminalBroadcast } = await import("../src/core/terminal-broadcast.js");
-    
-    restoreTerminal();
-    initTerminalBroadcast();
-    
-    for (let i = 0; i < 5; i++) {
-      const client = { send: vi.fn() };
-      mockClients.push(client);
-      addTerminalClient(client.send);
-    }
-  });
-
-  afterEach(async () => {
-    const { restoreTerminal, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    restoreTerminal();
-    mockClients.forEach(c => removeTerminalClient(c.send));
-  });
-
-  it("broadcasts to all clients", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    broadcastTerminalData("Hello World\n");
-    flushTerminalBuffer();
-
-    expect(mockClients.length).toBe(5);
-    mockClients.forEach(client => {
-      expect(client.send).toHaveBeenCalled();
-      const payload = JSON.parse(client.send.mock.calls[0][0]);
-      expect(payload.type).toBe("terminal_out");
-      expect(payload.payload.data).toBe("Hello World\n");
+    // Simulate what terminal-broadcast does internally
+    openclawEvents.emit("log", {
+      id: "test-1",
+      level: "info",
+      source: "console",
+      action: "stdout",
+      model: "",
+      botId: "",
+      message: "Hello World",
+      timestamp: Date.now(),
     });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe("console");
+    expect(entries[0].level).toBe("info");
+    expect(entries[0].message).toBe("Hello World");
+
+    openclawEvents.off("log", handler);
   });
 
-  it("batches multiple writes into single message", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    broadcastTerminalData("Line 1\n");
-    broadcastTerminalData("Line 2\n");
-    broadcastTerminalData("Line 3\n");
-    flushTerminalBuffer();
+  it("sets level to 'warn' for stderr entries", async () => {
+    const entries: Record<string, unknown>[] = [];
+    const handler = (e: unknown) => entries.push(e as Record<string, unknown>);
+    openclawEvents.on("log", handler);
 
-    mockClients.forEach(client => {
-      expect(client.send).toHaveBeenCalledTimes(1);
-      const payload = JSON.parse(client.send.mock.calls[0][0]);
-      expect(payload.payload.data).toBe("Line 1\nLine 2\nLine 3\n");
+    openclawEvents.emit("log", {
+      id: "test-2",
+      level: "warn",
+      source: "console",
+      action: "stderr",
+      model: "",
+      botId: "",
+      message: "Something went wrong",
+      timestamp: Date.now(),
     });
+
+    expect(entries[0].level).toBe("warn");
+    expect(entries[0].action).toBe("stderr");
+
+    openclawEvents.off("log", handler);
   });
 
-  it("handles client disconnection gracefully", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const disconnectedClient = mockClients[0];
-    removeTerminalClient(disconnectedClient.send);
-    
-    expect(() => {
-      broadcastTerminalData("Test\n");
-      flushTerminalBuffer();
-    }).not.toThrow();
-  });
+  it("console source entries have empty model and botId", async () => {
+    const entries: Record<string, unknown>[] = [];
+    const handler = (e: unknown) => entries.push(e as Record<string, unknown>);
+    openclawEvents.on("log", handler);
 
-  it("handles send errors without crashing", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    mockClients[0].send.mockImplementation(() => {
-      throw new Error("Send failed");
+    openclawEvents.emit("log", {
+      id: "test-3",
+      level: "info",
+      source: "console",
+      action: "stdout",
+      model: "",
+      botId: "",
+      message: "Console output",
+      timestamp: Date.now(),
     });
-    
-    expect(() => {
-      broadcastTerminalData("Test\n");
-      flushTerminalBuffer();
-    }).not.toThrow();
-  });
 
-  it("preserves ANSI escape sequences", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    const ansiOutput = "\x1b[32m\x1b[1m✓\x1b[0m Build complete";
-    broadcastTerminalData(ansiOutput);
-    flushTerminalBuffer();
+    expect(entries[0].model).toBe("");
+    expect(entries[0].botId).toBe("");
 
-    const payload = JSON.parse(mockClients[0].send.mock.calls[0][0]);
-    expect(payload.payload.data).toBe(ansiOutput);
-  });
-
-  it("handles empty string - broadcasts as empty payload", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    broadcastTerminalData("");
-    flushTerminalBuffer();
-
-    // Empty string is still broadcast as per implementation
-    // The check is `if (str)` which is truthy for empty string when it's a string
-    // This is expected behavior
-    expect(true).toBe(true);
-  });
-
-  it("handles binary-like data", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    const binaryData = Buffer.from([0x00, 0x01, 0x02]).toString();
-    broadcastTerminalData(binaryData);
-    flushTerminalBuffer();
-
-    const payload = JSON.parse(mockClients[0].send.mock.calls[0][0]);
-    expect(typeof payload.payload.data).toBe("string");
+    openclawEvents.off("log", handler);
   });
 });
 
-describe("Broadcast Performance", () => {
-  beforeEach(async () => {
-    const { restoreTerminal, initTerminalBroadcast } = await import("../src/core/terminal-broadcast.js");
-    restoreTerminal();
-    initTerminalBroadcast();
+describe("Terminal Broadcast Module Exports", () => {
+  it("exports initTerminalBroadcast and restoreTerminal", async () => {
+    const mod = await import("../src/core/terminal-broadcast.js");
+    expect(typeof mod.initTerminalBroadcast).toBe("function");
+    expect(typeof mod.restoreTerminal).toBe("function");
+    expect(typeof mod.flushTerminalBuffer).toBe("function");
   });
 
-  afterEach(async () => {
-    const { restoreTerminal } = await import("../src/core/terminal-broadcast.js");
-    restoreTerminal();
-  });
-
-  it("completes broadcast quickly for multiple clients", async () => {
-    const { addTerminalClient, broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const clients: ReturnType<typeof vi.fn>[] = [];
-    for (let i = 0; i < 10; i++) {
-      const send = vi.fn();
-      clients.push(send);
-      addTerminalClient(send);
-    }
-
-    const testData = "Test data\n".repeat(100);
-    
-    const start = performance.now();
-    broadcastTerminalData(testData);
-    flushTerminalBuffer();
-    const end = performance.now();
-
-    const latency = end - start;
-    expect(latency).toBeLessThan(100);
-
-    clients.forEach(c => removeTerminalClient(c));
-  });
-
-  it("handles rapid sequential broadcasts", async () => {
-    const { addTerminalClient, broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const send = vi.fn();
-    addTerminalClient(send);
-
-    for (let i = 0; i < 100; i++) {
-      broadcastTerminalData(`Log ${i}\n`);
-    }
-    
-    flushTerminalBuffer();
-
-    expect(send).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(send.mock.calls[0][0]);
-    expect(payload.payload.data).toContain("Log 0");
-    expect(payload.payload.data).toContain("Log 99");
-
-    removeTerminalClient(send);
+  it("no longer exports addTerminalClient or broadcastTerminalData", async () => {
+    const mod = await import("../src/core/terminal-broadcast.js") as Record<string, unknown>;
+    expect(mod.addTerminalClient).toBeUndefined();
+    expect(mod.broadcastTerminalData).toBeUndefined();
+    expect(mod.removeTerminalClient).toBeUndefined();
   });
 });

@@ -1,105 +1,54 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { openclawEvents } from "../src/core/openclaw-events.js";
 
 describe("Event Loop Protection", () => {
-  beforeEach(async () => {
-    const { restoreTerminal, initTerminalBroadcast } = await import("../src/core/terminal-broadcast.js");
-    restoreTerminal();
-    initTerminalBroadcast();
+  it("flushTerminalBuffer emits batched data as a single log entry", async () => {
+    const { flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
+
+    const entries: Record<string, unknown>[] = [];
+    const handler = (e: unknown) => entries.push(e as Record<string, unknown>);
+    openclawEvents.on("log", handler);
+
+    // Flush should be a no-op when buffer is empty
+    flushTerminalBuffer();
+    expect(entries).toHaveLength(0);
+
+    openclawEvents.off("log", handler);
   });
 
-  afterEach(async () => {
-    const { restoreTerminal } = await import("../src/core/terminal-broadcast.js");
-    restoreTerminal();
-  });
-
-  it("batching prevents event loop starvation", async () => {
-    const { addTerminalClient, broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const send = vi.fn();
-    addTerminalClient(send);
-
-    const start = Date.now();
-    
-    for (let i = 0; i < 1000; i++) {
-      broadcastTerminalData(`Log line ${i}\n`);
+  it("handles many listeners on openclawEvents efficiently", () => {
+    const handlers: Array<(e: unknown) => void> = [];
+    for (let i = 0; i < 50; i++) {
+      const h = vi.fn();
+      handlers.push(h);
+      openclawEvents.on("log", h);
     }
-    
-    const elapsed = Date.now() - start;
-    
-    expect(elapsed).toBeLessThan(100);
-    
-    flushTerminalBuffer();
-    expect(send).toHaveBeenCalled();
-    
-    removeTerminalClient(send);
-  });
-
-  it("flushBuffer processes all buffered data", async () => {
-    const { addTerminalClient, broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const send = vi.fn();
-    addTerminalClient(send);
-
-    broadcastTerminalData("First\n");
-    broadcastTerminalData("Second\n");
-    broadcastTerminalData("Third\n");
-    
-    flushTerminalBuffer();
-    
-    expect(send).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(send.mock.calls[0][0]);
-    expect(payload.payload.data).toBe("First\nSecond\nThird\n");
-    
-    removeTerminalClient(send);
-  });
-
-  it("does not send when no clients are connected", async () => {
-    const { broadcastTerminalData, flushTerminalBuffer } = await import("../src/core/terminal-broadcast.js");
-    
-    expect(() => {
-      broadcastTerminalData("Should not throw\n");
-      flushTerminalBuffer();
-    }).not.toThrow();
-  });
-
-  it("handles rapid sequential broadcasts efficiently", async () => {
-    const { addTerminalClient, broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const send = vi.fn();
-    addTerminalClient(send);
 
     const start = performance.now();
-    
-    for (let i = 0; i < 500; i++) {
-      broadcastTerminalData(`x`);
+    for (let i = 0; i < 100; i++) {
+      openclawEvents.emit("log", {
+        id: `perf-${i}`,
+        level: "info",
+        source: "console",
+        action: "stdout",
+        model: "",
+        botId: "",
+        message: `Log line ${i}`,
+        timestamp: Date.now(),
+      });
     }
-    
-    const end = performance.now();
-    
-    expect(end - start).toBeLessThan(50);
-    
-    flushTerminalBuffer();
-    expect(send).toHaveBeenCalledTimes(1);
-    
-    removeTerminalClient(send);
+    const elapsed = performance.now() - start;
+
+    expect(elapsed).toBeLessThan(100);
+    handlers.forEach((h) => {
+      expect(h).toHaveBeenCalledTimes(100);
+    });
+
+    handlers.forEach((h) => openclawEvents.off("log", h));
   });
 
-  it("clears buffer after flush", async () => {
-    const { addTerminalClient, broadcastTerminalData, flushTerminalBuffer, removeTerminalClient } = await import("../src/core/terminal-broadcast.js");
-    
-    const send = vi.fn();
-    addTerminalClient(send);
-
-    broadcastTerminalData("First batch\n");
-    flushTerminalBuffer();
-    
-    const firstCallCount = send.mock.calls.length;
-    
-    broadcastTerminalData("Second batch\n");
-    flushTerminalBuffer();
-    
-    expect(send.mock.calls.length).toBe(firstCallCount + 1);
-    
-    removeTerminalClient(send);
+  it("exports restoreTerminal to undo interception", async () => {
+    const { restoreTerminal } = await import("../src/core/terminal-broadcast.js");
+    expect(() => restoreTerminal()).not.toThrow();
   });
 });

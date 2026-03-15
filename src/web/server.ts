@@ -17,6 +17,7 @@ import {
   getWorkerUrlsForTeam,
   setSessionConfig,
   clearSessionConfig,
+  updateSessionCreativity,
 } from "../core/config.js";
 import { loadTeamConfig, clearTeamConfigCache } from "../core/team-config.js";
 import { writeFile } from "node:fs/promises";
@@ -33,7 +34,7 @@ import { validateStartup } from "../core/startup-validation.js";
 import { getTeamTemplate } from "../core/team-templates.js";
 import { logger } from "../core/logger.js";
 import { ensureWorkspaceDir } from "../core/workspace-fs.js";
-import { addTerminalClient, removeTerminalClient, initTerminalBroadcast } from "../core/terminal-broadcast.js";
+import { initTerminalBroadcast } from "../core/terminal-broadcast.js";
 import { log, note, spinner } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
 import { findAvailablePort } from "../core/port.js";
@@ -234,6 +235,7 @@ export async function runWeb(args: string[]): Promise<void> {
       await writeFile(configPath, JSON.stringify(config, null, 2));
       clearTeamConfigCache();
       applyConfigOverrides({ creativity: creativityVal, max_cycles: maxCyclesVal, max_generations: maxGensVal, session_mode: sessionModeVal, session_duration: sessionDurationVal });
+      if (creativityVal !== undefined) updateSessionCreativity(creativityVal);
       broadcast({ type: "config_updated", config: getFullConfig() });
       return { ok: true, path: configPath };
     } catch (err) {
@@ -261,19 +263,15 @@ export async function runWeb(args: string[]): Promise<void> {
 
   fastify.get("/ws", { websocket: true }, async (socket) => {
     clients.add(socket);
-    const sendFn = (data: string) => socket.send(data);
-    addTerminalClient(sendFn);
 
     sendStateSync(socket);
 
     socket.on("close", () => {
       clients.delete(socket);
-      removeTerminalClient(sendFn);
     });
 
     socket.on("error", () => {
       clients.delete(socket);
-      removeTerminalClient(sendFn);
     });
 
     const ctrl: SessionControl = {
@@ -337,7 +335,11 @@ export async function runWeb(args: string[]): Promise<void> {
         const v = Number(msg.value ?? 1);
         ctrl.speedFactor = Math.max(0.25, Math.min(5, v));
       } else if (cmd === "config") {
-        applyConfigOverrides((msg.values as Record<string, unknown>) ?? {});
+        const values = (msg.values as Record<string, unknown>) ?? {};
+        applyConfigOverrides(values);
+        if (typeof values.creativity === "number") {
+          updateSessionCreativity(values.creativity as number);
+        }
         broadcast({ type: "config_updated", config: getFullConfig() });
       } else if (cmd === "cancel") {
         ctrl.cancelled = true;

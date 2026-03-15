@@ -11,7 +11,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           "react-vendor": ["react", "react-dom"],
-          "xterm-vendor": ["@xterm/xterm", "@xterm/addon-fit"],
           "reactflow-vendor": ["reactflow", "@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
         },
       },

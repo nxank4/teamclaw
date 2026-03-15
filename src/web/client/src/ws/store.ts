@@ -2,18 +2,6 @@ import { create } from "zustand";
 
 export type ConnectionStatus = "connecting" | "open" | "closed" | "reconnecting" | "error";
 
-type TerminalDataCallback = (data: string) => void;
-const terminalSubscribers: Set<TerminalDataCallback> = new Set();
-
-export function subscribeToTerminalOutput(callback: TerminalDataCallback): () => void {
-  terminalSubscribers.add(callback);
-  return () => terminalSubscribers.delete(callback);
-}
-
-export function pushTerminalOutput(data: string): void {
-  terminalSubscribers.forEach((cb) => cb(data));
-}
-
 export interface NodeEventState {
   task_queue?: Record<string, unknown>[];
   bot_stats?: Record<string, Record<string, unknown>>;
@@ -111,7 +99,7 @@ export interface OpenClawLogEntry {
 }
 
 export type OpenClawLogFilter = "all" | "info" | "success" | "warn" | "error";
-export type OpenClawSourceFilter = "all" | "llm-client" | "worker-adapter" | "gateway";
+export type OpenClawSourceFilter = "all" | "llm-client" | "worker-adapter" | "gateway" | "console";
 
 export interface StreamingTextEntry {
   botId: string;

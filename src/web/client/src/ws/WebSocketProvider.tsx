@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useWsStore, pushTerminalOutput, type OpenClawLogEntry } from "./store";
+import { useWsStore, type OpenClawLogEntry } from "./store";
 
 const INITIAL_RECONNECT_MS = 1500;
 const MAX_RECONNECT_MS = 15000;
@@ -283,11 +283,6 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
             });
           } else if (type === "openclaw_log" && payload.entry) {
             pushOpenClawLog(payload.entry as OpenClawLogEntry);
-          } else if (type === "terminal_out" && payload.payload) {
-            const terminalPayload = payload.payload as { data?: string };
-            if (terminalPayload.data) {
-              pushTerminalOutput(terminalPayload.data);
-            }
           }
         } catch {
           // ignore parse errors

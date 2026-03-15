@@ -4,6 +4,7 @@
  */
 
 import WebSocket from "ws";
+import { randomUUID } from "node:crypto";
 import { logger, isDebugMode } from "./logger.js";
 import { coordinatorEvents, type CoordinatorStep } from "./coordinator-events.js";
 import { workerEvents, type WorkerProgressStep, type WorkerReasoningStep } from "./worker-events.js";
@@ -185,7 +186,21 @@ export class DashboardBridge {
         if (this.terminalBuffer.length === 0) return;
         const data = this.terminalBuffer.join("");
         this.terminalBuffer.length = 0;
-        this.relay({ type: "terminal_out", payload: { data } });
+        const cleaned = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").trim();
+        if (!cleaned) return;
+        this.relay({
+            type: "openclaw_log",
+            entry: {
+                id: randomUUID(),
+                level: "info",
+                source: "console",
+                action: "stdout",
+                model: "",
+                botId: "",
+                message: cleaned,
+                timestamp: Date.now(),
+            },
+        });
     }
 
     /** Send a bridge_relay command so the server broadcasts the event to browser clients. */

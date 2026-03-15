@@ -10,7 +10,7 @@ export type OpenClawLogLevel = "info" | "success" | "warn" | "error";
 export interface OpenClawLogEntry {
   id: string;
   level: OpenClawLogLevel;
-  source: "llm-client" | "worker-adapter" | "gateway";
+  source: "llm-client" | "worker-adapter" | "gateway" | "console";
   action: string;
   model: string;
   botId: string;
