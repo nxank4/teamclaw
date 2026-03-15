@@ -20,6 +20,10 @@ export interface TeamClawGlobalConfig {
   modelAllowlist?: string[];
   fallbackChain?: string[];
   workspaceDir?: string;
+  proxy?: {
+    path?: string;
+    logLevel?: "debug" | "info" | "warn" | "error" | "fatal" | "trace" | "silent";
+  };
 }
 
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
@@ -174,6 +178,21 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
     ? input.workspaceDir.trim()
     : undefined;
 
+  const rawProxy = (input as Record<string, unknown>).proxy;
+  const proxyObj = rawProxy && typeof rawProxy === "object" && !Array.isArray(rawProxy)
+    ? (rawProxy as Record<string, unknown>)
+    : undefined;
+  const proxy = proxyObj
+    ? {
+        path: typeof proxyObj.path === "string" && proxyObj.path.trim() ? proxyObj.path.trim() : "/proxy",
+        logLevel: (() => {
+          const valid: string[] = ["debug","info","warn","error","fatal","trace","silent"];
+          const v = typeof proxyObj.logLevel === "string" ? proxyObj.logLevel.trim() : "";
+          return (valid.includes(v) ? v : "info") as "debug" | "info" | "warn" | "error" | "fatal" | "trace" | "silent";
+        })(),
+      }
+    : undefined;
+
   return {
     version: 1,
     managedGateway: typeof input.managedGateway === "boolean" ? input.managedGateway : true,
@@ -192,6 +211,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
     ...(modelAllowlist && modelAllowlist.length > 0 ? { modelAllowlist } : {}),
     ...(fallbackChain && fallbackChain.length > 0 ? { fallbackChain } : {}),
     ...(workspaceDir ? { workspaceDir } : {}),
+    ...(proxy ? { proxy } : {}),
   };
 }
 

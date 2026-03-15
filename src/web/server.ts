@@ -38,6 +38,7 @@ import { log, note, spinner } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
 import { readGlobalConfigWithDefaults } from "../core/global-config.js";
 import { findAvailablePort } from "../core/port.js";
+import { proxyPlugin } from "../proxy/plugin.js";
 import { humanResponseEmitter } from "../core/human-response-events.js";
 import { getDefaultGoal } from "../core/configManager.js";
 import { coordinatorEvents, type CoordinatorStep } from "../core/coordinator-events.js";
@@ -188,6 +189,15 @@ export async function runWeb(args: string[]): Promise<void> {
       "Web client build not found. Run `pnpm run client:build` to serve the dashboard UI.",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Proxy plugin — local SSE proxy for OpenClawClient
+  // ---------------------------------------------------------------------------
+  const proxyCfg = globalCfg.proxy ?? {};
+  await fastify.register(proxyPlugin, {
+    basePath: proxyCfg.path ?? "/proxy",
+    logLevel: proxyCfg.logLevel ?? "info",
+  });
 
   // ---------------------------------------------------------------------------
   // REST endpoints
