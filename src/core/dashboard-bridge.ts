@@ -1,9 +1,9 @@
 /**
  * Dashboard Bridge - Forwards orchestration events to the TeamClaw web dashboard.
  * Used by work-runner to push state updates when the dashboard runs as a separate daemon.
+ * Uses HTTP POST to the REST bridge endpoint instead of WebSocket.
  */
 
-import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import { logger, isDebugMode } from "./logger.js";
 import { coordinatorEvents, type CoordinatorStep } from "./coordinator-events.js";
@@ -15,9 +15,9 @@ import { openclawEvents, type OpenClawLogEntry, type OpenClawStreamChunk } from 
 const TERMINAL_BATCH_MS = 50;
 
 export class DashboardBridge {
-    private ws: WebSocket | null = null;
     private connected = false;
     private port: number;
+    private baseUrl: string;
 
     private coordinatorListener: ((data: CoordinatorStep) => void) | null = null;
     private workerListener: ((data: WorkerProgressStep) => void) | null = null;
@@ -33,6 +33,8 @@ export class DashboardBridge {
 
     constructor(port: number) {
         this.port = port;
+        this.baseUrl = `http://localhost:${port}`;
+
         this.coordinatorListener = (data: CoordinatorStep) => {
             this.relay({
                 type: "node_event",
@@ -88,55 +90,27 @@ export class DashboardBridge {
     }
 
     async connect(): Promise<boolean> {
-        if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
-            return true;
-        }
+        if (this.connected) return true;
 
-        // Retry with backoff — daemon may not have its WS server ready yet
+        // Retry with backoff — daemon may not have its server ready yet
         for (let attempt = 0; attempt < 5; attempt++) {
             if (attempt > 0) {
                 await new Promise((r) => setTimeout(r, 500 * attempt));
             }
-            const ok = await this.tryConnect();
-            if (ok) return true;
+            try {
+                const res = await fetch(`${this.baseUrl}/api/config`, {
+                    signal: AbortSignal.timeout(3000),
+                });
+                if (res.ok) {
+                    this.connected = true;
+                    if (isDebugMode()) logger.agent("Dashboard bridge connected (HTTP)");
+                    return true;
+                }
+            } catch {
+                // server not ready yet
+            }
         }
         return false;
-    }
-
-    private tryConnect(): Promise<boolean> {
-        return new Promise<boolean>((resolve) => {
-            const url = `ws://localhost:${this.port}/ws`;
-            try {
-                this.ws = new WebSocket(url);
-            } catch {
-                this.connected = false;
-                resolve(false);
-                return;
-            }
-
-            const timeout = setTimeout(() => {
-                this.ws?.terminate();
-                this.connected = false;
-                resolve(false);
-            }, 3000);
-
-            this.ws.on("open", () => {
-                clearTimeout(timeout);
-                this.connected = true;
-                if (isDebugMode()) logger.agent("Dashboard bridge connected");
-                resolve(true);
-            });
-
-            this.ws.on("error", () => {
-                clearTimeout(timeout);
-                this.connected = false;
-                resolve(false);
-            });
-
-            this.ws.on("close", () => {
-                this.connected = false;
-            });
-        });
     }
 
     /** Intercept stdout/stderr in this process and forward terminal output to the dashboard. */
@@ -203,20 +177,17 @@ export class DashboardBridge {
         });
     }
 
-    /** Send a bridge_relay command so the server broadcasts the event to browser clients. */
+    /** Send a bridge_relay POST so the server broadcasts the event to browser clients. */
     private relay(event: Record<string, unknown>): void {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        try {
-            this.ws.send(JSON.stringify({
-                type: "system",
-                payload: {
-                    command: "bridge_relay",
-                    event,
-                },
-            }));
-        } catch {
+        if (!this.connected) return;
+        fetch(`${this.baseUrl}/api/bridge/relay`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event }),
+            signal: AbortSignal.timeout(5000),
+        }).catch(() => {
             // Best-effort
-        }
+        });
     }
 
     sendNodeEvent(nodeName: string, state: Record<string, unknown>): void {
@@ -262,7 +233,7 @@ export class DashboardBridge {
                 assigned_to: (lastTask as Record<string, unknown>).assigned_to ?? "",
                 output: result.output ?? "",
                 description: (lastTask as Record<string, unknown>).description ?? "",
-                message: result.success ? "✅ Task completed" : "❌ Task completed",
+                message: result.success ? "Task completed" : "Task completed",
                 bot_stats: state.bot_stats ?? {},
             };
         } else if (nodeName === "approval") {
@@ -339,10 +310,6 @@ export class DashboardBridge {
         if (this.streamChunkListener) {
             openclawEvents.off("stream_chunk", this.streamChunkListener);
             this.streamChunkListener = null;
-        }
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
         }
         this.connected = false;
     }

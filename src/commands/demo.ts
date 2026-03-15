@@ -7,8 +7,8 @@
 import Fastify from "fastify";
 import FastifyCors from "@fastify/cors";
 import FastifyStatic from "@fastify/static";
-import FastifyWebSocket from "@fastify/websocket";
-import WebSocket from "ws";
+import type { ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -210,7 +210,7 @@ async function runSequence(broadcast: (evt: object) => void): Promise<void> {
             assigned_to: task.assigned_to ?? "",
             output: result.output ?? "",
             description: task.description ?? "",
-            message: success ? "✅ Task completed" : "❌ Task completed",
+            message: success ? "Task completed" : "Task failed",
             bot_stats: state.bot_stats,
         };
         broadcast(buildNodeEvent("worker_execute", data, state));
@@ -352,6 +352,14 @@ async function runSequence(broadcast: (evt: object) => void): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// SSE client management
+// ---------------------------------------------------------------------------
+interface SseClient {
+    id: string;
+    res: ServerResponse;
+}
+
+// ---------------------------------------------------------------------------
 // Server entry point
 // ---------------------------------------------------------------------------
 
@@ -368,13 +376,17 @@ export async function runDemo(args: string[]): Promise<void> {
         logger.info(`Port ${requestedPort} in use, using ${port}`);
     }
 
-    const clients = new Set<WebSocket>();
+    const sseClients = new Set<SseClient>();
+    let eventCounter = 0;
 
     function broadcast(event: object): void {
+        eventCounter++;
         const data = JSON.stringify(event);
-        for (const client of clients) {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(data);
+        for (const client of sseClients) {
+            try {
+                client.res.write(`id: ${eventCounter}\ndata: ${data}\n\n`);
+            } catch {
+                // client may have disconnected
             }
         }
     }
@@ -392,8 +404,6 @@ export async function runDemo(args: string[]): Promise<void> {
     } else {
         logger.warn("Web client build not found. Run `pnpm run client:build` first.");
     }
-
-    await fastify.register(FastifyWebSocket);
 
     // Track latest state for state_sync on new connections
     let latestSnapshot: Record<string, unknown> = {
@@ -427,14 +437,21 @@ export async function runDemo(args: string[]): Promise<void> {
         originalBroadcast(event);
     }
 
-    fastify.get("/ws", { websocket: true }, async (socket) => {
-        clients.add(socket);
+    // SSE endpoint
+    fastify.get("/api/events", async (req, reply) => {
+        const raw = reply.raw;
+        raw.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+        });
 
         // Send state_sync so late-connecting clients see current state
-        socket.send(JSON.stringify({ type: "state_sync", state: latestSnapshot }));
+        raw.write(`data: ${JSON.stringify({ type: "state_sync", state: latestSnapshot })}\n\n`);
 
         // Send init with demo config
-        socket.send(JSON.stringify({
+        raw.write(`data: ${JSON.stringify({
             type: "init",
             config: {
                 creativity: 0.7,
@@ -446,17 +463,29 @@ export async function runDemo(args: string[]): Promise<void> {
                 generation: 1,
                 is_running: true,
             },
-        }));
+        })}\n\n`);
 
-        socket.on("close", () => clients.delete(socket));
-        socket.on("error", () => clients.delete(socket));
+        const clientId = randomUUID();
+        const client: SseClient = { id: clientId, res: raw };
+        sseClients.add(client);
+
+        const keepAlive = setInterval(() => {
+            try { raw.write(": keepalive\n\n"); } catch { clearInterval(keepAlive); }
+        }, 30_000);
+
+        req.raw.on("close", () => {
+            clearInterval(keepAlive);
+            sseClients.delete(client);
+        });
+
+        reply.hijack();
     });
 
     // SPA fallback
     if (clientDir) {
         fastify.setNotFoundHandler((request, reply) => {
             if (request.method !== "GET") return reply.status(404).send();
-            if (request.url.startsWith("/api") || request.url.startsWith("/ws")) {
+            if (request.url.startsWith("/api")) {
                 return reply.status(404).send();
             }
             return reply.sendFile("index.html", clientDir);

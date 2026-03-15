@@ -2,7 +2,7 @@ import { useWsStore } from "../ws";
 
 export function HumanApprovalModal() {
   const pending = useWsStore((s) => s.pendingApproval);
-  const sendMessage = useWsStore((s) => s.sendMessage);
+  const sendCommand = useWsStore((s) => s.sendCommand);
   const setPendingApproval = useWsStore((s) => s.setPendingApproval);
 
   if (!pending) return null;
@@ -11,8 +11,7 @@ export function HumanApprovalModal() {
   const description = (pending.description as string) ?? "";
 
   const respond = (action: "approve" | "reject" | "feedback", feedback?: string) => {
-    sendMessage?.({
-      command: "approval_response",
+    sendCommand("approval_response", {
       task_id: taskId,
       action,
       feedback: feedback ?? "",

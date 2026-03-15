@@ -1,13 +1,6 @@
 import { useState } from "react";
 import { useWsStore, type AlertType } from "../ws";
 
-const ALERT_TYPE_LABELS: Record<AlertType, string> = {
-  approval_request: "Approvals",
-  hallucination_warning: "Hallucinations",
-  system_error: "System Errors",
-  timeout: "Timeouts",
-};
-
 export function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const alerts = useWsStore((s) => s.alerts);
   const pendingApproval = useWsStore((s) => s.pendingApproval);
@@ -16,19 +9,16 @@ export function NotificationPanel({ open, onClose }: { open: boolean; onClose: (
   const markAllRead = useWsStore((s) => s.markAllRead);
   const clearAlerts = useWsStore((s) => s.clearAlerts);
   const setPendingApproval = useWsStore((s) => s.setPendingApproval);
-  const sendMessage = useWsStore((s) => s.sendMessage);
+  const sendCommand = useWsStore((s) => s.sendCommand);
   const notificationPrefs = useWsStore((s) => s.notificationPrefs);
-  const setNotificationPrefs = useWsStore((s) => s.setNotificationPrefs);
-  const toggleNotificationType = useWsStore((s) => s.toggleNotificationType);
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
-  const [prefsOpen, setPrefsOpen] = useState(false);
 
   const unreadCount = alerts.filter((a) => !a.read).length;
 
   function handleApprove() {
-    sendMessage({ command: "approval_response", action: "approved" });
+    sendCommand("approval_response", { action: "approved" });
     setPendingApproval(null);
     setFeedbackOpen(false);
     setFeedbackText("");
@@ -36,7 +26,7 @@ export function NotificationPanel({ open, onClose }: { open: boolean; onClose: (
 
   function handleRejectSubmit() {
     const trimmed = feedbackText.trim();
-    sendMessage({ command: "approval_response", action: "feedback", feedback: trimmed || undefined });
+    sendCommand("approval_response", { action: "feedback", feedback: trimmed || undefined });
     setPendingApproval(null);
     setFeedbackOpen(false);
     setFeedbackText("");
@@ -63,14 +53,6 @@ export function NotificationPanel({ open, onClose }: { open: boolean; onClose: (
             )}
             <button
               type="button"
-              onClick={() => setPrefsOpen((v) => !v)}
-              className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 transition-colors p-0.5"
-              title="Notification preferences"
-            >
-              <i className="bi bi-gear text-sm" />
-            </button>
-            <button
-              type="button"
               onClick={onClose}
               className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 transition-colors"
             >
@@ -79,39 +61,9 @@ export function NotificationPanel({ open, onClose }: { open: boolean; onClose: (
           </div>
         </div>
 
-        {prefsOpen && (
-          <div className="border-b border-stone-200 dark:border-stone-700 px-4 py-2.5 space-y-2">
-            <label className="flex items-center justify-between cursor-pointer">
-              <span className="text-xs font-medium text-stone-700 dark:text-stone-300">Notifications enabled</span>
-              <button
-                type="button"
-                onClick={() => setNotificationPrefs({ enabled: !notificationPrefs.enabled })}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${notificationPrefs.enabled ? "bg-blue-500" : "bg-stone-300 dark:bg-stone-600"}`}
-              >
-                <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${notificationPrefs.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
-              </button>
-            </label>
-            {notificationPrefs.enabled && (
-              <div className="space-y-1 pl-1">
-                {(Object.keys(ALERT_TYPE_LABELS) as AlertType[]).map((t) => (
-                  <label key={t} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notificationPrefs.types[t]}
-                      onChange={() => toggleNotificationType(t)}
-                      className="h-3.5 w-3.5 rounded border-stone-300 dark:border-stone-600 text-blue-500 focus:ring-blue-500"
-                    />
-                    <span className="text-xs text-stone-600 dark:text-stone-400">{ALERT_TYPE_LABELS[t]}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         <div className="max-h-96 overflow-y-auto p-3 space-y-2">
           {!notificationPrefs.enabled ? (
-            <p className="py-4 text-center text-xs text-stone-400 dark:text-stone-500">Notifications paused. Enable in preferences above.</p>
+            <p className="py-4 text-center text-xs text-stone-400 dark:text-stone-500">Notifications paused. Enable in Settings &rarr; Integrations.</p>
           ) : (
             <>
               {pendingApproval && (

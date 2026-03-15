@@ -32,7 +32,7 @@ const btnPrimary = `${btnClass} bg-stone-800 dark:bg-stone-700 text-white hover:
 const btnSecondary = `${btnClass} border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-stone-400/20`;
 
 export function ModelSettings() {
-  const sendMessage = useWsStore((s) => s.sendMessage);
+  const sendCommand = useWsStore((s) => s.sendCommand);
   const modelConfig = useWsStore((s) => s.modelConfig);
   const [models, setModels] = useState<ModelState | null>(null);
   const [selectedDefault, setSelectedDefault] = useState("");
@@ -72,7 +72,7 @@ export function ModelSettings() {
   }, [modelConfig]);
 
   function switchModel(model: string, agent?: string) {
-    sendMessage({ command: "model_switch", model, agent });
+    sendCommand("model_switch", { model, agent });
     setStatus(`Switching ${agent ? `${agent} model` : "default model"} to ${model}...`);
     setTimeout(() => setStatus(null), 2000);
   }

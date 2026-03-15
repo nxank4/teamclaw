@@ -71,23 +71,19 @@ export async function startDashboard(
         }
     }
 
-    // Verify WebSocket endpoint (only if HTTP health passed)
+    // Verify SSE endpoint (only if HTTP health passed)
     if (dashboardHealthy) {
         try {
-            const wsCheckUrl = `http://localhost:${actualPort}/ws`;
-            const wsRes = await fetch(wsCheckUrl, { signal: AbortSignal.timeout(3000) });
-            if (wsRes.status < 500) {
-                logger.success(`>>> Dashboard WebSocket: OK (HTTP ${wsRes.status} at /ws)`);
+            const sseCheckUrl = `http://localhost:${actualPort}/api/config`;
+            const sseRes = await fetch(sseCheckUrl, { signal: AbortSignal.timeout(3000) });
+            if (sseRes.ok) {
+                logger.success(`>>> Dashboard SSE: OK (API reachable)`);
             } else {
-                logger.warn(`>>> Dashboard WebSocket: unexpected status ${wsRes.status}`);
+                logger.warn(`>>> Dashboard SSE: unexpected status ${sseRes.status}`);
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes("ECONNRESET") || msg.includes("upgrade")) {
-                logger.success(">>> Dashboard WebSocket: OK (endpoint active)");
-            } else {
-                logger.warn(`>>> Dashboard WebSocket: check failed — ${msg}`);
-            }
+            logger.warn(`>>> Dashboard SSE: check failed — ${msg}`);
         }
     }
 

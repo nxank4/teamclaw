@@ -211,7 +211,7 @@ function MatrixQuadrant({
 
 export function EisenhowerMatrix() {
   const task_queue = useWsStore((s) => s.task_queue);
-  const sendMessage = useWsStore((s) => s.sendMessage);
+  const sendCommand = useWsStore((s) => s.sendCommand);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [activeTask, setActiveTask] = useState<Record<string, unknown> | null>(null);
 
@@ -257,8 +257,7 @@ export function EisenhowerMatrix() {
     const currentImportance = Number(task.importance ?? 5);
     const scores = getNudgedScores(quadrantId, currentUrgency, currentImportance);
 
-    sendMessage({
-      type: "UPDATE_TASK",
+    sendCommand("update_task", {
       taskId,
       updates: {
         urgency: scores.urgency,

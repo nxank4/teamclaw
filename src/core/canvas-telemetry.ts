@@ -6,7 +6,7 @@
 import { CONFIG } from "../core/config.js";
 import { logger, isDebugMode } from "../core/logger.js";
 import { wsManager } from "./ws-manager.js";
-import type { WsEvent } from "../types/ws-events.js";
+interface WsEvent { type: string; payload: unknown; }
 
 export interface TaskEvent {
     task_id: string;

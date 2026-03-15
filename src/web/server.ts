@@ -1,18 +1,17 @@
 /**
  * Fastify server for TeamClaw web UI.
- * Serves static HTML and streams workflow events via WebSocket.
+ * Serves static HTML and streams workflow events via SSE.
+ * Client→server commands use REST endpoints.
  */
 
 import Fastify from "fastify";
 import FastifyCors from "@fastify/cors";
 import FastifyStatic from "@fastify/static";
-import FastifyWebSocket from "@fastify/websocket";
-import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { createTeamOrchestration } from "../core/simulation.js";
 import { buildTeamFromRoster, buildTeamFromTemplate } from "../core/team-templates.js";
-import type { ApprovalPending, ApprovalResponse } from "../agents/approval.js";
+import type { ApprovalResponse } from "../agents/approval.js";
 import {
   getWorkerUrlsForTeam,
   setSessionConfig,
@@ -37,8 +36,8 @@ import { ensureWorkspaceDir } from "../core/workspace-fs.js";
 import { initTerminalBroadcast } from "../core/terminal-broadcast.js";
 import { log, note, spinner } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
+import { readGlobalConfigWithDefaults } from "../core/global-config.js";
 import { findAvailablePort } from "../core/port.js";
-import { WsEventSchema } from "../types/ws-events.js";
 import { humanResponseEmitter } from "../core/human-response-events.js";
 import { getDefaultGoal } from "../core/configManager.js";
 import { coordinatorEvents, type CoordinatorStep } from "../core/coordinator-events.js";
@@ -49,11 +48,16 @@ import { startGatewayLogTailer } from "../core/gateway-log-tailer.js";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  clients,
   currentSessionState,
   broadcast,
   updateSessionState,
-  sendStateSync,
+  addSseClient,
+  removeSseClient,
+  sessionControl,
+  resetSessionControl,
+  approvalProvider,
+  getApprovalResolve,
+  setApprovalResolve,
   cliCycles,
   cliGenerations,
   cliCreativity,
@@ -64,12 +68,10 @@ import {
   SERVER_START_TS,
 } from "./session-state.js";
 
-import { parseNodeEvent, buildWsValidationError, normalizeIncomingWsMessage } from "./node-events.js";
+import { parseNodeEvent } from "./node-events.js";
 import {
   getModelConfig,
   listAvailableModels,
-  setAgentModel,
-  setDefaultModel,
   resolveAlias,
   isModelAllowed,
 } from "../core/model-config.js";
@@ -96,11 +98,11 @@ function resolveClientDir(): string | null {
   return null;
 }
 
-interface SessionControl {
-  speedFactor: number;
-  paused: boolean;
-  cancelled: boolean;
-}
+// ---------------------------------------------------------------------------
+// Orchestration state (module-level — only one session at a time)
+// ---------------------------------------------------------------------------
+let runThreadId: string | null = null;
+let currentOrch: ReturnType<typeof createTeamOrchestration> | null = null;
 
 export async function runWeb(args: string[]): Promise<void> {
   const canRenderSpinner = Boolean(process.stdout.isTTY && process.stderr.isTTY);
@@ -139,11 +141,13 @@ export async function runWeb(args: string[]): Promise<void> {
 
   const result = await validateStartup({ templateId: "game_dev" });
   if (!result.ok) {
+    logger.warn(`Gateway health check failed: ${result.message}`);
     if (s) {
-      s.stop(`❌ Web server failed to start: ${result.message}`);
+      s.message("Gateway unavailable — dashboard will start without it");
     }
-    logger.error(result.message);
-    process.exit(1);
+    updateSessionState({ gatewayAvailable: false });
+  } else {
+    updateSessionState({ gatewayAvailable: true });
   }
 
   await ensureWorkspaceDir(CONFIG.workspaceDir);
@@ -151,10 +155,11 @@ export async function runWeb(args: string[]): Promise<void> {
     s.message(randomPhrase("boot"));
   }
 
-  let requestedPort = 8000;
+  const globalCfg = readGlobalConfigWithDefaults();
+  let requestedPort = globalCfg.dashboardPort;
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "-p" || args[i] === "--port") && args[i + 1]) {
-      requestedPort = parseInt(args[i + 1], 10) || 8000;
+      requestedPort = parseInt(args[i + 1], 10) || globalCfg.dashboardPort;
       i++;
     }
   }
@@ -165,7 +170,7 @@ export async function runWeb(args: string[]): Promise<void> {
 
   const fastify = Fastify({ logger: false });
   if (s) {
-    s.message("🌐 Configuring HTTP server and routes...");
+    s.message("Configuring HTTP server and routes...");
   }
   await fastify.register(FastifyCors, {
     origin: isProduction ? false : "http://localhost:5173",
@@ -257,502 +262,20 @@ export async function runWeb(args: string[]): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
-  // WebSocket endpoint
+  // SSE endpoint — replaces WebSocket for server→client streaming
   // ---------------------------------------------------------------------------
-  await fastify.register(FastifyWebSocket);
-
-  fastify.get("/ws", { websocket: true }, async (socket) => {
-    clients.add(socket);
-
-    sendStateSync(socket);
-
-    socket.on("close", () => {
-      clients.delete(socket);
+  fastify.get("/api/events", async (req, reply) => {
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     });
 
-    socket.on("error", () => {
-      clients.delete(socket);
-    });
-
-    const ctrl: SessionControl = {
-      speedFactor: 1.0,
-      paused: true,
-      cancelled: false,
-    };
-
-    let approvalResolve: ((r: ApprovalResponse) => void) | null = null;
-    let runThreadId: string | null = null;
-    let currentOrch: ReturnType<typeof createTeamOrchestration> | null = null;
-    const approvalProvider = (pending: ApprovalPending): Promise<ApprovalResponse> =>
-      new Promise((resolve) => {
-        approvalResolve = resolve;
-        socket.send(JSON.stringify({ type: "approval_request", pending }));
-        updateSessionState({ pendingApproval: pending as unknown as Record<string, unknown> });
-      });
-
-    socket.on("message", async (raw: Buffer | string) => {
-      const data = Buffer.isBuffer(raw) ? raw.toString() : String(raw);
-      let parsedJson: unknown;
-      try {
-        parsedJson = JSON.parse(data) as unknown;
-      } catch {
-        socket.send(
-          JSON.stringify(buildWsValidationError("Incoming WS payload must be valid JSON.")),
-        );
-        return;
-      }
-
-      const normalized = normalizeIncomingWsMessage(parsedJson);
-      const parsedEvent = WsEventSchema.safeParse(normalized);
-      if (!parsedEvent.success) {
-        socket.send(
-          JSON.stringify(
-            buildWsValidationError(
-              "Incoming WS payload failed schema validation.",
-              parsedEvent.error.issues,
-            ),
-          ),
-        );
-        return;
-      }
-
-      const payload = parsedEvent.data.payload;
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-        socket.send(
-          JSON.stringify(
-            buildWsValidationError("Incoming WS payload must be an object."),
-          ),
-        );
-        return;
-      }
-
-      const msg = payload as Record<string, unknown>;
-
-      const cmd = msg.command;
-      if (cmd === "pause") ctrl.paused = true;
-      else if (cmd === "resume") ctrl.paused = false;
-      else if (cmd === "speed") {
-        const v = Number(msg.value ?? 1);
-        ctrl.speedFactor = Math.max(0.25, Math.min(5, v));
-      } else if (cmd === "config") {
-        const values = (msg.values as Record<string, unknown>) ?? {};
-        applyConfigOverrides(values);
-        if (typeof values.creativity === "number") {
-          updateSessionCreativity(values.creativity as number);
-        }
-        broadcast({ type: "config_updated", config: getFullConfig() });
-      } else if (cmd === "cancel") {
-        ctrl.cancelled = true;
-        ctrl.paused = false;
-      } else if (cmd === "approval_response") {
-        const action = (msg.action as string) ?? "approved";
-        const payload = msg as Record<string, unknown>;
-        const feedback = payload.feedback as string | undefined;
-        const taskId = payload.task_id as string | undefined;
-
-        humanResponseEmitter.emitResponse({
-          action: action as "approved" | "edited" | "feedback",
-          feedback,
-          taskId,
-        });
-
-        if (approvalResolve) {
-          approvalResolve({
-            action: action as ApprovalResponse["action"],
-            edited_task: payload.edited_task as { description: string } | undefined,
-            feedback,
-          });
-          approvalResolve = null;
-        }
-      } else if (msg.type === "UPDATE_TASK" && runThreadId && currentOrch) {
-        const taskId = msg.taskId as string;
-        const updates = (msg.updates as Record<string, unknown>) ?? {};
-        const status = updates.status as string | undefined;
-        const priority = updates.priority as string | undefined;
-        const assigned_to = updates.assigned_to as string | undefined;
-        const urgency = updates.urgency as number | undefined;
-        const importance = updates.importance as number | undefined;
-        const timebox_minutes = updates.timebox_minutes as number | undefined;
-        const allowedStatuses = [
-          "pending",
-          "in_progress",
-          "completed",
-          "failed",
-          "backlog",
-          "needs_approval",
-          "TIMEOUT_WARNING",
-        ];
-        if (status && !allowedStatuses.includes(status)) {
-          socket.send(JSON.stringify({ type: "error", message: `Invalid status: ${status}` }));
-          return;
-        }
-        try {
-          const config = { configurable: { thread_id: runThreadId } };
-          const snapshot = await currentOrch.graph.getState(config);
-          const values = (snapshot as { values?: Record<string, unknown> }).values ?? {};
-          const taskQueue = (values.task_queue ?? []) as Record<string, unknown>[];
-          const idx = taskQueue.findIndex((t) => (t.task_id as string) === taskId);
-          if (idx < 0) {
-            socket.send(JSON.stringify({ type: "error", message: `Task not found: ${taskId}` }));
-            return;
-          }
-          const updatedTask = { ...taskQueue[idx] };
-          if (status !== undefined) updatedTask.status = status;
-          if (priority !== undefined) updatedTask.priority = priority;
-          if (assigned_to !== undefined) updatedTask.assigned_to = assigned_to;
-          if (urgency !== undefined) {
-            const raw = Number(urgency);
-            if (Number.isFinite(raw)) {
-              updatedTask.urgency = Math.min(10, Math.max(1, raw));
-            }
-          }
-          if (importance !== undefined) {
-            const raw = Number(importance);
-            if (Number.isFinite(raw)) {
-              updatedTask.importance = Math.min(10, Math.max(1, raw));
-            }
-          }
-          if (timebox_minutes !== undefined) {
-            const raw = Number(timebox_minutes);
-            if (Number.isFinite(raw) && raw >= 1) {
-              updatedTask.timebox_minutes = raw;
-            }
-          }
-          const updatedQueue = [...taskQueue];
-          updatedQueue[idx] = updatedTask;
-          await currentOrch.graph.updateState(config, { task_queue: updatedQueue });
-          broadcast({ type: "task_queue_updated", task_queue: updatedQueue });
-          updateSessionState({ taskQueue: updatedQueue });
-        } catch (err) {
-          socket.send(
-            JSON.stringify({
-              type: "error",
-              message: String((err as Error).message ?? err),
-            })
-          );
-        }
-      } else if (cmd === "bridge_relay") {
-        const event = msg.event as Record<string, unknown> | undefined;
-        if (event && typeof event === "object") {
-          broadcast(event);
-          if (event.type === "node_event") {
-            const state = event.state as Record<string, unknown> | undefined;
-            if (state) {
-              updateSessionState({
-                activeNode: (event.node as string) ?? null,
-                taskQueue: (state.task_queue as Record<string, unknown>[]) ?? [],
-                botStats: (state.bot_stats as Record<string, Record<string, unknown>>) ?? {},
-                cycle: (state.cycle as number) ?? 0,
-                isRunning: true,
-              });
-            }
-          } else if (event.type === "session_complete") {
-            updateSessionState({ isRunning: false, activeNode: null });
-          }
-        }
-      } else if (cmd === "model_switch") {
-        const model = (msg.model as string)?.trim();
-        const agent = (msg.agent as string)?.trim();
-        if (!model) {
-          socket.send(JSON.stringify({ type: "error", message: "model_switch requires a model field" }));
-        } else {
-          const resolved = resolveAlias(model);
-          if (!isModelAllowed(resolved)) {
-            socket.send(JSON.stringify({ type: "error", message: `Model "${resolved}" is not in the allowlist` }));
-          } else if (agent) {
-            persistAgentModel(agent, resolved);
-            const updated = getModelConfig();
-            broadcast({
-              type: "model_updated",
-              default_model: updated.defaultModel,
-              agent_models: updated.agentModels,
-              fallback_chain: updated.fallbackChain,
-              aliases: updated.aliases,
-              allowlist: updated.allowlist,
-            });
-          } else {
-            persistDefaultModel(resolved);
-            const updated = getModelConfig();
-            broadcast({
-              type: "model_updated",
-              default_model: updated.defaultModel,
-              agent_models: updated.agentModels,
-              fallback_chain: updated.fallbackChain,
-              aliases: updated.aliases,
-              allowlist: updated.allowlist,
-            });
-          }
-        }
-      } else if (cmd === "model_query") {
-        const config = getModelConfig();
-        socket.send(JSON.stringify({
-          type: "model_state",
-          default_model: config.defaultModel,
-          agent_models: config.agentModels,
-          fallback_chain: config.fallbackChain,
-          aliases: config.aliases,
-          allowlist: config.allowlist,
-          available_models: config.availableModels,
-        }));
-      } else if (cmd === "start") {
-        const startConfig = msg.config as Record<string, unknown> | undefined;
-        if (startConfig) applyConfigOverrides(startConfig);
-        const teamConfig = await loadTeamConfig();
-        setSessionConfig({
-          creativity: cliCreativity,
-          gateway_url: teamConfig?.gateway_url,
-          team_model: teamConfig?.team_model,
-        });
-        const userGoal =
-          (msg.user_goal as string) ??
-          getDefaultGoal();
-        const teamTemplate =
-          (msg.team_template as string) ?? teamConfig?.template ?? "game_dev";
-        const workerUrlOverride = (msg.worker_url as string)?.trim() || undefined;
-
-        broadcast({ type: "config_updated", config: getFullConfig() });
-
-        if (getTeamTemplate(teamTemplate) === null) {
-          socket.send(
-            JSON.stringify({
-              type: "error",
-              message: "Invalid template. Use game_dev, startup, or content.",
-            })
-          );
-          return;
-        }
-
-        (async () => {
-          const openclawUrl =
-            workerUrlOverride?.trim() ||
-            (teamConfig?.worker_url as string | undefined)?.trim() ||
-            CONFIG.openclawWorkerUrl?.trim();
-          if (!openclawUrl) {
-            broadcast({
-              type: "provision_error",
-              error: "❌ OpenClaw Gateway not found. TeamClaw requires OpenClaw to function.",
-            });
-            return;
-          }
-          const provisionResult = await provisionOpenClaw({ workerUrl: openclawUrl });
-          if (!provisionResult.ok) {
-            const detail = provisionResult.error ?? "unknown error";
-            logger.warn(`OpenClaw provisioning failed: ${detail}`);
-            broadcast({
-              type: "provision_error",
-              error: `❌ OpenClaw Gateway not found. TeamClaw requires OpenClaw to function. Details: ${detail}`,
-            });
-            return;
-          }
-
-          const vectorMemory = new VectorMemory(
-            CONFIG.vectorStorePath,
-            teamConfig?.memory_backend ?? CONFIG.memoryBackend
-          );
-          await vectorMemory.init();
-          const analyst = new PostMortemAnalyst(vectorMemory);
-
-          const effectiveMaxGenerations = cliSessionMode === "time" ? 999 : cliGenerations;
-          const effectiveTimeoutMinutes = cliSessionMode === "time" ? cliSessionDuration : 0;
-          const sessionStartMs = Date.now();
-
-          for (let genId = 1; genId <= effectiveMaxGenerations; genId++) {
-            if (cliSessionMode === "time" && effectiveTimeoutMinutes > 0) {
-              const elapsed = Date.now() - sessionStartMs;
-              if (elapsed >= effectiveTimeoutMinutes * 60_000) break;
-            }
-            if (ctrl.cancelled) break;
-
-            const priorLessons = await vectorMemory.getCumulativeLessons();
-            broadcast({
-              type: "generation_start",
-              generation: genId,
-              max_generations: effectiveMaxGenerations,
-              lessons_count: priorLessons.length,
-              session_mode: cliSessionMode,
-              session_duration: cliSessionMode === "time" ? cliSessionDuration : undefined,
-            });
-            updateSessionState({
-              generation: genId, isRunning: true, activeNode: null, cycle: 0,
-              generationProgress: { generation: genId, maxGenerations: effectiveMaxGenerations, lessonsCount: priorLessons.length, startedAt: Date.now() },
-              cycleProgress: null,
-            });
-
-            const team =
-              teamConfig?.roster && teamConfig.roster.length > 0
-                ? buildTeamFromRoster(teamConfig.roster)
-                : buildTeamFromTemplate(teamTemplate);
-            const workerUrls = getWorkerUrlsForTeam(team.map((b) => b.id), {
-              singleUrl: workerUrlOverride || teamConfig?.worker_url,
-              workers: workerUrlOverride || teamConfig?.worker_url ? undefined : teamConfig?.workers,
-            });
-            const orch = createTeamOrchestration({
-              team,
-              workerUrls,
-              approvalProvider,
-            });
-            orch.configureSession({
-              maxRuns: cliCycles,
-              timeoutMinutes: effectiveTimeoutMinutes,
-            });
-            runThreadId = randomUUID();
-            currentOrch = orch;
-          if (runThreadId) {
-            THREAD_REGISTRY.set(runThreadId, { orch });
-          }
-            const initialState = orch.getInitialState({
-              userGoal,
-              ancestralLessons: priorLessons,
-            });
-            let lastCycle = 0;
-            let finalState: GraphState = initialState;
-
-            try {
-              for await (const chunk of await orch.graph.stream(initialState, {
-                streamMode: "values",
-                configurable: { thread_id: runThreadId },
-              })) {
-                if (ctrl.cancelled) break;
-                while (ctrl.paused && !ctrl.cancelled) {
-                  await new Promise((r) => setTimeout(r, 100));
-                }
-                const nodeState = chunk as Record<string, unknown>;
-                const nodeName = (nodeState.__node__ as string) ?? "unknown";
-                if (!nodeName || nodeName === "unknown") continue;
-                finalState = nodeState as unknown as GraphState;
-
-                const cycle = (nodeState.cycle_count as number) ?? 0;
-                if (cycle > lastCycle) {
-                  lastCycle = cycle;
-                  broadcast({
-                    type: "cycle_start",
-                    cycle,
-                    max_cycles: cliCycles,
-                  });
-                  updateSessionState({ cycleProgress: { cycle, maxCycles: cliCycles, startedAt: Date.now() } });
-                }
-
-                const parsed = parseNodeEvent(nodeName, nodeState);
-                if (nodeName === "worker_execute") {
-                  (parsed.data as Record<string, unknown>).bot_stats =
-                    nodeState.bot_stats ?? {};
-                  const d = parsed.data as Record<string, unknown>;
-                  fireTaskCompleteWebhook({
-                    task_id: (d.task_id as string) ?? "",
-                    success: (d.success as boolean) ?? false,
-                    output: (d.output as string) ?? undefined,
-                    quality_score: (d.quality_score as number) ?? undefined,
-                    assigned_to: (d.assigned_to as string) ?? undefined,
-                    description: (d.description as string) ?? undefined,
-                    bot_id: (d.assigned_to as string) ?? undefined,
-                  }).catch(() => {});
-                }
-                if (nodeName === "increment_cycle") {
-                  const cycle = (nodeState.cycle_count as number) ?? 0;
-                  const botStats = (nodeState.bot_stats ?? {}) as Record<string, Record<string, unknown>>;
-                  const tc = Object.values(botStats).reduce(
-                    (s, x) => s + ((x?.tasks_completed as number) ?? 0),
-                    0
-                  );
-                  const tf = Object.values(botStats).reduce(
-                    (s, x) => s + ((x?.tasks_failed as number) ?? 0),
-                    0
-                  );
-                  fireCycleEndWebhook({
-                    cycle,
-                    max_cycles: cliCycles,
-                    tasks_completed: tc,
-                    tasks_failed: tf,
-                  }).catch(() => {});
-                }
-                broadcast({ type: "node_event", ...parsed });
-
-                updateSessionState({
-                  activeNode: nodeName,
-                  taskQueue: nodeState.task_queue as Record<string, unknown>[] ?? [],
-                  botStats: nodeState.bot_stats as Record<string, Record<string, unknown>> ?? {},
-                  cycle: (nodeState.cycle_count as number) ?? 0,
-                  isRunning: true,
-                });
-
-                await new Promise((r) =>
-                  setTimeout(r, 300 / ctrl.speedFactor)
-                );
-              }
-            } catch (err) {
-              broadcast({ type: "error", message: String(err) });
-              break;
-            }
-
-            if (ctrl.cancelled) {
-              broadcast({ type: "session_cancelled" });
-              break;
-            }
-
-            const botStats =
-              (finalState as Record<string, unknown>).bot_stats as Record<
-                string,
-                Record<string, unknown>
-              > | null;
-            const totalDone = botStats
-              ? Object.values(botStats).reduce(
-                  (s, x) => s + ((x?.tasks_completed as number) ?? 0),
-                  0
-                )
-              : 0;
-            const totalFailed = botStats
-              ? Object.values(botStats).reduce(
-                  (s, x) => s + ((x?.tasks_failed as number) ?? 0),
-                  0
-                )
-              : 0;
-            const failed =
-              totalDone + totalFailed > 0 &&
-              (totalFailed >= totalDone || totalDone === 0);
-            const outcome = failed ? "failure" : "success";
-
-            if (failed) {
-              const stateWithCause = {
-                ...finalState,
-                death_reason: `Tasks: ${totalFailed} failed, ${totalDone} completed`,
-                generation_id: genId,
-              };
-              await analyst.analyzeFailure(stateWithCause);
-            }
-
-            const fs = {
-              cycles_survived: (finalState as Record<string, unknown>).cycle_count ?? 0,
-              tasks_completed: totalDone,
-              tasks_failed: totalFailed,
-            };
-            broadcast({
-              type: "generation_end",
-              generation: genId,
-              outcome,
-              final_state: fs,
-              gen_summary: { outcome, final_state: fs },
-            });
-            updateSessionState({ generationProgress: null, cycleProgress: null });
-
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-
-          if (!ctrl.cancelled) {
-            broadcast({ type: "session_complete" });
-          }
-          if (runThreadId) {
-            THREAD_REGISTRY.delete(runThreadId);
-          }
-          runThreadId = null;
-          currentOrch = null;
-          updateSessionState({ isRunning: false, activeNode: null, generationProgress: null, cycleProgress: null, pendingApproval: null });
-          clearSessionConfig();
-        })();
-      }
-    });
-
+    // Send init payload (config + state sync)
     const teamConfig = await loadTeamConfig();
-    const config = {
+    const initConfig = {
       ...getFullConfig(),
       saved_template: teamConfig?.template,
       saved_goal: teamConfig?.goal,
@@ -760,14 +283,515 @@ export async function runWeb(args: string[]): Promise<void> {
       generation: currentSessionState.generation,
       is_running: currentSessionState.isRunning,
     };
-    socket.send(JSON.stringify({ type: "init", config, server_start_ts: SERVER_START_TS }));
+    const initPayload = JSON.stringify({ type: "init", config: initConfig, server_start_ts: SERVER_START_TS });
+    raw.write(`data: ${initPayload}\n\n`);
+
+    // Send state_sync
+    const stateSyncPayload = JSON.stringify({
+      type: "state_sync",
+      state: {
+        activeNode: currentSessionState.activeNode,
+        cycle: currentSessionState.cycle,
+        taskQueue: currentSessionState.taskQueue,
+        botStats: currentSessionState.botStats,
+        isRunning: currentSessionState.isRunning,
+        generation: currentSessionState.generation,
+        generationProgress: currentSessionState.generationProgress,
+        cycleProgress: currentSessionState.cycleProgress,
+        pendingApproval: currentSessionState.pendingApproval,
+        gatewayAvailable: currentSessionState.gatewayAvailable,
+      },
+    });
+    raw.write(`data: ${stateSyncPayload}\n\n`);
+
+    // Replay missed events if Last-Event-ID provided
+    const lastIdHeader = req.headers["last-event-id"];
+    const lastEventId = lastIdHeader ? parseInt(String(lastIdHeader), 10) : 0;
+
+    const clientId = randomUUID();
+    const client = { id: clientId, res: raw };
+    addSseClient(client, lastEventId || undefined);
+
+    // Keep-alive ping every 30s
+    const keepAlive = setInterval(() => {
+      try {
+        raw.write(": keepalive\n\n");
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, 30_000);
+
+    req.raw.on("close", () => {
+      clearInterval(keepAlive);
+      removeSseClient(client);
+    });
+
+    // Prevent Fastify from closing the response
+    reply.hijack();
   });
 
-  // SPA fallback AFTER all API/WS routes
+  // ---------------------------------------------------------------------------
+  // REST command endpoints — replace WS message commands
+  // ---------------------------------------------------------------------------
+
+  fastify.post("/api/session/start", async (req, reply) => {
+    const msg = (req.body ?? {}) as Record<string, unknown>;
+    const startConfig = msg.config as Record<string, unknown> | undefined;
+    if (startConfig) applyConfigOverrides(startConfig);
+    const teamConfig = await loadTeamConfig();
+    setSessionConfig({
+      creativity: cliCreativity,
+      gateway_url: teamConfig?.gateway_url,
+      team_model: teamConfig?.team_model,
+    });
+    const userGoal =
+      (msg.user_goal as string) ??
+      getDefaultGoal();
+    const teamTemplate =
+      (msg.team_template as string) ?? teamConfig?.template ?? "game_dev";
+    const workerUrlOverride = (msg.worker_url as string)?.trim() || undefined;
+
+    broadcast({ type: "config_updated", config: getFullConfig() });
+
+    if (getTeamTemplate(teamTemplate) === null) {
+      return reply.status(400).send({
+        type: "error",
+        message: "Invalid template. Use game_dev, startup, or content.",
+      });
+    }
+
+    // Reset session control for new session
+    resetSessionControl();
+    sessionControl.paused = false;
+
+    // Fire orchestration in background
+    (async () => {
+      const openclawUrl =
+        workerUrlOverride?.trim() ||
+        (teamConfig?.worker_url as string | undefined)?.trim() ||
+        CONFIG.openclawWorkerUrl?.trim();
+      if (!openclawUrl) {
+        broadcast({
+          type: "provision_error",
+          error: "OpenClaw Gateway not found. TeamClaw requires OpenClaw to function.",
+        });
+        return;
+      }
+      const provisionResult = await provisionOpenClaw({ workerUrl: openclawUrl });
+      if (!provisionResult.ok) {
+        const detail = provisionResult.error ?? "unknown error";
+        logger.warn(`OpenClaw provisioning failed: ${detail}`);
+        broadcast({
+          type: "provision_error",
+          error: `OpenClaw Gateway not found. TeamClaw requires OpenClaw to function. Details: ${detail}`,
+        });
+        return;
+      }
+
+      const vectorMemory = new VectorMemory(
+        CONFIG.vectorStorePath,
+        teamConfig?.memory_backend ?? CONFIG.memoryBackend
+      );
+      await vectorMemory.init();
+      const analyst = new PostMortemAnalyst(vectorMemory);
+
+      const effectiveMaxGenerations = cliSessionMode === "time" ? 999 : cliGenerations;
+      const effectiveTimeoutMinutes = cliSessionMode === "time" ? cliSessionDuration : 0;
+      const sessionStartMs = Date.now();
+
+      for (let genId = 1; genId <= effectiveMaxGenerations; genId++) {
+        if (cliSessionMode === "time" && effectiveTimeoutMinutes > 0) {
+          const elapsed = Date.now() - sessionStartMs;
+          if (elapsed >= effectiveTimeoutMinutes * 60_000) break;
+        }
+        if (sessionControl.cancelled) break;
+
+        const priorLessons = await vectorMemory.getCumulativeLessons();
+        broadcast({
+          type: "generation_start",
+          generation: genId,
+          max_generations: effectiveMaxGenerations,
+          lessons_count: priorLessons.length,
+          session_mode: cliSessionMode,
+          session_duration: cliSessionMode === "time" ? cliSessionDuration : undefined,
+        });
+        updateSessionState({
+          generation: genId, isRunning: true, activeNode: null, cycle: 0,
+          generationProgress: { generation: genId, maxGenerations: effectiveMaxGenerations, lessonsCount: priorLessons.length, startedAt: Date.now() },
+          cycleProgress: null,
+        });
+
+        const team =
+          teamConfig?.roster && teamConfig.roster.length > 0
+            ? buildTeamFromRoster(teamConfig.roster)
+            : buildTeamFromTemplate(teamTemplate);
+        const workerUrls = getWorkerUrlsForTeam(team.map((b) => b.id), {
+          singleUrl: workerUrlOverride || teamConfig?.worker_url,
+          workers: workerUrlOverride || teamConfig?.worker_url ? undefined : teamConfig?.workers,
+        });
+        const orch = createTeamOrchestration({
+          team,
+          workerUrls,
+          approvalProvider,
+        });
+        orch.configureSession({
+          maxRuns: cliCycles,
+          timeoutMinutes: effectiveTimeoutMinutes,
+        });
+        runThreadId = randomUUID();
+        currentOrch = orch;
+        if (runThreadId) {
+          THREAD_REGISTRY.set(runThreadId, { orch });
+        }
+        const initialState = orch.getInitialState({
+          userGoal,
+          ancestralLessons: priorLessons,
+        });
+        let lastCycle = 0;
+        let finalState: GraphState = initialState;
+
+        try {
+          for await (const chunk of await orch.graph.stream(initialState, {
+            streamMode: "values",
+            configurable: { thread_id: runThreadId },
+          })) {
+            if (sessionControl.cancelled) break;
+            while (sessionControl.paused && !sessionControl.cancelled) {
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            const nodeState = chunk as Record<string, unknown>;
+            const nodeName = (nodeState.__node__ as string) ?? "unknown";
+            if (!nodeName || nodeName === "unknown") continue;
+            finalState = nodeState as unknown as GraphState;
+
+            const cycle = (nodeState.cycle_count as number) ?? 0;
+            if (cycle > lastCycle) {
+              lastCycle = cycle;
+              broadcast({
+                type: "cycle_start",
+                cycle,
+                max_cycles: cliCycles,
+              });
+              updateSessionState({ cycleProgress: { cycle, maxCycles: cliCycles, startedAt: Date.now() } });
+            }
+
+            const parsed = parseNodeEvent(nodeName, nodeState);
+            if (nodeName === "worker_execute") {
+              (parsed.data as Record<string, unknown>).bot_stats =
+                nodeState.bot_stats ?? {};
+              const d = parsed.data as Record<string, unknown>;
+              fireTaskCompleteWebhook({
+                task_id: (d.task_id as string) ?? "",
+                success: (d.success as boolean) ?? false,
+                output: (d.output as string) ?? undefined,
+                quality_score: (d.quality_score as number) ?? undefined,
+                assigned_to: (d.assigned_to as string) ?? undefined,
+                description: (d.description as string) ?? undefined,
+                bot_id: (d.assigned_to as string) ?? undefined,
+              }).catch(() => {});
+            }
+            if (nodeName === "increment_cycle") {
+              const cycle = (nodeState.cycle_count as number) ?? 0;
+              const botStats = (nodeState.bot_stats ?? {}) as Record<string, Record<string, unknown>>;
+              const tc = Object.values(botStats).reduce(
+                (s, x) => s + ((x?.tasks_completed as number) ?? 0),
+                0
+              );
+              const tf = Object.values(botStats).reduce(
+                (s, x) => s + ((x?.tasks_failed as number) ?? 0),
+                0
+              );
+              fireCycleEndWebhook({
+                cycle,
+                max_cycles: cliCycles,
+                tasks_completed: tc,
+                tasks_failed: tf,
+              }).catch(() => {});
+            }
+            broadcast({ type: "node_event", ...parsed });
+
+            updateSessionState({
+              activeNode: nodeName,
+              taskQueue: nodeState.task_queue as Record<string, unknown>[] ?? [],
+              botStats: nodeState.bot_stats as Record<string, Record<string, unknown>> ?? {},
+              cycle: (nodeState.cycle_count as number) ?? 0,
+              isRunning: true,
+            });
+
+            await new Promise((r) =>
+              setTimeout(r, 300 / sessionControl.speedFactor)
+            );
+          }
+        } catch (err) {
+          broadcast({ type: "error", message: String(err) });
+          break;
+        }
+
+        if (sessionControl.cancelled) {
+          broadcast({ type: "session_cancelled" });
+          break;
+        }
+
+        const botStats =
+          (finalState as Record<string, unknown>).bot_stats as Record<
+            string,
+            Record<string, unknown>
+          > | null;
+        const totalDone = botStats
+          ? Object.values(botStats).reduce(
+              (s, x) => s + ((x?.tasks_completed as number) ?? 0),
+              0
+            )
+          : 0;
+        const totalFailed = botStats
+          ? Object.values(botStats).reduce(
+              (s, x) => s + ((x?.tasks_failed as number) ?? 0),
+              0
+            )
+          : 0;
+        const failed =
+          totalDone + totalFailed > 0 &&
+          (totalFailed >= totalDone || totalDone === 0);
+        const outcome = failed ? "failure" : "success";
+
+        if (failed) {
+          const stateWithCause = {
+            ...finalState,
+            death_reason: `Tasks: ${totalFailed} failed, ${totalDone} completed`,
+            generation_id: genId,
+          };
+          await analyst.analyzeFailure(stateWithCause);
+        }
+
+        const fs = {
+          cycles_survived: (finalState as Record<string, unknown>).cycle_count ?? 0,
+          tasks_completed: totalDone,
+          tasks_failed: totalFailed,
+        };
+        broadcast({
+          type: "generation_end",
+          generation: genId,
+          outcome,
+          final_state: fs,
+          gen_summary: { outcome, final_state: fs },
+        });
+        updateSessionState({ generationProgress: null, cycleProgress: null });
+
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (!sessionControl.cancelled) {
+        broadcast({ type: "session_complete" });
+      }
+      if (runThreadId) {
+        THREAD_REGISTRY.delete(runThreadId);
+      }
+      runThreadId = null;
+      currentOrch = null;
+      updateSessionState({ isRunning: false, activeNode: null, generationProgress: null, cycleProgress: null, pendingApproval: null });
+      clearSessionConfig();
+    })();
+
+    return { ok: true };
+  });
+
+  fastify.post("/api/session/pause", async () => {
+    sessionControl.paused = true;
+    return { ok: true };
+  });
+
+  fastify.post("/api/session/resume", async () => {
+    sessionControl.paused = false;
+    return { ok: true };
+  });
+
+  fastify.post("/api/session/cancel", async () => {
+    sessionControl.cancelled = true;
+    sessionControl.paused = false;
+    return { ok: true };
+  });
+
+  fastify.post("/api/session/speed", async (req) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const v = Number(body.value ?? 1);
+    sessionControl.speedFactor = Math.max(0.25, Math.min(5, v));
+    return { ok: true, speedFactor: sessionControl.speedFactor };
+  });
+
+  fastify.post("/api/session/config", async (req) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const values = (body.values as Record<string, unknown>) ?? body;
+    applyConfigOverrides(values);
+    if (typeof values.creativity === "number") {
+      updateSessionCreativity(values.creativity as number);
+    }
+    broadcast({ type: "config_updated", config: getFullConfig() });
+    return { ok: true };
+  });
+
+  fastify.post("/api/approval/respond", async (req) => {
+    const msg = (req.body ?? {}) as Record<string, unknown>;
+    const action = (msg.action as string) ?? "approved";
+    const feedback = msg.feedback as string | undefined;
+    const taskId = msg.task_id as string | undefined;
+
+    humanResponseEmitter.emitResponse({
+      action: action as "approved" | "edited" | "feedback",
+      feedback,
+      taskId,
+    });
+
+    const resolver = getApprovalResolve();
+    if (resolver) {
+      resolver({
+        action: action as ApprovalResponse["action"],
+        edited_task: msg.edited_task as { description: string } | undefined,
+        feedback,
+      });
+      setApprovalResolve(null);
+    }
+    return { ok: true };
+  });
+
+  fastify.post("/api/tasks/:taskId", async (req, reply) => {
+    const { taskId } = req.params as { taskId: string };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const updates = (body.updates as Record<string, unknown>) ?? body;
+    const status = updates.status as string | undefined;
+    const priority = updates.priority as string | undefined;
+    const assigned_to = updates.assigned_to as string | undefined;
+    const urgency = updates.urgency as number | undefined;
+    const importance = updates.importance as number | undefined;
+    const timebox_minutes = updates.timebox_minutes as number | undefined;
+    const allowedStatuses = [
+      "pending",
+      "in_progress",
+      "completed",
+      "failed",
+      "backlog",
+      "needs_approval",
+      "TIMEOUT_WARNING",
+    ];
+    if (status && !allowedStatuses.includes(status)) {
+      return reply.status(400).send({ type: "error", message: `Invalid status: ${status}` });
+    }
+    if (!runThreadId || !currentOrch) {
+      return reply.status(400).send({ type: "error", message: "No active session" });
+    }
+    try {
+      const config = { configurable: { thread_id: runThreadId } };
+      const snapshot = await currentOrch.graph.getState(config);
+      const values = (snapshot as { values?: Record<string, unknown> }).values ?? {};
+      const taskQueue = (values.task_queue ?? []) as Record<string, unknown>[];
+      const idx = taskQueue.findIndex((t) => (t.task_id as string) === taskId);
+      if (idx < 0) {
+        return reply.status(404).send({ type: "error", message: `Task not found: ${taskId}` });
+      }
+      const updatedTask = { ...taskQueue[idx] };
+      if (status !== undefined) updatedTask.status = status;
+      if (priority !== undefined) updatedTask.priority = priority;
+      if (assigned_to !== undefined) updatedTask.assigned_to = assigned_to;
+      if (urgency !== undefined) {
+        const raw = Number(urgency);
+        if (Number.isFinite(raw)) {
+          updatedTask.urgency = Math.min(10, Math.max(1, raw));
+        }
+      }
+      if (importance !== undefined) {
+        const raw = Number(importance);
+        if (Number.isFinite(raw)) {
+          updatedTask.importance = Math.min(10, Math.max(1, raw));
+        }
+      }
+      if (timebox_minutes !== undefined) {
+        const raw = Number(timebox_minutes);
+        if (Number.isFinite(raw) && raw >= 1) {
+          updatedTask.timebox_minutes = raw;
+        }
+      }
+      const updatedQueue = [...taskQueue];
+      updatedQueue[idx] = updatedTask;
+      await currentOrch.graph.updateState(config, { task_queue: updatedQueue });
+      broadcast({ type: "task_queue_updated", task_queue: updatedQueue });
+      updateSessionState({ taskQueue: updatedQueue });
+      return { ok: true };
+    } catch (err) {
+      return reply.status(500).send({
+        type: "error",
+        message: String((err as Error).message ?? err),
+      });
+    }
+  });
+
+  fastify.post("/api/models/switch", async (req, reply) => {
+    const msg = (req.body ?? {}) as Record<string, unknown>;
+    const model = (msg.model as string)?.trim();
+    const agent = (msg.agent as string)?.trim();
+    if (!model) {
+      return reply.status(400).send({ type: "error", message: "model_switch requires a model field" });
+    }
+    const resolved = resolveAlias(model);
+    if (!isModelAllowed(resolved)) {
+      return reply.status(400).send({ type: "error", message: `Model "${resolved}" is not in the allowlist` });
+    }
+    if (agent) {
+      persistAgentModel(agent, resolved);
+    } else {
+      persistDefaultModel(resolved);
+    }
+    const updated = getModelConfig();
+    broadcast({
+      type: "model_updated",
+      default_model: updated.defaultModel,
+      agent_models: updated.agentModels,
+      fallback_chain: updated.fallbackChain,
+      aliases: updated.aliases,
+      allowlist: updated.allowlist,
+    });
+    return { ok: true };
+  });
+
+  fastify.get("/api/models/state", async () => {
+    const config = getModelConfig();
+    return {
+      type: "model_state",
+      default_model: config.defaultModel,
+      agent_models: config.agentModels,
+      fallback_chain: config.fallbackChain,
+      aliases: config.aliases,
+      allowlist: config.allowlist,
+      available_models: config.availableModels,
+    };
+  });
+
+  fastify.post("/api/bridge/relay", async (req) => {
+    const msg = (req.body ?? {}) as Record<string, unknown>;
+    const event = msg.event as Record<string, unknown> | undefined;
+    if (event && typeof event === "object") {
+      broadcast(event);
+      if (event.type === "node_event") {
+        const state = event.state as Record<string, unknown> | undefined;
+        if (state) {
+          updateSessionState({
+            activeNode: (event.node as string) ?? null,
+            taskQueue: (state.task_queue as Record<string, unknown>[]) ?? [],
+            botStats: (state.bot_stats as Record<string, Record<string, unknown>>) ?? {},
+            cycle: (state.cycle as number) ?? 0,
+            isRunning: true,
+          });
+        }
+      } else if (event.type === "session_complete") {
+        updateSessionState({ isRunning: false, activeNode: null });
+      }
+    }
+    return { ok: true };
+  });
+
+  // SPA fallback AFTER all API routes
   if (clientDir) {
     fastify.setNotFoundHandler((request, reply) => {
       if (request.method !== "GET") return reply.status(404).send();
-      if (request.url.startsWith("/api") || request.url.startsWith("/ws")) {
+      if (request.url.startsWith("/api")) {
         return reply.status(404).send();
       }
       const lastSegment = request.url.split("/").pop() ?? "";
@@ -782,14 +806,14 @@ export async function runWeb(args: string[]): Promise<void> {
     await fastify.listen({ port, host: "0.0.0.0" });
     if (s) {
       const url = `http://localhost:${port}`;
-      s.stop("✅ Web Server is live!");
+      s.stop("Web Server is live!");
       note(`Access the dashboard at: ${url}`, "TeamClaw Web UI");
     } else {
       logger.success(`Web UI: http://localhost:${port}`);
     }
   } catch (err) {
     if (s) {
-      s.stop(`❌ Web server failed to start: ${String(err)}`);
+      s.stop(`Web server failed to start: ${String(err)}`);
     }
     throw err;
   }

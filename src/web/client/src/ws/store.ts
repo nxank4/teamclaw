@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getApiBase } from "../utils/api";
 
 export type ConnectionStatus = "connecting" | "open" | "closed" | "reconnecting" | "error";
 
@@ -129,9 +130,11 @@ interface WsStore {
   openclawLogs: OpenClawLogEntry[];
   openclawLogFilter: OpenClawLogFilter;
   openclawSourceFilter: OpenClawSourceFilter;
+  gatewayAvailable: boolean;
   serverStartTs: number | null;
   serverRestarted: boolean;
   sendMessage: (payload: object) => void;
+  sendCommand: (command: string, body?: Record<string, unknown>) => Promise<void>;
   setConnectionStatus: (status: ConnectionStatus) => void;
   setFromNodeEvent: (state: NodeEventState) => void;
   setConfig: (config: Record<string, unknown> | null) => void;
@@ -161,11 +164,43 @@ interface WsStore {
   setOpenClawLogFilter: (filter: OpenClawLogFilter) => void;
   setOpenClawSourceFilter: (filter: OpenClawSourceFilter) => void;
   clearOpenClawLogs: () => void;
+  setGatewayAvailable: (available: boolean) => void;
   setServerStartTs: (ts: number) => void;
   dismissServerRestart: () => void;
 }
 
 function noopSendMessage(_payload: object): void {}
+
+const COMMAND_ROUTES: Record<string, { method: string; path: string | ((body: Record<string, unknown>) => string) }> = {
+  start: { method: "POST", path: "/api/session/start" },
+  pause: { method: "POST", path: "/api/session/pause" },
+  resume: { method: "POST", path: "/api/session/resume" },
+  cancel: { method: "POST", path: "/api/session/cancel" },
+  speed: { method: "POST", path: "/api/session/speed" },
+  config: { method: "POST", path: "/api/session/config" },
+  approval_response: { method: "POST", path: "/api/approval/respond" },
+  update_task: { method: "POST", path: (body) => `/api/tasks/${encodeURIComponent(String(body.taskId ?? ""))}` },
+  model_switch: { method: "POST", path: "/api/models/switch" },
+  model_query: { method: "GET", path: "/api/models/state" },
+  bridge_relay: { method: "POST", path: "/api/bridge/relay" },
+};
+
+async function dispatchCommand(command: string, body?: Record<string, unknown>): Promise<void> {
+  const route = COMMAND_ROUTES[command];
+  if (!route) return;
+  const base = getApiBase();
+  const url = typeof route.path === "function" ? route.path(body ?? {}) : route.path;
+  try {
+    const opts: RequestInit = { method: route.method };
+    if (route.method === "POST" && body) {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(body);
+    }
+    await fetch(`${base}${url}`, opts);
+  } catch {
+    // best-effort
+  }
+}
 
 export const useWsStore = create<WsStore>((set) => ({
   connectionStatus: "connecting",
@@ -188,10 +223,12 @@ export const useWsStore = create<WsStore>((set) => ({
   openclawLogs: [],
   openclawLogFilter: "all",
   openclawSourceFilter: "all",
+  gatewayAvailable: true,
   serverStartTs: null,
   serverRestarted: false,
   tokenUsage: { totalInputTokens: 0, totalOutputTokens: 0, totalCachedInputTokens: 0, lastUpdate: 0, model: "gpt-4o-mini" },
   sendMessage: noopSendMessage,
+  sendCommand: dispatchCommand,
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setFromNodeEvent: (state) =>
     set((prev) => {
@@ -322,6 +359,7 @@ export const useWsStore = create<WsStore>((set) => ({
   setOpenClawLogFilter: (filter) => set({ openclawLogFilter: filter }),
   setOpenClawSourceFilter: (filter) => set({ openclawSourceFilter: filter }),
   clearOpenClawLogs: () => set({ openclawLogs: [] }),
+  setGatewayAvailable: (available) => set({ gatewayAvailable: available }),
   setServerStartTs: (ts) =>
     set((prev) => {
       if (prev.serverStartTs === null) {

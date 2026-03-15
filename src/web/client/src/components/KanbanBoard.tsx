@@ -32,7 +32,7 @@ function statusToColumnId(status: string): string {
 export function KanbanBoard() {
   const task_queue = useWsStore((s) => s.task_queue);
   const connectionStatus = useWsStore((s) => s.connectionStatus);
-  const sendMessage = useWsStore((s) => s.sendMessage);
+  const sendCommand = useWsStore((s) => s.sendCommand);
   const isLoading = connectionStatus === "connecting" || connectionStatus === "reconnecting";
 
   const tasksByColumn = COLUMNS.map((col) => ({
@@ -82,8 +82,7 @@ export function KanbanBoard() {
       updates.priority = "HIGH";
     }
 
-    sendMessage({
-      type: "UPDATE_TASK",
+    sendCommand("update_task", {
       taskId,
       updates,
     });
