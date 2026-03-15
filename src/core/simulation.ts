@@ -202,7 +202,7 @@ export class TeamOrchestration {
           if (needsApproval) return "approval";
           return taskDispatcher(s);
         },
-        { approval: "approval", worker_collect: "worker_collect", __end__: END }
+        { approval: "approval", worker_collect: "worker_collect", worker_task: "worker_task", __end__: END }
       )
       .addConditionalEdges(
         "approval",
@@ -211,7 +211,7 @@ export class TeamOrchestration {
           if (resp?.action === "feedback") return "coordinator";
           return taskDispatcher(s);
         },
-        { coordinator: "coordinator", worker_collect: "worker_collect" }
+        { coordinator: "coordinator", worker_collect: "worker_collect", worker_task: "worker_task" }
       )
       .addEdge("worker_task", "worker_collect")
       .addEdge("worker_collect", "human_approval")
