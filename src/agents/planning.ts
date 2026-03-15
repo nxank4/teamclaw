@@ -150,14 +150,11 @@ Example:
   ]
 }`;
 
-    const llmTaskId = `PLAN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const llmResult = await Promise.race([
-      this.llmAdapter.executeTask({
-        task_id: llmTaskId,
-        description: prompt,
-        priority: "HIGH",
-        estimated_cost: 0,
-      }, { signal }),
+    const messages = [
+      { role: "user", content: prompt },
+    ];
+    const raw = await Promise.race([
+      this.llmAdapter.complete(messages, { signal }),
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error("Sprint planning timed out")),
@@ -166,12 +163,7 @@ Example:
       ),
     ]);
 
-    if (!llmResult.success) {
-      throw new Error(String(llmResult.output ?? "Planning failed"));
-    }
-
-    const raw = String(llmResult.output ?? "").trim();
-    if (!raw) {
+    if (!raw.trim()) {
       throw new Error("Sprint planning returned empty output");
     }
 

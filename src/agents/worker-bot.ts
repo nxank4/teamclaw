@@ -182,16 +182,33 @@ export function createTaskDispatcher(
 
   return (state: GraphState): Send[] | string => {
     const taskQueue = state.task_queue ?? [];
-    const pending = taskQueue.filter((t) => t.status === "pending" || t.status === "needs_rework");
+
+    // Terminal task IDs = completed, failed, or waiting_for_human
+    const terminalIds = new Set<string>();
+    for (const t of taskQueue) {
+      const status = t.status as string;
+      if (status === "completed" || status === "failed" || status === "waiting_for_human") {
+        terminalIds.add(t.task_id as string);
+      }
+    }
+
+    // A task is "ready" if (pending OR needs_rework) AND all deps are terminal
+    const ready = taskQueue.filter((t) => {
+      const status = t.status as string;
+      if (status !== "pending" && status !== "needs_rework") return false;
+      const deps = (t.dependencies as string[]) ?? [];
+      return deps.every((depId) => terminalIds.has(depId));
+    });
+
     const reviewing = taskQueue.filter((t) => t.status === "reviewing");
 
-    if (pending.length === 0 && reviewing.length === 0) {
+    if (ready.length === 0 && reviewing.length === 0) {
       return "worker_collect";
     }
 
     const sends: Send[] = [];
 
-    for (const taskItem of pending) {
+    for (const taskItem of ready) {
       let targetBotId: string;
       if (makerBot) {
         targetBotId = makerBot.id;
@@ -476,6 +493,7 @@ export function createWorkerCollectNode(): (state: GraphState) => Partial<GraphS
       last_action: `Dispatched ${actionableTasks.length} task(s) via parallel Send`,
       last_quality_score: avgQuality,
       deep_work_mode: true,
+      parallelism_depth: (state.parallelism_depth ?? 0) + 1,
       __node__: "worker_collect",
     };
   };

@@ -4,6 +4,7 @@
 
 import type { ServerResponse } from "node:http";
 import type { ApprovalPending, ApprovalResponse } from "../agents/approval.js";
+import type { PreviewState, PreviewResponse } from "../graph/preview/types.js";
 import { CONFIG, type SessionConfig } from "../core/config.js";
 import { getModelConfig } from "../core/model-config.js";
 
@@ -134,6 +135,26 @@ export function approvalProvider(pending: ApprovalPending): Promise<ApprovalResp
     approvalResolve = resolve;
     broadcast({ type: "approval_request", pending });
     updateSessionState({ pendingApproval: pending as unknown as Record<string, unknown> });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Preview resolver (same pattern as approval)
+// ---------------------------------------------------------------------------
+let previewResolve: ((r: PreviewResponse) => void) | null = null;
+
+export function getPreviewResolve(): ((r: PreviewResponse) => void) | null {
+  return previewResolve;
+}
+
+export function setPreviewResolve(fn: ((r: PreviewResponse) => void) | null): void {
+  previewResolve = fn;
+}
+
+export function previewProvider(preview: PreviewState): Promise<PreviewResponse> {
+  return new Promise((resolve) => {
+    previewResolve = resolve;
+    broadcast({ type: "preview_request", preview });
   });
 }
 

@@ -45,11 +45,11 @@ export function PaletteSettings() {
         <label className="mb-2 block text-xs font-medium text-stone-600 dark:text-stone-400">
           Font Size
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2">
           <button
             type="button"
             onClick={() => setFontSize(fontSize - 1)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-sm text-stone-700 transition-colors hover:border-stone-300 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-600"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-stone-200 text-sm text-stone-700 transition-colors hover:border-stone-300 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-600"
           >
             −
           </button>
@@ -59,13 +59,13 @@ export function PaletteSettings() {
             max={24}
             value={fontSize}
             onChange={(e) => setFontSize(Number(e.target.value))}
-            className="h-8 w-16 rounded-lg border border-stone-200 bg-transparent text-center text-sm text-stone-700 dark:border-stone-700 dark:text-stone-300"
+            className="h-8 flex-1 rounded-lg border border-stone-200 bg-transparent text-center text-sm text-stone-700 dark:border-stone-700 dark:text-stone-300"
           />
-          <span className="text-xs text-stone-400 dark:text-stone-500">px</span>
+          <span className="shrink-0 text-xs text-stone-400 dark:text-stone-500">px</span>
           <button
             type="button"
             onClick={() => setFontSize(fontSize + 1)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 text-sm text-stone-700 transition-colors hover:border-stone-300 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-600"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-stone-200 text-sm text-stone-700 transition-colors hover:border-stone-300 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-600"
           >
             +
           </button>

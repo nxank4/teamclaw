@@ -137,6 +137,12 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
               read: false,
             });
           }
+        } else if (type === "preview_request" && payload.preview) {
+          const { setPendingPreview } = useWsStore.getState();
+          setPendingPreview(payload.preview as Record<string, unknown>);
+        } else if (type === "preview_resolved") {
+          const { clearPendingPreview } = useWsStore.getState();
+          clearPendingPreview();
         } else if (type === "WAITING_FOR_HUMAN" && payload.task_id) {
           const taskId = payload.task_id as string;
           const message = (payload.message as string) || "Task requires human approval";

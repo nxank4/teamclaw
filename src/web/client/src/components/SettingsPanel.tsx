@@ -148,7 +148,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
       <motion.aside
-        className="shrink-0 bg-white dark:bg-stone-900 shadow-lg border-l border-stone-200 dark:border-stone-700 overflow-auto"
+        className="shrink-0 bg-gradient-to-b from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 shadow-lg border-l border-stone-200 dark:border-stone-700 overflow-auto"
         initial={{ width: 0, opacity: 0 }}
         animate={{ width: 384, opacity: 1 }}
         exit={{ width: 0, opacity: 0 }}

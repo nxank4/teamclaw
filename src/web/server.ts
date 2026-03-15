@@ -59,6 +59,8 @@ import {
   approvalProvider,
   getApprovalResolve,
   setApprovalResolve,
+  getPreviewResolve,
+  setPreviewResolve,
   cliCycles,
   cliGenerations,
   cliCreativity,
@@ -660,6 +662,24 @@ export async function runWeb(args: string[]): Promise<void> {
       });
       setApprovalResolve(null);
     }
+    return { ok: true };
+  });
+
+  // -----------------------------------------------------------------------
+  // Preview response (dashboard → graph)
+  // -----------------------------------------------------------------------
+  fastify.post("/api/preview/respond", async (req) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = (body.action as string) ?? "approve";
+    const resolver = getPreviewResolve();
+    if (resolver) {
+      resolver({
+        action: action as "approve" | "edit" | "abort",
+        editedTasks: body.editedTasks as import("../graph/preview/types.js").PreviewTask[] | undefined,
+      });
+      setPreviewResolve(null);
+    }
+    broadcast({ type: "preview_resolved", action });
     return { ok: true };
   });
 

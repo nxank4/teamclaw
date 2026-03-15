@@ -120,58 +120,15 @@ ${planningContent}
       { role: "user", content: prompt },
     ];
 
-    return new Promise((resolve, reject) => {
-      let resolved = false;
-
-      const timeoutId = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          reject(new Error("System design timed out"));
-        }
-      }, SystemDesignNode.DESIGN_TIMEOUT_MS);
-
-      // Abort signal support
-      if (signal) {
-        if (signal.aborted) {
-          clearTimeout(timeoutId);
-          reject(new Error("Aborted"));
-          return;
-        }
-        signal.addEventListener("abort", () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            reject(new Error("Aborted"));
-          }
-        }, { once: true });
-      }
-
-      this.llmAdapter
-        .executeTask({
-          task_id: `design-${Date.now()}`,
-          description: JSON.stringify(messages),
-          priority: "HIGH",
-          estimated_cost: 0,
-        }, { signal })
-        .then((result) => {
-          clearTimeout(timeoutId);
-          if (!resolved) {
-            resolved = true;
-            if (result.success) {
-              resolve(result.output ?? "");
-            } else {
-              reject(new Error(result.output ?? "Architecture generation failed"));
-            }
-          }
-        })
-        .catch((err) => {
-          clearTimeout(timeoutId);
-          if (!resolved) {
-            resolved = true;
-            reject(err);
-          }
-        });
-    });
+    return Promise.race([
+      this.llmAdapter.complete(messages, { signal }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("System design timed out")),
+          SystemDesignNode.DESIGN_TIMEOUT_MS
+        )
+      ),
+    ]);
   }
 
   private async writeArchitectureDocument(architectureJson: string): Promise<void> {

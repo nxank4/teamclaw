@@ -69,16 +69,19 @@ import { workerEvents } from "./core/worker-events.js";
 import { startGatewayLogTailer } from "./core/gateway-log-tailer.js";
 
 let DEBUG_LOG_PATH = "";
+let WORK_HISTORY_LOG_PATH = "";
 
 function log(level: "info" | "warn" | "error", msg: string): void {
     const levelUp = level.toUpperCase() as "INFO" | "WARN" | "ERROR";
     if (level === "info") logger.info(msg);
     else if (level === "warn") logger.warn(msg);
     else logger.error(msg);
-    appendFile(
-        path.join(CONFIG.workspaceDir, "work_history.log"),
-        logger.plainLine(levelUp, msg) + "\n",
-    ).catch(() => {});
+    if (WORK_HISTORY_LOG_PATH) {
+        appendFile(
+            WORK_HISTORY_LOG_PATH,
+            logger.plainLine(levelUp, msg) + "\n",
+        ).catch(() => {});
+    }
 }
 
 async function withConsoleRedirect<T>(fn: () => Promise<T> | T): Promise<T> {
@@ -119,7 +122,7 @@ export async function runWork(
     let { maxRuns } = parsed;
     let timeoutMinutes = parsed.timeoutMinutes ?? 0;
     let sessionMode = parsed.sessionMode;
-    const { clearLegacy, autoApprove } = parsed;
+    const { clearLegacy, autoApprove, noPreview } = parsed;
     let noWebFlag = parsed.noWebFlag || noWebFromInput;
 
     // Raise listener limit — @clack/prompts adds keypress/readline listeners
@@ -344,6 +347,15 @@ export async function runWork(
     } catch {
         DEBUG_LOG_PATH = path.join(CONFIG.workspaceDir, "teamclaw-debug.log");
     }
+    try {
+        WORK_HISTORY_LOG_PATH = await rotateAndCreateSessionLog({
+            logDir: path.join(os.homedir(), ".teamclaw", "logs"),
+            prefix: "work-history",
+            maxFiles: 20,
+        });
+    } catch {
+        WORK_HISTORY_LOG_PATH = path.join(CONFIG.workspaceDir, "work_history.log");
+    }
 
     const memoryConfig = await loadTeamConfig();
     const selectedMemoryBackend: MemoryBackend =
@@ -554,6 +566,7 @@ export async function runWork(
                             projectContext: projectContextStr,
                             maxRuns,
                             timeoutMinutes,
+                            skipPreview: noPreview || runId > 1,
                         })) {
                             const nodeState = chunk as Record<string, unknown>;
                             const nodeName = (nodeState.__node__ as string) ?? "unknown";
@@ -662,6 +675,7 @@ export async function runWork(
                     ancestralLessons: priorLessons,
                     maxRuns,
                     timeoutMinutes,
+                    skipPreview: noPreview || runId > 1,
                 })) {
                     const nodeState = chunk as Record<string, unknown>;
                     const nodeName = (nodeState.__node__ as string) ?? "unknown";

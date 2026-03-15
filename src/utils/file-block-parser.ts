@@ -22,7 +22,7 @@ const FILE_EXT_RE = /\.[a-zA-Z0-9]{1,10}$/;
 export function extractFileBlocks(output: string): FileBlock[] {
   const blocks: FileBlock[] = [];
   // Match fenced code blocks, capturing the info string (after ```) and body
-  const fenceRe = /(?:(?:<!-[-]\s*FILE:\s*(.+?)\s*-[-]->|[*]{2}`(.+?)`[*]{2}|\n`([^\n`]+?)`:\s*)\n)?```[^\S\n]*(\S+)?[^\n]*\n([\s\S]*?)```/g;
+  const fenceRe = /(?:(?:<!--\s*FILE:\s*(.+?)\s*-->|[*]{2}`(.+?)`[*]{2}|\n`([^\n`]+?)`:\s*)\n)?```[^\S\n]*([^\n]+?)?\n([\s\S]*?)```/g;
   let m: RegExpExecArray | null;
 
   while ((m = fenceRe.exec(output)) !== null) {

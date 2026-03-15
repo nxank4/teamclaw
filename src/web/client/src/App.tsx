@@ -11,6 +11,7 @@ import { HumanApprovalModal } from "./components/HumanApprovalModal";
 import { CostBadge } from "./components/CostBadge";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { OpenClawLogPanel } from "./components/OpenClawLogPanel";
+import { PreviewPanel } from "./components/PreviewPanel";
 import { useState, useEffect } from "react";
 import { AnimatePresence } from "motion/react";
 import { useResizable } from "./hooks/useResizable";
@@ -86,7 +87,7 @@ function Topbar({
         : "text-rose-500 dark:text-rose-400";
 
   return (
-    <header className="relative flex h-14 shrink-0 items-center justify-between border-b border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 px-6 transition-colors">
+    <header className="relative flex h-14 shrink-0 items-center justify-between border-b border-stone-200 dark:border-stone-700 bg-gradient-to-r from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 px-6 transition-colors">
       <div className="flex items-center gap-2">
         <ClawLogo size={24} />
         <span className={`inline-block h-2 w-2 rounded-full ${statusColor.replace("text-", "bg-")}${connectionStatus === "open" ? " animate-breathe" : ""}`} />
@@ -171,12 +172,24 @@ function ApprovalBanner() {
   );
 }
 
-function DashboardSettings() {
+function GatewayBanner() {
+  const gatewayAvailable = useWsStore((s) => s.gatewayAvailable);
+  if (gatewayAvailable) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 flex items-center gap-2">
+      <i className="bi bi-exclamation-triangle text-base" />
+      <span>OpenClaw Gateway not connected — start the gateway to run sessions.</span>
+    </div>
+  );
+}
+
+function DashboardSettings({ onDismiss }: { onDismiss: () => void }) {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <div className="w-full max-w-md rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-6 shadow-sm space-y-5">
+    <div className="flex min-h-full items-center justify-center">
+      <div className="w-full max-w-md rounded-2xl border border-stone-200 dark:border-stone-700 bg-gradient-to-br from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 p-6 shadow-sm space-y-5">
         <div className="flex flex-col items-center space-y-4">
           <ClawLogo size={120} />
           <div className="text-center space-y-1">
@@ -187,6 +200,7 @@ function DashboardSettings() {
               Customize your dashboard appearance.
             </p>
           </div>
+          <GatewayBanner />
         </div>
 
         <div className="space-y-4">
@@ -216,6 +230,14 @@ function DashboardSettings() {
           <div className="border-t border-stone-200 dark:border-stone-700 pt-4">
             <PaletteSettings />
           </div>
+
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="w-full rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 text-sm transition-colors"
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>
@@ -226,7 +248,9 @@ function Dashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(false);
-  const connectionStatus = useWsStore((s) => s.connectionStatus);
+  const [settingsDismissed, setSettingsDismissed] = useState(
+    () => localStorage.getItem("teamclaw-settings-dismissed") === "true",
+  );
   const cycle_count = useWsStore((s) => s.cycle_count);
   const alerts = useWsStore((s) => s.alerts);
   const pendingApproval = useWsStore((s) => s.pendingApproval);
@@ -241,19 +265,15 @@ function Dashboard() {
   const notificationCount = alerts.filter((a) => !a.read).length + (pendingApproval ? 1 : 0);
 
   useEffect(() => {
-    if (connectionStatus === "open") {
+    if (cycle_count > 0) {
       setLogsExpanded(true);
-    }
-  }, [connectionStatus]);
-
-  useEffect(() => {
-    if (cycle_count === 0) {
+    } else {
       setLogsExpanded(false);
     }
   }, [cycle_count]);
 
   return (
-    <div className="flex h-screen flex-col bg-stone-50 dark:bg-stone-950 transition-colors">
+    <div className="flex h-screen flex-col bg-gradient-to-br from-stone-50 via-stone-50 to-stone-100 dark:from-stone-950 dark:via-stone-950 dark:to-stone-900 transition-colors">
       <div className="relative">
         <Topbar
           onToggleSettings={() => { setSettingsOpen(!settingsOpen); setNotificationsOpen(false); }}
@@ -269,10 +289,11 @@ function Dashboard() {
         <main className="flex-1 overflow-auto px-6 py-4 space-y-4">
           <ServerRestartBanner />
           <ApprovalBanner />
-          {cycle_count === 0 ? (
-            <DashboardSettings />
+          {cycle_count === 0 && !settingsDismissed ? (
+            <DashboardSettings onDismiss={() => { setSettingsDismissed(true); localStorage.setItem("teamclaw-settings-dismissed", "true"); }} />
           ) : (
             <>
+              <PreviewPanel />
               <SummaryCards />
               <KanbanBoard />
               <InsightsSection />
@@ -287,7 +308,7 @@ function Dashboard() {
       </div>
 
       <div className="shrink-0 border-t border-stone-200 dark:border-stone-700">
-        <div className="flex items-center justify-between px-6 py-0 bg-white dark:bg-stone-900 border-b border-stone-200 dark:border-stone-700">
+        <div className="flex items-center justify-between px-6 py-0 bg-gradient-to-r from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 border-b border-stone-200 dark:border-stone-700">
           <span className="px-3 py-2 text-xs font-medium text-stone-800 dark:text-stone-100">
             <i className="bi bi-journal-text mr-1" />Logs
           </span>

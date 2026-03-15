@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
-import { OpenClawError } from "../client/errors.js";
-import type { StreamChunk } from "../client/types.js";
+import { OpenClawError } from "../src/client/errors.js";
+import type { StreamChunk } from "../src/client/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock OpenClawClient
@@ -63,7 +63,7 @@ describe("proxyPlugin", () => {
     mockClient.disconnect.mockResolvedValue(undefined);
 
     fastify = Fastify();
-    const { proxyPlugin } = await import("./plugin.js");
+    const { proxyPlugin } = await import("../src/proxy/plugin.js");
     await fastify.register(proxyPlugin, { basePath: "/proxy" });
     await fastify.ready();
   });

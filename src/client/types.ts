@@ -3,6 +3,8 @@
  */
 
 import { z } from "zod";
+import { OpenClawError } from "./errors.js";
+export { OpenClawError, type OpenClawErrorCode } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -45,30 +47,6 @@ export interface StreamChunk {
   done: boolean;
   /** Token usage stats, present only on the final chunk when reported */
   usage?: { promptTokens: number; completionTokens: number };
-}
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-export type OpenClawErrorCode =
-  | "CONNECTION_FAILED"
-  | "HANDSHAKE_REJECTED"
-  | "STREAM_FAILED"
-  | "TIMEOUT"
-  | "DISCONNECTED"
-  | "CONFIG_INVALID";
-
-export class OpenClawError extends Error {
-  readonly code: OpenClawErrorCode;
-  readonly cause?: unknown;
-
-  constructor(code: OpenClawErrorCode, message: string, cause?: unknown) {
-    super(message);
-    this.name = "OpenClawError";
-    this.code = code;
-    this.cause = cause;
-  }
 }
 
 // ---------------------------------------------------------------------------

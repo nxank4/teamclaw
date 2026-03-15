@@ -42,7 +42,7 @@ export function SummaryCards() {
       {cards.map((c) => (
         <motion.div
           key={c.label}
-          className={`rounded-xl bg-white dark:bg-stone-900 border p-4 shadow-sm transition-colors ${
+          className={`rounded-xl bg-gradient-to-br from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 border p-4 shadow-sm transition-colors ${
             c.accent ? "border-amber-400" : "border-stone-200 dark:border-stone-700"
           }`}
           variants={cardVariants}

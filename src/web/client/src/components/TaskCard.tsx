@@ -43,7 +43,7 @@ export function TaskCard({ task }: TaskCardProps) {
       style={style}
       {...listeners}
       {...attributes}
-      className={`rounded-xl bg-white dark:bg-stone-800 p-3.5 shadow-sm transition-all cursor-grab active:cursor-grabbing animate-card-in ${
+      className={`rounded-xl bg-gradient-to-br from-white to-stone-50 dark:from-stone-800 dark:to-stone-900 p-3.5 shadow-sm transition-all cursor-grab active:cursor-grabbing animate-card-in ${
         isDragging ? "opacity-50 shadow-lg" : "hover:shadow"
       } ${
         status === "TIMEOUT_WARNING"

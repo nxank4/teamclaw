@@ -134,6 +134,10 @@ export function getSessionCreativity(): number {
     return sessionOverrides.creativity ?? CONFIG.creativity;
 }
 
+export function updateSessionCreativity(value: number): void {
+    sessionOverrides = { ...sessionOverrides, creativity: Math.max(0, Math.min(1, value)) };
+}
+
 export function clearSessionConfig(): void {
     sessionOverrides = {};
 }

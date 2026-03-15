@@ -50,7 +50,13 @@ async function pingGateway(
     token: string,
 ): Promise<{ reachable: boolean; apiPort: number; model: string | null }> {
     const wsPort = parseInt(port, 10);
-    const apiPort = wsPort + 2;
+
+    // Prefer httpPort from the local OpenClaw config if available;
+    // fall back to legacy wsPort + 2 convention.
+    const openclawCfg = readLocalOpenClawConfig();
+    const apiPort = openclawCfg?.httpPort && openclawCfg.httpPort !== wsPort + 2
+        ? openclawCfg.httpPort
+        : wsPort + 2;
 
     const headers: Record<string, string> = {};
     if (token.trim()) headers.Authorization = `Bearer ${token.trim()}`;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseLlmJson } from "../../src/utils/jsonExtractor.js";
+import { parseLlmJson } from "../src/utils/jsonExtractor.js";
 
 describe("parseLlmJson (Robust JSON Extraction)", () => {
   describe("perfect JSON", () => {
@@ -122,6 +122,24 @@ Let me know if you need modifications.`;
 
     it("throws when input is only whitespace", () => {
       expect(() => parseLlmJson("   \n\n   ")).toThrow();
+    });
+  });
+
+  describe("filename prefix in code fence", () => {
+    it("extracts JSON when code fence contains a filename prefix", () => {
+      const input = `\`\`\`json
+sprint-plan.json
+{"sprintGoal": "Implement auth", "tasks": []}
+\`\`\``;
+      const result = parseLlmJson<Record<string, unknown>>(input);
+      expect(result.sprintGoal).toBe("Implement auth");
+    });
+
+    it("extracts JSON when filename prefix appears without code fence", () => {
+      const input = `sprint-plan.json
+{"sprintGoal": "Implement auth", "tasks": []}`;
+      const result = parseLlmJson<Record<string, unknown>>(input);
+      expect(result.sprintGoal).toBe("Implement auth");
     });
   });
 

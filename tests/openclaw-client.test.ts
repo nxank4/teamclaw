@@ -33,7 +33,7 @@ vi.mock("ws", () => {
   };
 });
 
-vi.mock("../src/core/device-identity.js", () => ({
+vi.mock("../../src/core/device-identity.js", () => ({
   loadOrCreateDeviceIdentity: () => ({
     deviceId: "test-device-id",
     publicKeyPem: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAtest\n-----END PUBLIC KEY-----",
@@ -83,14 +83,14 @@ function simulateHandshakeReject(ws: MockWebSocket): void {
 // ---------------------------------------------------------------------------
 
 describe("OpenClawClient", () => {
-  let OpenClawClient: typeof import("../src/client/OpenClawClient.js").OpenClawClient;
-  let OpenClawError: typeof import("../src/client/types.js").OpenClawError;
+  let OpenClawClient: typeof import("./OpenClawClient.js").OpenClawClient;
+  let OpenClawError: typeof import("./types.js").OpenClawError;
 
   beforeEach(async () => {
     lastMockWs = null;
-    const mod = await import("../src/client/OpenClawClient.js");
+    const mod = await import("./OpenClawClient.js");
     OpenClawClient = mod.OpenClawClient;
-    const types = await import("../src/client/types.js");
+    const types = await import("./types.js");
     OpenClawError = types.OpenClawError;
   });
 
@@ -370,7 +370,7 @@ describe("OpenClawClient", () => {
       });
 
       const client = new OpenClawClient({ gatewayUrl: "ws://localhost:18789" });
-      const allChunks: import("../src/client/types.js").StreamChunk[] = [];
+      const allChunks: import("./types.js").StreamChunk[] = [];
       for await (const chunk of client.stream("test")) {
         allChunks.push(chunk);
       }

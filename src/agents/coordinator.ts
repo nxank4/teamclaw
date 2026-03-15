@@ -49,7 +49,7 @@ export class CoordinatorAgent {
     projectContext: string = "",
     preferencesContext: string = "",
     signal?: AbortSignal
-  ): Promise<Array<{ description: string; assigned_to: string; worker_tier: "light" | "heavy"; complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE" }>> {
+  ): Promise<Array<{ description: string; assigned_to: string; worker_tier: "light" | "heavy"; complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE"; dependencies?: number[] }>> {
     const roleSummary: string[] = [];
     const rosterAgg = new Map<string, { count: number; descriptions: Set<string> }>();
 
@@ -112,7 +112,8 @@ ${rosterLines.join("\n")}
 
 ${roleSummary.join("\n")}
 
-Output a JSON array. Each element: {"description": string, "assigned_to": bot id, "worker_tier": "light"|"heavy", "complexity": "LOW"|"MEDIUM"|"HIGH"|"ARCHITECTURE"}.
+Output a JSON array. Each element: {"description": string, "assigned_to": bot id, "worker_tier": "light"|"heavy", "complexity": "LOW"|"MEDIUM"|"HIGH"|"ARCHITECTURE", "dependencies": number[]}.
+"dependencies" is 0-based indices of tasks in this array that must finish first. Empty [] = no dependencies.
 Use "heavy" only for browser/GUI tasks. Use "HIGH"/"ARCHITECTURE" for significant design work.
 Array MUST have >= ${Math.max(3, team.length)} tasks covering all roles. No other keys, no explanations.`;
 
@@ -123,14 +124,12 @@ Array MUST have >= ${Math.max(3, team.length)} tasks covering all roles. No othe
     });
 
     try {
-      const llmTaskId = `COORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      const llmResult = await Promise.race([
-        this.llmAdapter.executeTask({
-          task_id: llmTaskId,
-          description: prompt,
-          priority: "HIGH",
-          estimated_cost: 0,
-        }, { signal }),
+      const messages = [
+        { role: "system", content: "You are a team coordinator. Return ONLY raw JSON." },
+        { role: "user", content: prompt },
+      ];
+      const raw = await Promise.race([
+        this.llmAdapter.complete(messages, { signal }),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error("❌ Decomposition timed out - Check Gateway logs")),
@@ -138,28 +137,25 @@ Array MUST have >= ${Math.max(3, team.length)} tasks covering all roles. No othe
           ),
         ),
       ]);
-      if (!llmResult.success) {
-        throw new Error(String(llmResult.output ?? "Coordinator decomposition failed"));
-      }
       coordinatorEvents.emit("progress", {
         step: "parsing",
         detail: "Parsing LLM response...",
         timestamp: Date.now(),
       });
-      const raw = String(llmResult.output ?? "").trim();
-      if (!raw) {
+      if (!raw.trim()) {
         throw new Error("Coordinator decomposition returned empty output");
       }
       const items = parseLlmJson<
-        Array<{ description?: string; assigned_to?: string; worker_tier?: string; complexity?: string }> | {
+        Array<{ description?: string; assigned_to?: string; worker_tier?: string; complexity?: string; dependencies?: number[] }> | {
           description?: string;
           assigned_to?: string;
           worker_tier?: string;
           complexity?: string;
+          dependencies?: number[];
         }
       >(raw);
       const list = Array.isArray(items) ? items : [items];
-      const parsed: Array<{ description: string; assigned_to: string; worker_tier: "light" | "heavy"; complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE" }> = list.map((item) => {
+      const parsed: Array<{ description: string; assigned_to: string; worker_tier: "light" | "heavy"; complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE"; dependencies?: number[] }> = list.map((item) => {
         const rawTier = typeof item.worker_tier === "string" ? item.worker_tier.trim().toLowerCase() : "";
         const tier: "light" | "heavy" = rawTier === "heavy" ? "heavy" : "light";
         if (rawTier !== "" && rawTier !== "light" && rawTier !== "heavy") {
@@ -167,14 +163,16 @@ Array MUST have >= ${Math.max(3, team.length)} tasks covering all roles. No othe
         }
         const rawComplexity = typeof item.complexity === "string" ? item.complexity.trim().toUpperCase() : "MEDIUM";
         const validComplexities = ["LOW", "MEDIUM", "HIGH", "ARCHITECTURE"];
-        const complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE" = validComplexities.includes(rawComplexity) 
-          ? (rawComplexity as "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE") 
+        const complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE" = validComplexities.includes(rawComplexity)
+          ? (rawComplexity as "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE")
           : "MEDIUM";
+        const rawDeps = Array.isArray(item.dependencies) ? item.dependencies.filter((d): d is number => typeof d === "number") : [];
         return {
           description: String(item.description ?? ""),
           assigned_to: String(item.assigned_to ?? team[0]?.id ?? "bot_0"),
           worker_tier: tier,
           complexity,
+          dependencies: rawDeps,
         };
       });
       coordinatorEvents.emit("progress", {
@@ -183,7 +181,7 @@ Array MUST have >= ${Math.max(3, team.length)} tasks covering all roles. No othe
         timestamp: Date.now(),
       });
       const minTasks = team.length > 1 ? Math.max(3, team.length) : 1;
-      const out: Array<{ description: string; assigned_to: string; worker_tier: "light" | "heavy"; complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE" }> =
+      const out: Array<{ description: string; assigned_to: string; worker_tier: "light" | "heavy"; complexity: "LOW" | "MEDIUM" | "HIGH" | "ARCHITECTURE"; dependencies?: number[] }> =
         parsed.filter((x) => x.description.trim().length > 0);
       const covered = new Set(out.map((x) => x.assigned_to));
       for (const bot of team) {
@@ -252,6 +250,21 @@ Array MUST have >= ${Math.max(3, team.length)} tasks covering all roles. No othe
           in_progress_at: null,
         });
       }
+      // Resolve dependency indices to task_ids
+      const newTaskStart = taskQueue.length - decomposed.length;
+      for (let i = 0; i < decomposed.length; i++) {
+        const task = taskQueue[newTaskStart + i];
+        const rawDeps = decomposed[i].dependencies ?? [];
+        const resolved: string[] = [];
+        for (const depIdx of rawDeps) {
+          if (depIdx >= 0 && depIdx < decomposed.length && depIdx !== i) {
+            const depTask = taskQueue[newTaskStart + depIdx];
+            resolved.push(depTask.task_id as string);
+          }
+        }
+        task.dependencies = resolved;
+      }
+
       coordinatorEvents.emit("progress", {
         step: "complete",
         detail: `Decomposed into ${decomposed.length} tasks`,

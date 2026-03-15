@@ -13,7 +13,7 @@ import { randomPhrase } from "../utils/spinner-phrases.js";
 
 const execFileAsync = promisify(execFile);
 
-export const WORKSPACE_PROTECTED = new Set([".git", "teamclaw.config.json", "work_history.log"]);
+export const WORKSPACE_PROTECTED = new Set([".git", "teamclaw.config.json"]);
 
 const SUPPORTED_GOAL_EXTENSIONS = [".md", ".mdx", ".txt", ".json", ".yaml", ".yml", ".rst", ".adoc"];
 

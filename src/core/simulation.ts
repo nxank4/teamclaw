@@ -27,6 +27,9 @@ import { createSystemDesignNode } from "../agents/system-design.js";
 import { createMemoryRetrievalNode } from "../agents/memory-retrieval.js";
 import type { VectorMemory } from "./knowledge-base.js";
 import { getCanvasTelemetry } from "./canvas-telemetry.js";
+import { createPreviewNode } from "../graph/nodes/preview.js";
+import type { PreviewProvider } from "../graph/preview/types.js";
+import type { CostConfig } from "../graph/preview/estimator.js";
 
 function log(msg: string): void {
   if (isDebugMode()) {
@@ -100,12 +103,14 @@ export class TeamOrchestration {
     teamTemplateId?: string;
     workerUrls?: Record<string, string>;
     approvalProvider?: ApprovalProvider | null;
+    previewProvider?: PreviewProvider | null;
     workspacePath?: string;
     autoApprove?: boolean;
     vectorMemory?: VectorMemory;
     signal?: AbortSignal;
+    costConfig?: Partial<CostConfig>;
   } = {}) {
-    const { team, teamTemplateId = "game_dev", workerUrls = {}, approvalProvider = null, workspacePath, autoApprove = false, vectorMemory, signal } = options;
+    const { team, teamTemplateId = "game_dev", workerUrls = {}, approvalProvider = null, previewProvider = null, workspacePath, autoApprove = false, vectorMemory, signal, costConfig } = options;
     this.team = team ?? buildTeamFromTemplate(teamTemplateId);
     this.workerBots = createWorkerBots(this.team, workerUrls, workspacePath);
     const sharedLlmAdapter =
@@ -154,6 +159,8 @@ export class TeamOrchestration {
     const telemetryRfcNode = wrapWithTelemetry("rfc_phase", rfcNode);
     const telemetryMemoryRetrievalNode = wrapWithTelemetry("memory_retrieval", memoryRetrievalNode);
     const telemetryCoordinatorNode = wrapWithTelemetry("coordinator", (s) => this.coordinator.coordinateNode(s, signal));
+    const previewNode = createPreviewNode({ previewProvider, costConfig });
+    const telemetryPreviewNode = wrapWithTelemetry("preview", previewNode);
 
     const workflow = new StateGraph(GameStateAnnotation)
       .addNode("memory_retrieval", telemetryMemoryRetrievalNode)
@@ -161,6 +168,7 @@ export class TeamOrchestration {
       .addNode("system_design", telemetrySystemDesignNode)
       .addNode("rfc_phase", telemetryRfcNode)
       .addNode("coordinator", telemetryCoordinatorNode)
+      .addNode("preview", telemetryPreviewNode)
       .addNode("approval", telemetryApprovalNode)
       .addNode("worker_task", telemetryWorkerTaskNode)
       .addNode("worker_collect", telemetryCollectNode)
@@ -192,9 +200,11 @@ export class TeamOrchestration {
       .addEdge("sprint_planning", "system_design")
       .addEdge("system_design", "rfc_phase")
       .addEdge("rfc_phase", "coordinator")
+      .addEdge("coordinator", "preview")
       .addConditionalEdges(
-        "coordinator",
+        "preview",
         (s) => {
+          if (s.aborted) return "__end__";
           const taskQueue = s.task_queue ?? [];
           const pending = taskQueue.filter((t) => t.status === "pending");
           if (pending.length === 0) return "__end__";
@@ -214,7 +224,33 @@ export class TeamOrchestration {
         { coordinator: "coordinator", worker_collect: "worker_collect", worker_task: "worker_task" }
       )
       .addEdge("worker_task", "worker_collect")
-      .addEdge("worker_collect", "human_approval")
+      .addConditionalEdges(
+        "worker_collect",
+        (s) => {
+          const tq = s.task_queue ?? [];
+          const tIds = new Set<string>();
+          for (const t of tq) {
+            const st = t.status as string;
+            if (st === "completed" || st === "failed" || st === "waiting_for_human") {
+              tIds.add(t.task_id as string);
+            }
+          }
+
+          const hasReady = tq.some((t) => {
+            const st = t.status as string;
+            if (st === "reviewing" || st === "needs_rework") return true;
+            if (st !== "pending") return false;
+            const deps = (t.dependencies as string[]) ?? [];
+            return deps.every((depId) => tIds.has(depId));
+          });
+
+          if (hasReady) {
+            return taskDispatcher(s);
+          }
+          return "human_approval";
+        },
+        { human_approval: "human_approval", worker_collect: "worker_collect", worker_task: "worker_task" }
+      )
       .addEdge("human_approval", "increment_cycle")
       .addConditionalEdges(
         "increment_cycle",
@@ -271,6 +307,7 @@ export class TeamOrchestration {
     initialTasks?: Array<{ assigned_to?: string; description?: string; priority?: string }>;
     ancestralLessons?: string[];
     projectContext?: string;
+    skipPreview?: boolean;
   } = {}): GraphState {
     const lessons = options.ancestralLessons ?? [];
     const projectContext = options.projectContext ?? "";
@@ -305,6 +342,7 @@ export class TeamOrchestration {
     (base.messages as string[]).push("Work session started");
     if (options.userGoal) base.user_goal = options.userGoal;
     if (projectContext) base.project_context = projectContext;
+    if (options.skipPreview) base.skip_preview = true;
 
     return base as unknown as GraphState;
   }
@@ -316,6 +354,7 @@ export class TeamOrchestration {
     projectContext?: string;
     maxRuns?: number;
     timeoutMinutes?: number;
+    skipPreview?: boolean;
   } = {}): Promise<GraphState> {
     this.sessionStartTime = Date.now();
     this.sessionTimeoutMs = (options.timeoutMinutes ?? 0) * 60 * 1000;
@@ -371,6 +410,7 @@ export class TeamOrchestration {
     projectContext?: string;
     maxRuns?: number;
     timeoutMinutes?: number;
+    skipPreview?: boolean;
   } = {}): AsyncGenerator<Record<string, GraphState>> {
     this.sessionStartTime = Date.now();
     this.sessionTimeoutMs = (options.timeoutMinutes ?? 0) * 60 * 1000;
@@ -426,10 +466,12 @@ export function createTeamOrchestration(options: {
   teamTemplateId?: string;
   workerUrls?: Record<string, string>;
   approvalProvider?: ApprovalProvider | null;
+  previewProvider?: PreviewProvider | null;
   workspacePath?: string;
   autoApprove?: boolean;
   vectorMemory?: VectorMemory;
   signal?: AbortSignal;
+  costConfig?: Partial<CostConfig>;
 } = {}): TeamOrchestration {
   return new TeamOrchestration(options);
 }

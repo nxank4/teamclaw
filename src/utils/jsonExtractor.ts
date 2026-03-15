@@ -13,25 +13,23 @@ export function parseLlmJson<T>(text: string): T {
     const fenceMatch = fenceRegex.exec(cleaned);
     let candidate = fenceMatch ? fenceMatch[1].trim() : cleaned;
 
-    // 3) Boundary fallback: take substring from first {/[ to last }/].
-    if (!fenceMatch) {
-        const firstBrace = candidate.indexOf("{");
-        const firstBracket = candidate.indexOf("[");
-        const startCandidates = [firstBrace, firstBracket].filter(
-            (i) => i >= 0,
-        );
-        const start =
-            startCandidates.length > 0 ? Math.min(...startCandidates) : -1;
+    // 3) Boundary extraction: first {/[ to last }/] — always applied.
+    const firstBrace = candidate.indexOf("{");
+    const firstBracket = candidate.indexOf("[");
+    const startCandidates = [firstBrace, firstBracket].filter(
+        (i) => i >= 0,
+    );
+    const start =
+        startCandidates.length > 0 ? Math.min(...startCandidates) : -1;
 
-        const lastBrace = candidate.lastIndexOf("}");
-        const lastBracket = candidate.lastIndexOf("]");
-        const endCandidates = [lastBrace, lastBracket].filter((i) => i >= 0);
-        const end =
-            endCandidates.length > 0 ? Math.max(...endCandidates) + 1 : -1;
+    const lastBrace = candidate.lastIndexOf("}");
+    const lastBracket = candidate.lastIndexOf("]");
+    const endCandidates = [lastBrace, lastBracket].filter((i) => i >= 0);
+    const end =
+        endCandidates.length > 0 ? Math.max(...endCandidates) + 1 : -1;
 
-        if (start >= 0 && end > start) {
-            candidate = candidate.slice(start, end).trim();
-        }
+    if (start >= 0 && end > start) {
+        candidate = candidate.slice(start, end).trim();
     }
 
     try {

@@ -14,6 +14,7 @@ export type ParsedWorkArgs = {
     clearLegacy: boolean;
     autoApprove: boolean;
     noWebFlag: boolean;
+    noPreview: boolean;
 };
 
 export function parseWorkArgs(args: string[]): ParsedWorkArgs {
@@ -23,6 +24,7 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
     let clearLegacy = false;
     let autoApprove = false;
     let noWebFlag = false;
+    let noPreview = false;
     let warnedInfraFlag = false;
 
     for (let i = 0; i < args.length; i++) {
@@ -48,6 +50,8 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
             autoApprove = true;
         } else if (args[i] === "--no-web") {
             noWebFlag = true;
+        } else if (args[i] === "--no-preview") {
+            noPreview = true;
         } else if (
             args[i] === "--discover" ||
             args[i] === "--no-managed-gateway" ||
@@ -65,7 +69,7 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
         }
     }
 
-    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag };
+    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview };
 }
 
 export async function promptSessionConfig(

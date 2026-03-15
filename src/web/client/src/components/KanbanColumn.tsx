@@ -21,7 +21,7 @@ export function KanbanColumn({ id, title, tasks }: KanbanColumnProps) {
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-w-[260px] flex-1 flex-col rounded-xl border-2 bg-stone-50 dark:bg-stone-900 p-3 transition-all duration-200 hover:-translate-y-0.5 ${
+      className={`relative flex min-w-[260px] flex-1 flex-col rounded-xl border-2 bg-gradient-to-b from-stone-50 to-white dark:from-stone-900 dark:to-stone-950 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:z-10 ${
         isOver
           ? "border-sky-400 dark:border-sky-500 bg-sky-50/50 dark:bg-sky-900/20"
           : "border-stone-200 dark:border-stone-700"

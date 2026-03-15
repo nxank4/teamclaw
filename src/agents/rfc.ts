@@ -8,6 +8,8 @@ import type { BotDefinition } from "../core/bot-definitions.js";
 import type { WorkerAdapter } from "../adapters/worker-adapter.js";
 import { CONFIG } from "../core/config.js";
 import { logger, isDebugMode } from "../core/logger.js";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { parseLlmJson } from "../utils/jsonExtractor.js";
 import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
 import { resolveModelForAgent } from "../core/model-config.js";
@@ -188,12 +190,13 @@ export class RFCNode {
     complexity: string,
     signal?: AbortSignal
   ): Promise<RFCEntry> {
+    const archDocPath = path.join(this.workspacePath, "docs", "ARCHITECTURE.md");
+    const hasArchDoc = existsSync(archDocPath);
+    const archInstruction = hasArchDoc
+      ? `\nCRITICAL: Before writing the RFC, you MUST read docs/ARCHITECTURE.md.\nYour RFC MUST align with the architecture, folder structure, and tech stack\ndefined by the Tech Lead in docs/ARCHITECTURE.md.\n`
+      : "";
     const prompt = `You are a Software Engineer (Maker) creating an RFC for this task.
-
-CRITICAL: Before writing the RFC, you MUST read docs/ARCHITECTURE.md.
-Your RFC MUST align with the architecture, folder structure, and tech stack 
-defined by the Tech Lead in docs/ARCHITECTURE.md.
-
+${archInstruction}
 ## Task
 ${description}
 
@@ -211,14 +214,11 @@ Output ONLY a JSON object:
   "fileStructure": "src/\n├── file1.ts\n└── file2.ts"
 }`;
 
-    const llmTaskId = `RFC-${taskId}-${Date.now()}`;
-    const llmResult = await Promise.race([
-      this.llmAdapter.executeTask({
-        task_id: llmTaskId,
-        description: prompt,
-        priority: "HIGH",
-        estimated_cost: 0,
-      }, { signal }),
+    const messages = [
+      { role: "user", content: prompt },
+    ];
+    const raw = await Promise.race([
+      this.llmAdapter.complete(messages, { signal }),
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error("RFC creation timed out")),
@@ -226,12 +226,6 @@ Output ONLY a JSON object:
         )
       ),
     ]);
-
-    if (!llmResult.success) {
-      throw new Error(String(llmResult.output ?? "RFC creation failed"));
-    }
-
-    const raw = String(llmResult.output ?? "").trim();
     const parsed = parseLlmJson<{
       technicalApproach: string;
       tools: string[];

@@ -40,10 +40,18 @@ export function WorkflowStepper() {
 
         return (
           <div key={node} className="flex items-center">
-            <div className="group relative">
-              <div className={`h-2 w-2 rounded-full ${dotClass}`} />
-              <div className="pointer-events-none absolute top-full left-1/2 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-stone-800 dark:bg-stone-200 px-2 py-1 text-xs text-stone-100 dark:text-stone-800 opacity-0 group-hover:opacity-100 transition-opacity">
-                {NODE_LABELS[node] ?? node}
+            <div className="group relative p-1">
+              <div
+                className={`h-2 w-2 rounded-full transition-transform duration-150 group-hover:scale-150 group-hover:ring-2 group-hover:ring-amber-400/40 ${dotClass} ${isCompleted ? "flex items-center justify-center" : ""}`}
+              >
+                {isCompleted && (
+                  <svg className="h-1.5 w-1.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                )}
+              </div>
+              <div className="pointer-events-none absolute top-full left-1/2 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md bg-stone-800 dark:bg-stone-200 px-2 py-1 text-xs text-stone-100 dark:text-stone-800 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150 before:absolute before:bottom-full before:left-1/2 before:-translate-x-1/2 before:border-4 before:border-transparent before:border-b-stone-800 dark:before:border-b-stone-200">
+                {i + 1}. {NODE_LABELS[node] ?? node}
               </div>
             </div>
             {i < WORKFLOW_NODES.length - 1 && (

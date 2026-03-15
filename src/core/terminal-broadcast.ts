@@ -3,12 +3,21 @@
 import { randomUUID } from "node:crypto";
 import { openclawEvents, type OpenClawLogEntry } from "./openclaw-events.js";
 
-const stdoutOriginal = process.stdout.write as (chunk: any, ...args: any[]) => boolean;
-const stderrOriginal = process.stderr.write as (chunk: any, ...args: any[]) => boolean;
+const stdoutOriginal = process.stdout.write.bind(process.stdout) as (chunk: any, ...args: any[]) => boolean;
+const stderrOriginal = process.stderr.write.bind(process.stderr) as (chunk: any, ...args: any[]) => boolean;
 
 const BATCH_INTERVAL_MS = 50;
 const buffer: { text: string; isStderr: boolean }[] = [];
 let broadcastScheduled = false;
+
+// Spinner dedup: suppress repeated animation frames that differ only by spinner char, trailing dots, or elapsed time
+const SPINNER_CHARS = /^[◒◐◓◑]\s*/;
+const TRAILING_DOTS = /\.{1,3}$/;
+let lastNormalized = "";
+
+function normalizeSpinner(msg: string): string {
+  return msg.replace(SPINNER_CHARS, "").replace(TRAILING_DOTS, "").trim();
+}
 
 // Strip ANSI escape codes
 function stripAnsi(str: string): string {
@@ -26,8 +35,20 @@ function flushBuffer(): void {
   // Group by stderr vs stdout
   const hasError = items.some((i) => i.isStderr);
   const combined = items.map((i) => i.text).join("");
-  const cleaned = stripAnsi(combined).trim();
+  // Process \r: for each line, only keep text after last carriage return
+  const crProcessed = combined
+    .split("\n")
+    .map((line) => {
+      const crIdx = line.lastIndexOf("\r");
+      return crIdx >= 0 ? line.slice(crIdx + 1) : line;
+    })
+    .join("\n");
+  const cleaned = stripAnsi(crProcessed).trim();
   if (!cleaned) return;
+
+  const normalized = normalizeSpinner(cleaned);
+  if (normalized === lastNormalized) return;
+  lastNormalized = normalized;
 
   const entry: OpenClawLogEntry = {
     id: randomUUID(),

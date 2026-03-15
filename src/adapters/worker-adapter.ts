@@ -10,6 +10,8 @@ import { getTrafficController } from "../core/traffic-control.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { extractFileBlocks, writeFileBlocks } from "../utils/file-block-parser.js";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import pc from "picocolors";
 import { openclawEvents } from "../core/openclaw-events.js";
 
@@ -17,6 +19,7 @@ export type WorkerAdapterType = "openclaw";
 
 export interface WorkerAdapter {
   executeTask(task: TaskRequest, options?: { signal?: AbortSignal }): Promise<TaskResult>;
+  complete(messages: { role: string; content: string }[], options?: { signal?: AbortSignal }): Promise<string>;
   healthCheck(): Promise<boolean>;
   getStatus(): Promise<Record<string, unknown>>;
   reset(): Promise<void>;
@@ -406,6 +409,13 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
     }
   }
 
+  async complete(
+    messages: { role: string; content: string }[],
+    options?: { signal?: AbortSignal }
+  ): Promise<string> {
+    return this.chatComplete(messages, undefined, undefined, undefined, options?.signal);
+  }
+
   async executeTask(task: TaskRequest, options?: { signal?: AbortSignal }): Promise<TaskResult> {
     const botId = this.botId || "worker";
     const trafficController = getTrafficController();
@@ -421,14 +431,15 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
     }
 
     try {
+      const archDocPath = path.join(this.workspacePath, "docs", "ARCHITECTURE.md");
+      const hasArchDoc = existsSync(archDocPath);
+      const archBlock = hasArchDoc
+        ? `\nCRITICAL: Before performing any task, you MUST read docs/ARCHITECTURE.md.\nYour code MUST strictly follow the architecture, folder structure, and tech stack\ndefined by the Tech Lead in docs/ARCHITECTURE.md.\n`
+        : "";
       const systemPrompt = `You are a helpful AI assistant (Maker/Software Engineer). Execute the given task and return the result.
 You are working in a strictly defined workspace. Treat this workspace as your root directory.
 WORKSPACE PATH: ${this.workspacePath}
-
-CRITICAL: Before performing any task, you MUST read docs/ARCHITECTURE.md.
-Your code MUST strictly follow the architecture, folder structure, and tech stack
-defined by the Tech Lead in docs/ARCHITECTURE.md.
-
+${archBlock}
 IMPORTANT: Do NOT create arbitrary subdirectories unless explicitly specified in the task.
 Output files directly to the root of the provided workspace path unless the task explicitly requires a specific structure (like 'assets/' or 'src/components/').
 

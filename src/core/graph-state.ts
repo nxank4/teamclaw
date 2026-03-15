@@ -74,9 +74,15 @@ export const GameStateAnnotation = Annotation.Root({
   mid_sprint_reported: Annotation<boolean>(lastValue(() => false)),
   total_tasks: Annotation<number>(lastValue(() => 0)),
   completed_tasks: Annotation<number>(lastValue(() => 0)),
-  
+  parallelism_depth: Annotation<number>(lastValue(() => 0)),
+
   retrieved_memories: Annotation<string>(lastValue(() => "")),
   preferences_context: Annotation<string>(lastValue(() => "")),
+
+  // Preview gate — approval step before fan-out execution
+  preview: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
+  aborted: Annotation<boolean>(lastValue(() => false)),
+  skip_preview: Annotation<boolean>(lastValue(() => false)),
 
   // Send-payload fields: transient, set by Send() args during parallel worker superstep
   _send_task: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),

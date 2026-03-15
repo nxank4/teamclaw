@@ -306,6 +306,7 @@ describe("simulation.ts — TeamOrchestration", () => {
       expect(registeredNodes).toContain("system_design");
       expect(registeredNodes).toContain("rfc_phase");
       expect(registeredNodes).toContain("coordinator");
+      expect(registeredNodes).toContain("preview");
       expect(registeredNodes).toContain("approval");
       expect(registeredNodes).toContain("worker_task");
       expect(registeredNodes).toContain("worker_collect");
@@ -323,18 +324,20 @@ describe("simulation.ts — TeamOrchestration", () => {
       expect(edges).toContainEqual(["sprint_planning", "system_design"]);
       expect(edges).toContainEqual(["system_design", "rfc_phase"]);
       expect(edges).toContainEqual(["rfc_phase", "coordinator"]);
+      expect(edges).toContainEqual(["coordinator", "preview"]);
       expect(edges).toContainEqual(["worker_task", "worker_collect"]);
-      expect(edges).toContainEqual(["worker_collect", "human_approval"]);
+      // worker_collect → human_approval is now a conditional edge (wave loop)
       expect(edges).toContainEqual(["human_approval", "increment_cycle"]);
     });
 
-    it("registers conditional edges for coordinator, approval, and increment_cycle", () => {
+    it("registers conditional edges for preview, approval, and increment_cycle", () => {
       createTeamOrchestration();
       const conditionalSources = mockAddConditionalEdges.mock.calls.map(
         (call: unknown[]) => call[0]
       );
-      expect(conditionalSources).toContain("coordinator");
+      expect(conditionalSources).toContain("preview");
       expect(conditionalSources).toContain("approval");
+      expect(conditionalSources).toContain("worker_collect");
       expect(conditionalSources).toContain("increment_cycle");
     });
 
@@ -668,7 +671,8 @@ describe("simulation.ts — TeamOrchestration", () => {
       mockAddNode.mockClear();
       mockAddEdge.mockClear();
       createTeamOrchestration({ team: makeTeam() });
-      coordinatorRoute = getRoutingFn("coordinator");
+      // Conditional edges moved from "coordinator" to "preview" node
+      coordinatorRoute = getRoutingFn("preview");
       approvalRoute = getRoutingFn("approval");
       incrementRoute = getRoutingFn("increment_cycle");
     });

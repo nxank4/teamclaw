@@ -11,6 +11,7 @@
  * Other commands: web (start/stop/status), check, onboard, config, lessons, run
  */
 
+import { createRequire } from "node:module";
 import pc from "picocolors";
 import { intro, outro } from "@clack/prompts";
 import { logger } from "./core/logger.js";
@@ -41,75 +42,52 @@ function parseGoalArg(args: string[]): { goal?: string; rest: string[] } {
     return { goal: trimmed ? trimmed : undefined, rest };
 }
 
+// 4-Pillar Architecture (internal design):
+//   Pillar 1 — setup/init: Guided setup wizard
+//   Pillar 2 — work: Zero-config execution
+//   Pillar 3 — (auto, work): Smart connection error recovery
+//   Pillar 4 — (auto, work): Web Dashboard auto-start
+
 function printHelp(): void {
-    const title = pc.bold(pc.cyan("TeamClaw — OpenClaw team orchestration"));
+    const require = createRequire(import.meta.url);
+    const { version } = require("../package.json") as { version: string };
+
     const section = (s: string) => pc.bold(pc.yellow(s));
     const cmd = (c: string) => pc.green(c);
     const desc = (d: string) => pc.dim(d);
     const exCmd = (c: string) => pc.cyan(c);
+    const pad = (s: string, w = 15) => s + " ".repeat(Math.max(1, w - s.length));
 
     const lines = [
         "",
-        title,
+        pc.bold(pc.cyan("TeamClaw")) + " — AI team orchestration" + "  " + pc.dim(`v${version}`),
         "",
-        section("4-Pillar Architecture:"),
-        "  " + pc.bold("Pillar 1") + " — setup / init        " + desc("Guided setup wizard — configure gateway, save config"),
-        "  " + pc.bold("Pillar 2") + " — work                " + desc("Zero-config execution — reads saved config, no infrastructure prompts"),
-        "  " + pc.bold("Pillar 3") + " — (auto, work)        " + desc("Smart connection error recovery with actionable steps"),
-        "  " + pc.bold("Pillar 4") + " — (auto, work)        " + desc("Web Dashboard starts in background — use --no-web to disable"),
+        section("Usage:") + " teamclaw <command> [options]",
         "",
-        section("Usage:") + " teamclaw " + desc("<command> [options]"),
+        section("Commands:"),
+        "  " + cmd(pad("setup")) + desc("Guided setup wizard (gateway, workspace, model, team)"),
+        "  " + cmd(pad("work")) + desc("Run a work session (auto-starts web dashboard)"),
+        "  " + cmd(pad("config")) + desc("Manage configuration interactively"),
+        "  " + cmd(pad("model")) + desc("Model selection dashboard"),
+        "  " + cmd(pad("web")) + desc("Start web dashboard (default port from config)"),
+        "  " + cmd(pad("check")) + desc("Check gateway connectivity"),
         "",
-        section("Setup & Configuration:"),
-        "  " + cmd("setup") + "      " + desc("Interactive setup wizard (connection, workspace, model, team)"),
-        "  " + cmd("init") + "       " + desc("Alias for setup"),
-        "  " + cmd("onboard") + "    " + desc("Alias for setup"),
-        "  " + cmd("config") + "     " + desc("Manage config (teamclaw.config.json + global config) safely"),
+        "  " + cmd(pad("logs")) + desc("View session and gateway logs"),
+        "  " + cmd(pad("lessons")) + desc("Export lessons learned"),
+        "  " + cmd(pad("run openclaw")) + desc("Start OpenClaw gateway"),
+        "  " + cmd(pad("demo")) + desc("Run a synthetic demo (no gateway needed)"),
         "",
-        section("Work Session:"),
-        "  " + cmd("work") + "       " + desc("Run a work session (reads config, auto-starts web dashboard)"),
-        "  " + cmd("web") + "        " + desc("Start Web UI in foreground (http://localhost:8000)"),
-        "  " + cmd("web start") + "  " + desc("Start Web UI in background (daemon)"),
-        "  " + cmd("web stop") + "   " + desc("Stop background Web UI"),
-        "  " + cmd("web status") + "  " + desc("Show status of background Web UI"),
-        "  " + cmd("check") + "      " + desc("Check connectivity (OpenClaw workers)"),
-        "",
-        section("Model Management:"),
-        "  " + cmd("model") + "      " + desc("Interactive model configuration dashboard"),
-        "  " + cmd("model list") + " " + desc("Show available models from OpenClaw"),
-        "  " + cmd("model get") + "  " + desc("Show current default + per-agent models"),
-        "  " + cmd("model set") + "  " + desc("<model>  Set global default model"),
-        "  " + cmd("model set") + "  " + desc("--agent <role> <model>  Set model for agent"),
-        "  " + cmd("model reset") + desc(" Clear all model overrides"),
-        "",
-        section("Utilities:"),
-        "  " + cmd("lessons") + "    " + desc("Export lessons"),
-        "  " + cmd("logs") + "       " + desc("View gateway / web / work session logs"),
-        "  " + cmd("run") + "        " + desc("Run OpenClaw gateway (run openclaw --port 8001)"),
-        "  " + cmd("demo") + "       " + desc("Run a synthetic demo (no gateway needed)"),
-        "",
-        section("work flags:"),
-        "  " + pc.green("--goal") + " " + desc('"Your goal" or @file.md   Set goal (supports multiline & file: .md, .txt, .json)'),
-        "  " + pc.green("--no-web") + "            " + desc("Disable automatic web dashboard startup"),
-        "  " + pc.green("--runs") + " " + desc("<N>            Number of work sessions to run sequentially"),
-        "  " + pc.dim("(infra flags like --port/--discover are setup-time concerns; use `teamclaw setup`)"),
+        section("Work options:"),
+        "  " + cmd(pad("--goal <text>")) + desc("Set goal inline, or --goal @file.md to load from file"),
+        "  " + cmd(pad("--no-web")) + desc("Skip automatic web dashboard"),
+        "  " + cmd(pad("--runs <N>")) + desc("Run N sessions sequentially"),
         "",
         section("Examples:"),
-        "  " + exCmd("teamclaw setup"),
-        "  " + exCmd("teamclaw work"),
-        "  " + exCmd("teamclaw work") + " " + desc('--goal "Build a landing page"'),
-        "  " + exCmd("teamclaw work") + " " + desc('--goal @goal.md     (read goal from file)'),
-        "  " + exCmd("teamclaw work") + " " + desc("--no-web"),
-        "  " + exCmd("teamclaw config"),
-        "  " + exCmd("teamclaw config get OPENCLAW_TOKEN"),
-        "  " + exCmd("teamclaw web"),
-        "  " + exCmd("teamclaw web --daemon"),
-        "  " + exCmd("teamclaw model list"),
-        "  " + exCmd("teamclaw model set openai/gpt-4o"),
-        "  " + exCmd("teamclaw model set") + " " + desc("--agent coordinator anthropic/claude-sonnet-4-6"),
-        "  " + exCmd("teamclaw web start"),
-        "  " + exCmd("teamclaw web stop"),
-        "  " + exCmd("teamclaw web status"),
+        "  " + exCmd("teamclaw setup") + "                          " + desc("Get started"),
+        "  " + exCmd('teamclaw work --goal "Build a CLI"') + "      " + desc("Run with a goal"),
+        "  " + exCmd("teamclaw model set openai/gpt-4o") + "        " + desc("Set default model"),
+        "",
+        desc("Run teamclaw <command> --help for details on any command."),
         "",
     ];
     console.log(lines.join("\n"));

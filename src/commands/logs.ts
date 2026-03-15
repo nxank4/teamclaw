@@ -10,7 +10,7 @@
  *   teamclaw logs gateway -n 50    # Show last 50 lines
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -44,8 +44,8 @@ function getLogSources(): LogSource[] {
     {
       name: "work",
       label: "Work Session",
-      path: path.join(cwd, "work_history.log"),
-      description: "Work runner session history",
+      path: path.join(homeDir, ".teamclaw", "logs"),
+      description: "Work runner session history (per-session files in ~/.teamclaw/logs/)",
     },
   ];
 }
@@ -69,8 +69,13 @@ function printLogIndex(): void {
     let sizeInfo = "";
     if (exists) {
       try {
-        const stat = statSync(src.path);
-        sizeInfo = pc.dim(` (${formatSize(stat.size)})`);
+        const info = statSync(src.path);
+        if (info.isDirectory()) {
+          const count = readdirSync(src.path).filter((f) => f.endsWith(".log")).length;
+          sizeInfo = pc.dim(` (${count} log file${count !== 1 ? "s" : ""})`);
+        } else {
+          sizeInfo = pc.dim(` (${formatSize(info.size)})`);
+        }
       } catch {
         // ignore
       }
@@ -115,6 +120,15 @@ function followLog(filePath: string): void {
   });
 }
 
+function findLatestLog(dir: string, prefix: string): string | null {
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir)
+    .filter((f) => f.startsWith(prefix) && f.endsWith(".log"))
+    .map((f) => ({ name: f, mtime: statSync(path.join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+  return files.length > 0 ? path.join(dir, files[0].name) : null;
+}
+
 export async function runLogs(args: string[]): Promise<void> {
   const sourceName = args[0];
 
@@ -133,8 +147,18 @@ export async function runLogs(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  if (!existsSync(source.path)) {
-    logger.warn(`Log file not found: ${source.path}`);
+  // Resolve directory-based log sources to the latest file
+  let resolvedPath = source.path;
+  if (source.name === "work") {
+    const latest = findLatestLog(source.path, "work-history-");
+    if (!latest) {
+      logger.warn(`No work history logs found in ${source.path}`);
+      logger.plain(pc.dim("Run `teamclaw work` to create a session log."));
+      return;
+    }
+    resolvedPath = latest;
+  } else if (!existsSync(resolvedPath)) {
+    logger.warn(`Log file not found: ${resolvedPath}`);
     logger.plain(pc.dim("The gateway may not have been started yet. Run `teamclaw work` or `teamclaw run openclaw`."));
     return;
   }
@@ -144,16 +168,16 @@ export async function runLogs(args: string[]): Promise<void> {
   // --clear: truncate
   if (flagArgs.includes("--clear")) {
     const { writeFileSync } = await import("node:fs");
-    writeFileSync(source.path, "");
-    logger.success(`Cleared ${source.label} log: ${source.path}`);
+    writeFileSync(resolvedPath, "");
+    logger.success(`Cleared ${source.label} log: ${resolvedPath}`);
     return;
   }
 
   // -f: follow
   if (flagArgs.includes("-f") || flagArgs.includes("--follow")) {
-    logger.plain(pc.dim(`Following ${source.label} log: ${source.path}`));
+    logger.plain(pc.dim(`Following ${source.label} log: ${resolvedPath}`));
     logger.plain(pc.dim("Press Ctrl+C to stop.\n"));
-    followLog(source.path);
+    followLog(resolvedPath);
     return;
   }
 
@@ -164,13 +188,13 @@ export async function runLogs(args: string[]): Promise<void> {
     lineCount = Math.max(1, parseInt(flagArgs[nIdx + 1], 10) || 100);
   }
 
-  const lines = readLastLines(source.path, lineCount);
+  const lines = readLastLines(resolvedPath, lineCount);
   if (lines.length === 0) {
     logger.warn(`${source.label} log is empty.`);
     return;
   }
 
-  logger.plain(pc.dim(`── ${source.label} (last ${lines.length} lines) ── ${source.path}\n`));
+  logger.plain(pc.dim(`── ${source.label} (last ${lines.length} lines) ── ${resolvedPath}\n`));
   for (const line of lines) {
     logger.plain(line);
   }

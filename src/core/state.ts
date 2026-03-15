@@ -42,6 +42,7 @@ export const TaskQueueItemSchema = z.object({
   max_retries: z.number().min(1).default(2),
   reviewer_feedback: z.string().nullable().default(null),
   original_maker: z.string().nullable().default(null),
+  dependencies: z.array(z.string()).default([]),
 });
 export type TaskQueueItem = z.infer<typeof TaskQueueItemSchema>;
 

@@ -28,6 +28,7 @@ export class DashboardBridge {
     // Terminal forwarding state
     private terminalBuffer: string[] = [];
     private terminalFlushScheduled = false;
+    private lastNormalizedTerminal = "";
     private stdoutOriginal: ((chunk: any, ...args: any[]) => boolean) | null = null;
     private stderrOriginal: ((chunk: any, ...args: any[]) => boolean) | null = null;
 
@@ -160,8 +161,21 @@ export class DashboardBridge {
         if (this.terminalBuffer.length === 0) return;
         const data = this.terminalBuffer.join("");
         this.terminalBuffer.length = 0;
-        const cleaned = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").trim();
+        // Process \r: for each line, only keep text after last carriage return
+        const crProcessed = data
+            .split("\n")
+            .map((line) => {
+                const crIdx = line.lastIndexOf("\r");
+                return crIdx >= 0 ? line.slice(crIdx + 1) : line;
+            })
+            .join("\n");
+        const cleaned = crProcessed.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").trim();
         if (!cleaned) return;
+
+        const normalized = cleaned.replace(/^[◒◐◓◑]\s*/, "").replace(/\.{1,3}$/, "").trim();
+        if (normalized === this.lastNormalizedTerminal) return;
+        this.lastNormalizedTerminal = normalized;
+
         this.relay({
             type: "openclaw_log",
             entry: {

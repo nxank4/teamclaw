@@ -117,6 +117,7 @@ interface WsStore {
   lastError: string | null;
   alerts: AlertItem[];
   pendingApproval: Record<string, unknown> | null;
+  pendingPreview: Record<string, unknown> | null;
   activeNode: string | null;
   completedNodes: string[];
   nodeEventHistory: NodeEventEntry[];
@@ -148,6 +149,8 @@ interface WsStore {
   setNotificationPrefs: (prefs: Partial<NotificationPreferences>) => void;
   toggleNotificationType: (type: AlertType) => void;
   setPendingApproval: (pending: Record<string, unknown> | null) => void;
+  setPendingPreview: (preview: Record<string, unknown> | null) => void;
+  clearPendingPreview: () => void;
   setActiveNode: (node: string | null) => void;
   addCompletedNode: (node: string) => void;
   pushNodeEvent: (entry: NodeEventEntry) => void;
@@ -179,6 +182,7 @@ const COMMAND_ROUTES: Record<string, { method: string; path: string | ((body: Re
   speed: { method: "POST", path: "/api/session/speed" },
   config: { method: "POST", path: "/api/session/config" },
   approval_response: { method: "POST", path: "/api/approval/respond" },
+  preview_response: { method: "POST", path: "/api/preview/respond" },
   update_task: { method: "POST", path: (body) => `/api/tasks/${encodeURIComponent(String(body.taskId ?? ""))}` },
   model_switch: { method: "POST", path: "/api/models/switch" },
   model_query: { method: "GET", path: "/api/models/state" },
@@ -212,6 +216,7 @@ export const useWsStore = create<WsStore>((set) => ({
   alerts: [],
   notificationPrefs: loadNotifPrefs(),
   pendingApproval: null,
+  pendingPreview: null,
   activeNode: null,
   completedNodes: [],
   nodeEventHistory: [],
@@ -296,6 +301,8 @@ export const useWsStore = create<WsStore>((set) => ({
       return { notificationPrefs: next };
     }),
   setPendingApproval: (pending) => set({ pendingApproval: pending }),
+  setPendingPreview: (preview) => set({ pendingPreview: preview }),
+  clearPendingPreview: () => set({ pendingPreview: null }),
   setActiveNode: (node) => set({ activeNode: node }),
   addCompletedNode: (node) =>
     set((prev) => ({
