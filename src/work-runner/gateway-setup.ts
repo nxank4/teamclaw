@@ -8,6 +8,7 @@ import { logger } from "../core/logger.js";
 import { isPortInUse, cleanupManagedGateway, setupGatewayCleanupHandlers } from "../commands/run-openclaw.js";
 import { runGatewayHealthCheck } from "../core/health.js";
 import { formatFlatError } from "./outcome-reporter.js";
+import { readLocalOpenClawConfig } from "../core/discovery.js";
 
 export type GatewaySetupConfig = {
     gatewayPort: number;
@@ -21,8 +22,23 @@ async function waitForManagedGatewayReady(
     gatewayPort: number,
     token: string,
 ): Promise<boolean> {
-    const apiPort = gatewayPort + 2;
-    const modelsUrl = `http://127.0.0.1:${apiPort}/v1/models`;
+    // Build candidate ports: openclaw config httpPort, legacy +2, and gateway port itself
+    const openclawCfg = readLocalOpenClawConfig();
+    const candidatePorts = new Set<number>();
+    if (openclawCfg?.httpPort) candidatePorts.add(openclawCfg.httpPort);
+    candidatePorts.add(gatewayPort + 2);
+    candidatePorts.add(gatewayPort);
+
+    // Multiple endpoints per port — /__openclaw__/api/config is the most reliable
+    const endpoints = ["/__openclaw__/api/config", "/v1/models"];
+
+    const candidateUrls: string[] = [];
+    for (const port of candidatePorts) {
+        for (const ep of endpoints) {
+            candidateUrls.push(`http://127.0.0.1:${port}${ep}`);
+        }
+    }
+
     const headers: Record<string, string> = {};
     if (token.trim()) {
         headers.Authorization = `Bearer ${token.trim()}`;
@@ -31,17 +47,22 @@ async function waitForManagedGatewayReady(
     let attempts = 0;
     while (attempts < 10) {
         attempts += 1;
-        try {
-            const res = await fetch(modelsUrl, {
-                method: "GET",
-                headers,
-                signal: AbortSignal.timeout(1000),
-            });
-            if (res.status >= 100) {
-                return true;
+        for (const url of candidateUrls) {
+            try {
+                const res = await fetch(url, {
+                    method: "GET",
+                    headers,
+                    signal: AbortSignal.timeout(1000),
+                });
+                // Accept any response (including HTML SPAs) as proof the gateway is running.
+                // Newer gateway versions serve an SPA on the same port as the WS endpoint,
+                // so all HTTP GETs return text/html — but a 200 still proves the process is up.
+                if (res.status >= 100 && res.status < 500) {
+                    return true;
+                }
+            } catch {
+                // continue polling
             }
-        } catch {
-            // continue polling until timeout
         }
         await new Promise((resolve) => setTimeout(resolve, 500));
     }
@@ -66,8 +87,8 @@ export async function waitForGatewayWithUi(
         }
         logger.plain(
             formatFlatError("GATEWAY STARTUP TIMEOUT", [
-                `Gateway did not respond at http://127.0.0.1:${gatewayPort + 2}/v1/models within 5 seconds.`,
-                `Suggestion: Verify OpenClaw startup logs and confirm WS/API ports (${gatewayPort} / ${gatewayPort + 2}).`,
+                `Gateway did not respond at port ${gatewayPort} or ${gatewayPort + 2} within 5 seconds.`,
+                `Suggestion: Verify OpenClaw startup logs and confirm the gateway is running.`,
                 "Suggestion: Run `teamclaw run openclaw` to verify the gateway starts cleanly.",
             ]),
         );
