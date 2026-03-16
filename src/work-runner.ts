@@ -3,6 +3,9 @@
  */
 
 import { createTeamOrchestration } from "./core/simulation.js";
+import { analyzeGoal } from "./agents/composition/analyzer.js";
+import type { TeamComposition } from "./agents/composition/types.js";
+import { renderCompositionTable, promptCompositionAction, applyOverrides } from "./cli/composition-preview.js";
 import {
     buildTeamFromRoster,
     buildTeamFromTemplate,
@@ -387,6 +390,7 @@ export async function runWork(
     const analyst = new PostMortemAnalyst(vectorMemory);
     let lastTotalReworks = 0;
     let lastFinalState: Record<string, unknown> | null = null;
+    let lastTeamComposition: TeamComposition | undefined;
     const workStats = {
         runs_completed: 0,
         total_lessons_learned: 0,
@@ -568,9 +572,27 @@ export async function runWork(
                 log("warn", "--async requires webhookApproval.url and webhookApproval.secret in ~/.teamclaw/config.json");
             }
 
+            // Resolve team composition mode: CLI flag > config > default "manual"
+            const teamMode = parsed.teamMode ?? teamConfig?.team_mode ?? "manual";
+            let teamComposition: TeamComposition | undefined;
+
+            if (teamMode === "autonomous") {
+                teamComposition = analyzeGoal(goal, { runCount: maxRuns });
+                if (canRenderSpinner && runId === 1) {
+                    renderCompositionTable(teamComposition);
+                    const compAction = await promptCompositionAction(teamComposition);
+                    if (compAction.action === "manual") {
+                        teamComposition = undefined;
+                    } else if (compAction.overrides?.length) {
+                        teamComposition = applyOverrides(teamComposition, compAction.overrides);
+                    }
+                }
+            }
+
             const orchestration = createTeamOrchestration({
                 team, workerUrls, workspacePath, autoApprove, signal: sessionAbort.signal,
                 ...(webhookProvider ? { partialApprovalProvider: webhookProvider } : {}),
+                teamComposition,
             });
             const runStartTime = Date.now();
 
@@ -767,6 +789,7 @@ export async function runWork(
                   )
                 : 0;
             lastFinalState = finalState;
+            lastTeamComposition = teamComposition;
 
             workStats.runs_completed = runId;
             workStats.longest_run_cycles = Math.max(
@@ -812,16 +835,19 @@ export async function runWork(
                     );
                 }
 
-                if (canRenderSpinner) {
-                    logger.info("💾 Post-Mortem Analyst is saving session experience to LanceDB...");
-                }
-                const projectMemory = await analyst.extractProjectMemory(
-                    finalState as GraphState,
-                    workspacePath,
-                );
-                if (projectMemory) {
+                const shouldRunPostMortem = !teamComposition || teamComposition.activeAgents.some(a => a.role === "post_mortem");
+                if (shouldRunPostMortem) {
                     if (canRenderSpinner) {
-                        logger.success(`📚 Saved project memory: "${projectMemory.slice(0, 50)}..."`);
+                        logger.info("💾 Post-Mortem Analyst is saving session experience to LanceDB...");
+                    }
+                    const projectMemory = await analyst.extractProjectMemory(
+                        finalState as GraphState,
+                        workspacePath,
+                    );
+                    if (projectMemory) {
+                        if (canRenderSpinner) {
+                            logger.success(`📚 Saved project memory: "${projectMemory.slice(0, 50)}..."`);
+                        }
                     }
                 }
 
@@ -1002,7 +1028,8 @@ export async function runWork(
         }
     }
 
-    if (lastTotalReworks > 0 && lastFinalState) {
+    const shouldRunRetro = !lastTeamComposition || lastTeamComposition.activeAgents.some(a => a.role === "retrospective");
+    if (lastTotalReworks > 0 && lastFinalState && shouldRunRetro) {
         if (canRenderSpinner) {
             logger.info("🔄 Running Sprint Retrospective (rework detected)...");
         }
