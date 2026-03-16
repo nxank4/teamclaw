@@ -23,6 +23,13 @@ export interface TeamClawGlobalConfig {
     enabled?: boolean;
     thresholds?: { autoApprove?: number; reviewRequired?: number; reworkRequired?: number };
   };
+  webhookApproval?: {
+    url?: string;
+    secret?: string;
+    provider?: "generic" | "slack";
+    timeoutSeconds?: number;
+    retryAttempts?: number;
+  };
   workspaceDir?: string;
   proxy?: {
     path?: string;

@@ -38,6 +38,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [webhookOnTaskComplete, setWebhookOnTaskComplete] = useState("");
   const [webhookOnCycleEnd, setWebhookOnCycleEnd] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [webhookApprovalUrl, setWebhookApprovalUrl] = useState("");
+  const [webhookApprovalProvider, setWebhookApprovalProvider] = useState("generic");
+  const [webhookApprovalTimeoutSeconds, setWebhookApprovalTimeoutSeconds] = useState(300);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "ok" | "error">(
     "idle"
   );
@@ -322,10 +325,16 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                   webhookOnTaskComplete={webhookOnTaskComplete}
                   webhookOnCycleEnd={webhookOnCycleEnd}
                   webhookSecret={webhookSecret}
+                  webhookApprovalUrl={webhookApprovalUrl}
+                  webhookApprovalProvider={webhookApprovalProvider}
+                  webhookApprovalTimeoutSeconds={webhookApprovalTimeoutSeconds}
                   onChange={(field, value) => {
-                    if (field === "webhookOnTaskComplete") setWebhookOnTaskComplete(value);
-                    else if (field === "webhookOnCycleEnd") setWebhookOnCycleEnd(value);
-                    else if (field === "webhookSecret") setWebhookSecret(value);
+                    if (field === "webhookOnTaskComplete") setWebhookOnTaskComplete(String(value));
+                    else if (field === "webhookOnCycleEnd") setWebhookOnCycleEnd(String(value));
+                    else if (field === "webhookSecret") setWebhookSecret(String(value));
+                    else if (field === "webhookApprovalUrl") setWebhookApprovalUrl(String(value));
+                    else if (field === "webhookApprovalProvider") setWebhookApprovalProvider(String(value));
+                    else if (field === "webhookApprovalTimeoutSeconds") setWebhookApprovalTimeoutSeconds(Number(value) || 300);
                   }}
                 />
                 <div className="border-t border-stone-200 dark:border-stone-700 pt-4">

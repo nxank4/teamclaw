@@ -71,6 +71,47 @@ export const CONFIG = {
     webhookOnCycleEnd: getGlobalString("webhookOnCycleEnd", ""),
     webhookSecret: getGlobalString("webhookSecret", ""),
 
+    webhookApprovalUrl: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const url = (wa as Record<string, unknown>).url;
+            return typeof url === "string" ? url.trim() : "";
+        }
+        return "";
+    })(),
+    webhookApprovalSecret: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const secret = (wa as Record<string, unknown>).secret;
+            if (typeof secret === "string" && secret.trim()) return secret.trim();
+        }
+        return getGlobalString("webhookSecret", "");
+    })(),
+    webhookApprovalProvider: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const p = (wa as Record<string, unknown>).provider;
+            if (p === "slack") return "slack" as const;
+        }
+        return "generic" as const;
+    })(),
+    webhookApprovalTimeoutSeconds: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const t = (wa as Record<string, unknown>).timeoutSeconds;
+            if (typeof t === "number" && Number.isFinite(t) && t > 0) return t;
+        }
+        return 300;
+    })(),
+    webhookApprovalRetryAttempts: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const r = (wa as Record<string, unknown>).retryAttempts;
+            if (typeof r === "number" && Number.isFinite(r) && r > 0) return r;
+        }
+        return 3;
+    })(),
+
     confidenceScoringEnabled: (() => {
         const cs = (globalCfg as Record<string, unknown>).confidenceScoring;
         if (cs && typeof cs === "object" && !Array.isArray(cs)) {

@@ -8,6 +8,7 @@ import type { PreviewState, PreviewResponse } from "../graph/preview/types.js";
 import type { PartialApprovalTask, PartialApprovalDecision } from "../agents/partial-approval.js";
 import { CONFIG, type SessionConfig } from "../core/config.js";
 import { getModelConfig } from "../core/model-config.js";
+import { createTokenManager, type TokenManager } from "../webhook/tokens.js";
 
 // ---------------------------------------------------------------------------
 // SSE client management
@@ -215,6 +216,20 @@ export function partialApprovalProvider(tasks: PartialApprovalTask[]): Promise<M
     broadcast({ type: "partial_approval_request", tasks });
     updateSessionState({ pendingApproval: { type: "partial", tasks } as unknown as Record<string, unknown> });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Shared webhook token manager (used by routes + provider)
+// ---------------------------------------------------------------------------
+let webhookTokenManager: TokenManager | null = null;
+
+export function getWebhookTokenManager(): TokenManager | null {
+  return webhookTokenManager;
+}
+
+export function initWebhookTokenManager(secret: string): TokenManager {
+  webhookTokenManager = createTokenManager(secret);
+  return webhookTokenManager;
 }
 
 // ---------------------------------------------------------------------------

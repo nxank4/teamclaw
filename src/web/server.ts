@@ -64,6 +64,8 @@ import {
   setPreviewResolve,
   getTaskApprovalResolver,
   clearTaskApprovalResolver,
+  getWebhookTokenManager,
+  initWebhookTokenManager,
   cliCycles,
   cliGenerations,
   cliCreativity,
@@ -73,6 +75,8 @@ import {
   applyConfigOverrides,
   SERVER_START_TS,
 } from "./session-state.js";
+import { createWebhookApprovalProvider } from "../webhook/provider.js";
+import type { WebhookCallbackBody } from "../webhook/types.js";
 
 import { parseNodeEvent } from "./node-events.js";
 import {
@@ -444,17 +448,34 @@ export async function runWeb(args: string[]): Promise<void> {
           singleUrl: workerUrlOverride || teamConfig?.worker_url,
           workers: workerUrlOverride || teamConfig?.worker_url ? undefined : teamConfig?.workers,
         });
+        runThreadId = randomUUID();
+
+        // Wire webhook approval provider if configured
+        let effectivePartialProvider = partialApprovalProvider;
+        if (CONFIG.webhookApprovalUrl && CONFIG.webhookApprovalSecret) {
+          initWebhookTokenManager(CONFIG.webhookApprovalSecret);
+          const webhookCfg = {
+            url: CONFIG.webhookApprovalUrl,
+            secret: CONFIG.webhookApprovalSecret,
+            provider: CONFIG.webhookApprovalProvider as "slack" | "generic",
+            timeoutSeconds: CONFIG.webhookApprovalTimeoutSeconds,
+            retryAttempts: CONFIG.webhookApprovalRetryAttempts,
+            callbackBaseUrl: `http://localhost:${port}`,
+            sessionId: runThreadId,
+          };
+          effectivePartialProvider = createWebhookApprovalProvider(webhookCfg, partialApprovalProvider);
+        }
+
         const orch = createTeamOrchestration({
           team,
           workerUrls,
           approvalProvider,
-          partialApprovalProvider,
+          partialApprovalProvider: effectivePartialProvider,
         });
         orch.configureSession({
           maxRuns: cliCycles,
           timeoutMinutes: effectiveTimeoutMinutes,
         });
-        runThreadId = randomUUID();
         currentOrch = orch;
         if (runThreadId) {
           THREAD_REGISTRY.set(runThreadId, { orch });
@@ -689,6 +710,116 @@ export async function runWeb(args: string[]): Promise<void> {
       broadcast({ type: "partial_approval_resolved", task_id: taskId, action });
     }
     return { ok: true };
+  });
+
+  // -----------------------------------------------------------------------
+  // Webhook approval — inbound callback from external systems
+  // -----------------------------------------------------------------------
+  fastify.post("/webhook/approval", async (req, reply) => {
+    const tokenManager = getWebhookTokenManager();
+    if (!tokenManager) {
+      return reply.status(404).send({ error: "Webhook approvals not configured" });
+    }
+
+    const body = (req.body ?? {}) as WebhookCallbackBody;
+    if (!body.token) {
+      return reply.status(400).send({ error: "Missing token" });
+    }
+
+    const payload = tokenManager.consume(body.token);
+    if (!payload) {
+      // Check if token is valid but expired or already consumed
+      const verified = tokenManager.verify(body.token);
+      if (!verified) {
+        return reply.status(401).send({ error: "Invalid or expired token" });
+      }
+      // verify passed but consume failed → already consumed
+      return reply.status(409).send({ error: "Token already consumed" });
+    }
+
+    if (runThreadId && payload.sessionId !== runThreadId) {
+      return reply.status(404).send({ error: "Session no longer active" });
+    }
+
+    if (payload.action === "reject" && (!body.feedback || !body.feedback.trim())) {
+      return reply.status(400).send({ error: "Feedback required for rejection" });
+    }
+
+    const resolver = getTaskApprovalResolver(payload.taskId);
+    if (!resolver) {
+      return reply.status(404).send({ error: "Task not pending approval" });
+    }
+
+    resolver({
+      action: payload.action,
+      feedback: body.feedback,
+    });
+    clearTaskApprovalResolver(payload.taskId);
+    broadcast({ type: "partial_approval_resolved", task_id: payload.taskId, action: payload.action });
+
+    return { ok: true };
+  });
+
+  // -----------------------------------------------------------------------
+  // Webhook approval — browser redirect page for Slack URL buttons
+  // -----------------------------------------------------------------------
+  fastify.get("/webhook/approval/respond", async (req, reply) => {
+    const query = req.query as Record<string, string>;
+    const token = query.token ?? "";
+    const callbackUrl = `${req.protocol}://${req.hostname}/webhook/approval`;
+
+    const html = `<!DOCTYPE html>
+<html><head><title>TeamClaw Approval</title>
+<style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#1a1a1a;color:#e5e5e5}
+.card{background:#262626;border-radius:12px;padding:2rem;text-align:center;max-width:400px}
+.btn{display:inline-block;padding:0.75rem 1.5rem;border-radius:8px;border:none;font-size:1rem;cursor:pointer;margin:0.5rem}
+.approve{background:#22c55e;color:#fff}.reject{background:#ef4444;color:#fff}.escalate{background:#f59e0b;color:#000}
+#result{display:none}.feedback{display:none;margin-top:1rem}
+textarea{width:100%;min-height:60px;border-radius:8px;border:1px solid #444;background:#333;color:#e5e5e5;padding:0.5rem;box-sizing:border-box}
+</style></head><body>
+<div class="card" id="form">
+<h2>TeamClaw Approval</h2>
+<p>Choose an action:</p>
+<button class="btn approve" onclick="submit('approve')">Approve</button>
+<button class="btn reject" onclick="showFeedback()">Reject</button>
+<button class="btn escalate" onclick="submit('escalate')">Escalate</button>
+<div class="feedback" id="fb"><textarea id="feedback" placeholder="Feedback (required for reject)..."></textarea>
+<button class="btn reject" onclick="submitReject()">Submit Rejection</button></div>
+</div>
+<div class="card" id="result"><h2>Done!</h2><p id="msg"></p></div>
+<script>
+const token=${JSON.stringify(token)};
+const url=${JSON.stringify(callbackUrl)};
+function showFeedback(){document.getElementById('fb').style.display='block'}
+async function submit(action){
+  const body={token};
+  try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();document.getElementById('form').style.display='none';
+  document.getElementById('result').style.display='block';
+  document.getElementById('msg').textContent=r.ok?'Approval submitted!':'Error: '+(d.error||r.status);
+  }catch(e){alert('Failed: '+e)}}
+async function submitReject(){const fb=document.getElementById('feedback').value.trim();
+if(!fb){alert('Feedback required');return}
+const body={token,feedback:fb};
+try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+const d=await r.json();document.getElementById('form').style.display='none';
+document.getElementById('result').style.display='block';
+document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '+(d.error||r.status);
+}catch(e){alert('Failed: '+e)}}
+</script></body></html>`;
+
+    return reply.type("text/html").send(html);
+  });
+
+  // -----------------------------------------------------------------------
+  // Webhook approval — check pending approvals
+  // -----------------------------------------------------------------------
+  fastify.get("/webhook/approval/status", async () => {
+    const tokenManager = getWebhookTokenManager();
+    if (!tokenManager) {
+      return { configured: false, pending: [] };
+    }
+    return { configured: true, sessionId: runThreadId };
   });
 
   // -----------------------------------------------------------------------

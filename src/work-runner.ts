@@ -67,6 +67,8 @@ import { startDashboard } from "./work-runner/dashboard-setup.js";
 import { parseWorkArgs, promptSessionConfig, promptPreLaunchConfirmation } from "./work-runner/session-config.js";
 import { workerEvents } from "./core/worker-events.js";
 import { startGatewayLogTailer } from "./core/gateway-log-tailer.js";
+import { createWebhookApprovalProvider } from "./webhook/provider.js";
+import type { WebhookApprovalConfig } from "./webhook/types.js";
 
 let DEBUG_LOG_PATH = "";
 let WORK_HISTORY_LOG_PATH = "";
@@ -122,7 +124,7 @@ export async function runWork(
     let { maxRuns } = parsed;
     let timeoutMinutes = parsed.timeoutMinutes ?? 0;
     let sessionMode = parsed.sessionMode;
-    const { clearLegacy, autoApprove, noPreview } = parsed;
+    const { clearLegacy, autoApprove, noPreview, asyncMode, asyncTimeout } = parsed;
     let noWebFlag = parsed.noWebFlag || noWebFromInput;
 
     // Raise listener limit — @clack/prompts adds keypress/readline listeners
@@ -517,7 +519,31 @@ export async function runWork(
                     );
                 }
             }
-            const orchestration = createTeamOrchestration({ team, workerUrls, workspacePath, autoApprove, signal: sessionAbort.signal });
+            // Wire webhook approval provider if --async mode with configured webhook
+            let webhookProvider: ReturnType<typeof createWebhookApprovalProvider> | undefined;
+            if (asyncMode && CONFIG.webhookApprovalUrl && CONFIG.webhookApprovalSecret) {
+                const webhookCfg: WebhookApprovalConfig = {
+                    url: CONFIG.webhookApprovalUrl,
+                    secret: CONFIG.webhookApprovalSecret,
+                    provider: CONFIG.webhookApprovalProvider as "slack" | "generic",
+                    timeoutSeconds: asyncTimeout > 0 ? asyncTimeout * 60 : CONFIG.webhookApprovalTimeoutSeconds,
+                    retryAttempts: CONFIG.webhookApprovalRetryAttempts,
+                    callbackBaseUrl: `http://localhost:${setupConfig.dashboardPort || 9001}`,
+                    sessionId: `work-${Date.now()}`,
+                };
+                webhookProvider = createWebhookApprovalProvider(webhookCfg);
+                log("info", `Webhook approvals: ${webhookCfg.url}`);
+                log("info", `Callback: POST ${webhookCfg.callbackBaseUrl}/webhook/approval`);
+                // Keep web server running for callbacks
+                noWebFlag = false;
+            } else if (asyncMode) {
+                log("warn", "--async requires webhookApproval.url and webhookApproval.secret in ~/.teamclaw/config.json");
+            }
+
+            const orchestration = createTeamOrchestration({
+                team, workerUrls, workspacePath, autoApprove, signal: sessionAbort.signal,
+                ...(webhookProvider ? { partialApprovalProvider: webhookProvider } : {}),
+            });
             const runStartTime = Date.now();
 
             // Telemetry init

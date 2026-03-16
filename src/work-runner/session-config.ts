@@ -15,6 +15,8 @@ export type ParsedWorkArgs = {
     autoApprove: boolean;
     noWebFlag: boolean;
     noPreview: boolean;
+    asyncMode: boolean;
+    asyncTimeout: number;
 };
 
 export function parseWorkArgs(args: string[]): ParsedWorkArgs {
@@ -25,6 +27,8 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
     let autoApprove = false;
     let noWebFlag = false;
     let noPreview = false;
+    let asyncMode = false;
+    let asyncTimeout = 0;
     let warnedInfraFlag = false;
 
     for (let i = 0; i < args.length; i++) {
@@ -52,6 +56,11 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
             noWebFlag = true;
         } else if (args[i] === "--no-preview") {
             noPreview = true;
+        } else if (args[i] === "--async") {
+            asyncMode = true;
+        } else if (args[i] === "--async-timeout" && args[i + 1]) {
+            asyncTimeout = Math.max(1, parseInt(args[i + 1], 10) || 5);
+            i++;
         } else if (
             args[i] === "--discover" ||
             args[i] === "--no-managed-gateway" ||
@@ -69,7 +78,7 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
         }
     }
 
-    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview };
+    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview, asyncMode, asyncTimeout };
 }
 
 export async function promptSessionConfig(
