@@ -125,6 +125,14 @@ export const GameStateAnnotation = Annotation.Root({
     default: () => [],
   }),
 
+  // Autonomous team composition
+  teamComposition: Annotation<Record<string, unknown> | null>(
+    lastValue<Record<string, unknown> | null>(() => null)
+  ),
+  compositionOverrides: Annotation<Record<string, unknown>[]>(
+    lastValue<Record<string, unknown>[]>(() => [])
+  ),
+
   // Send-payload fields: transient, set by Send() args during parallel worker superstep
   _send_task: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
   _send_bot_id: Annotation<string>(lastValue(() => "")),

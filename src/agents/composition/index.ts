@@ -24,3 +24,4 @@ export {
 } from "./rules.js";
 export { analyzeGoal } from "./analyzer.js";
 export type { AnalyzeGoalOptions } from "./analyzer.js";
+export { withCompositionGate } from "./wiring.js";

@@ -32,6 +32,8 @@ import { SuccessPatternStore } from "../memory/success/store.js";
 import { GlobalMemoryManager } from "../memory/global/store.js";
 import { ProfileStore } from "../agents/profiles/store.js";
 import type { AgentProfile } from "../agents/profiles/types.js";
+import type { TeamComposition } from "../agents/composition/types.js";
+import { withCompositionGate } from "../agents/composition/wiring.js";
 import { getCanvasTelemetry } from "./canvas-telemetry.js";
 import { createPreviewNode } from "../graph/nodes/preview.js";
 import { createConfidenceRouterNode } from "../graph/nodes/confidence-router.js";
@@ -106,6 +108,8 @@ export class TeamOrchestration {
     this.sessionMaxRuns = opts.maxRuns ?? 0;
   }
 
+  private teamComposition: TeamComposition | undefined;
+
   constructor(options: {
     team?: BotDefinition[];
     teamTemplateId?: string;
@@ -118,8 +122,10 @@ export class TeamOrchestration {
     vectorMemory?: VectorMemory;
     signal?: AbortSignal;
     costConfig?: Partial<CostConfig>;
+    teamComposition?: TeamComposition;
   } = {}) {
-    const { team, teamTemplateId = "game_dev", workerUrls = {}, approvalProvider = null, partialApprovalProvider = null, previewProvider = null, workspacePath, autoApprove = false, vectorMemory, signal, costConfig } = options;
+    const { team, teamTemplateId = "game_dev", workerUrls = {}, approvalProvider = null, partialApprovalProvider = null, previewProvider = null, workspacePath, autoApprove = false, vectorMemory, signal, costConfig, teamComposition } = options;
+    this.teamComposition = teamComposition;
     this.team = team ?? buildTeamFromTemplate(teamTemplateId);
     this.workerBots = createWorkerBots(this.team, workerUrls, workspacePath);
     const sharedLlmAdapter =
@@ -205,9 +211,12 @@ export class TeamOrchestration {
     const telemetryCollectNode = wrapWithTelemetry("worker_collect", async (s) => collectNode(s));
     const telemetryApprovalNode = wrapWithTelemetry("approval", approvalNode);
     const telemetryPartialApprovalNode = wrapWithTelemetry("partial_approval", partialApprovalNode);
-    const telemetrySprintPlanningNode = wrapWithTelemetry("sprint_planning", sprintPlanningNode);
-    const telemetrySystemDesignNode = wrapWithTelemetry("system_design", systemDesignNode);
-    const telemetryRfcNode = wrapWithTelemetry("rfc_phase", rfcNode);
+    const gatedSprintPlanning = withCompositionGate("sprint_planning", "sprint_planning", sprintPlanningNode);
+    const gatedSystemDesign = withCompositionGate("system_design", "system_design", systemDesignNode);
+    const gatedRfc = withCompositionGate("rfc_phase", "rfc_phase", rfcNode);
+    const telemetrySprintPlanningNode = wrapWithTelemetry("sprint_planning", gatedSprintPlanning);
+    const telemetrySystemDesignNode = wrapWithTelemetry("system_design", gatedSystemDesign);
+    const telemetryRfcNode = wrapWithTelemetry("rfc_phase", gatedRfc);
     const telemetryMemoryRetrievalNode = wrapWithTelemetry("memory_retrieval", memoryRetrievalNode);
     const telemetryCoordinatorNode = wrapWithTelemetry("coordinator", (s) => this.coordinator.coordinateNode(s, signal));
     const previewNode = createPreviewNode({ previewProvider, costConfig });
@@ -413,6 +422,7 @@ export class TeamOrchestration {
     if (options.userGoal) base.user_goal = options.userGoal;
     if (projectContext) base.project_context = projectContext;
     if (options.skipPreview) base.skip_preview = true;
+    if (this.teamComposition) base.teamComposition = this.teamComposition as unknown as Record<string, unknown>;
 
     return base as unknown as GraphState;
   }
@@ -543,6 +553,7 @@ export function createTeamOrchestration(options: {
   vectorMemory?: VectorMemory;
   signal?: AbortSignal;
   costConfig?: Partial<CostConfig>;
+  teamComposition?: TeamComposition;
 } = {}): TeamOrchestration {
   return new TeamOrchestration(options);
 }
