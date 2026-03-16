@@ -8,7 +8,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { log as clackLog, note, spinner, select, text, cancel, isCancel } from "@clack/prompts";
-import { logger } from "../core/logger.js";
 import { randomPhrase } from "../utils/spinner-phrases.js";
 
 const execFileAsync = promisify(execFile);

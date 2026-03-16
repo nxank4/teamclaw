@@ -3,7 +3,7 @@
  * Pattern follows src/agents/profiles/classifier.ts — keyword arrays scored by hit count.
  */
 
-import type { AgentRole, AnyAgentRole } from "./types.js";
+import type { AnyAgentRole } from "./types.js";
 
 export interface AgentInclusionRule {
   role: AnyAgentRole;

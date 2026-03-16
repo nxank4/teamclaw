@@ -36,7 +36,7 @@ export async function retrieveSuccessPatterns(
   // Fetch extra candidates for post-filtering
   const candidates = await store.search(vector, options.limit * 3);
 
-  let filtered = candidates.filter((p) => p.confidence >= options.minConfidence);
+  const filtered = candidates.filter((p) => p.confidence >= options.minConfidence);
 
   // Sort: prefer no-rework, then by distance
   if (options.preferFirstAttempt) {

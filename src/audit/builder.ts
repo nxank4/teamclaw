@@ -87,7 +87,7 @@ function buildSummary(
 
   // Sum tokens from recording events
   let totalInput = 0;
-  let totalOutput = 0;
+  const totalOutput = 0;
   for (const evt of events) {
     if (evt.phase === "exit" && evt.agentOutput) {
       totalInput += evt.agentOutput.tokensUsed ?? 0;
@@ -110,7 +110,7 @@ function buildSummary(
   };
 }
 
-function buildDecisionLog(events: RecordingEvent[], taskQueue: Record<string, unknown>[]): DecisionEntry[] {
+function buildDecisionLog(events: RecordingEvent[], _taskQueue: Record<string, unknown>[]): DecisionEntry[] {
   const log: DecisionEntry[] = [];
 
   for (const evt of events) {
@@ -169,7 +169,7 @@ function buildDecisionLog(events: RecordingEvent[], taskQueue: Record<string, un
 
 function buildApprovalHistory(
   taskQueue: Record<string, unknown>[],
-  routingDecisions: Record<string, unknown>[],
+  _routingDecisions: Record<string, unknown>[],
 ): ApprovalEntry[] {
   const history: ApprovalEntry[] = [];
 

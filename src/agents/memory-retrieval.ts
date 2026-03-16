@@ -115,7 +115,6 @@ export class MemoryRetrievalNode {
         globalPatterns = globalPatterns.filter((p) => !sessionIds.has(p.id));
 
         // Cap total: 5 patterns + 5 lessons
-        const combinedPatterns = [...successPatterns, ...globalPatterns].slice(0, 5);
         const allLessons = globalLessons.map((l) => l.text).slice(0, 5);
 
         if (globalPatterns.length > 0 || globalLessons.length > 0) {

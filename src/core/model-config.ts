@@ -15,7 +15,6 @@ import { CONFIG } from "./config.js";
 import { readLocalOpenClawConfig } from "./discovery.js";
 import {
   readGlobalConfig,
-  writeGlobalConfig,
   buildDefaultGlobalConfig,
 } from "./global-config.js";
 

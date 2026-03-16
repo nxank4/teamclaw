@@ -88,7 +88,7 @@ export async function runMemoryCommand(args: string[]): Promise<void> {
       logger.error("Usage: teamclaw memory promote <pattern-id>");
       process.exit(1);
     }
-    const { vm, embedder, db } = await getEmbedder();
+    const { embedder, db } = await getEmbedder();
     if (!db) {
       logger.error("LanceDB not available");
       process.exit(1);

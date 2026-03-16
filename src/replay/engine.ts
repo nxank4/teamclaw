@@ -4,7 +4,7 @@
  * Supports speed control, node seeking, and patch mode.
  */
 
-import type { RecordingEvent, BroadcastEvent, ReplayOptions, ReplayPatch } from "./types.js";
+import type { RecordingEvent, BroadcastEvent, ReplayOptions } from "./types.js";
 import { readRecordingEvents, readBroadcastEvents } from "./storage.js";
 import { getSession } from "./session-index.js";
 import { logger } from "../core/logger.js";

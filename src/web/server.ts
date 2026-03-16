@@ -157,7 +157,7 @@ export async function runWeb(args: string[]): Promise<void> {
     broadcast({ type: "openclaw_log", entry });
   });
 
-  const stopGatewayTailer = startGatewayLogTailer();
+  startGatewayLogTailer();
 
   const result = await validateStartup({ templateId: "game_dev" });
   if (!result.ok) {

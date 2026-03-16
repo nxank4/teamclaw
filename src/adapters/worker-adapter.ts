@@ -12,7 +12,7 @@ import { extractFileBlocks, writeFileBlocks } from "../utils/file-block-parser.j
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import pc from "picocolors";
+
 import { openclawEvents } from "../core/openclaw-events.js";
 
 export type WorkerAdapterType = "openclaw";

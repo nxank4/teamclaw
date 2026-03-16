@@ -46,7 +46,6 @@ function applyEdits(
   taskQueue: Record<string, unknown>[],
   editedTasks: PreviewTask[],
 ): Record<string, unknown>[] {
-  const editedIds = new Set(editedTasks.map((t) => t.task_id));
   const pendingIds = new Set(
     taskQueue
       .filter((t) => (t.status as string) === "pending" || (t.status as string) === "rfc_pending")

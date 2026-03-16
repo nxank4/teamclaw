@@ -5,7 +5,7 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
-import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { readFile, writeFile, copyFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { ValidatedAgentDef } from "./validator.js";

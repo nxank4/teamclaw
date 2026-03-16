@@ -3,8 +3,8 @@
  * Handles compression, retention, pruning, and tagging.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync, unlinkSync, rmSync } from "node:fs";
-import { readFile, writeFile, rm } from "node:fs/promises";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, unlinkSync, rmSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { createGzip, createGunzip } from "node:zlib";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";

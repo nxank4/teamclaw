@@ -9,7 +9,7 @@ import type { AgentInclusionRule } from "./agents/composition/rules.js";
 import { renderCompositionTable, promptCompositionAction, applyOverrides } from "./cli/composition-preview.js";
 import { AgentRegistryStore } from "./agents/registry/index.js";
 import { SessionRecorder, setActiveRecorder, createSession, finalizeSession } from "./replay/index.js";
-import { buildAuditTrail, renderAuditMarkdown, DEFAULT_AUDIT_CONFIG } from "./audit/index.js";
+import { buildAuditTrail, renderAuditMarkdown } from "./audit/index.js";
 import type { BotDefinition } from "./core/bot-definitions.js";
 import {
     buildTeamFromRoster,
@@ -48,7 +48,7 @@ import { logger, setDebugMode, isDebugMode } from "./core/logger.js";
 import { ensureWorkspaceDir } from "./core/workspace-fs.js";
 import type { MemoryBackend } from "./core/config.js";
 import type { GraphState } from "./core/graph-state.js";
-import { log as clackLog, note, spinner, select, cancel, isCancel } from "@clack/prompts";
+import { log as clackLog, note, spinner, cancel } from "@clack/prompts";
 import pc from "picocolors";
 import { cleanupManagedGateway } from "./commands/run-openclaw.js";
 import { readGlobalConfig, readGlobalConfigWithDefaults } from "./core/global-config.js";
@@ -75,7 +75,7 @@ import { startDashboard } from "./work-runner/dashboard-setup.js";
 import { parseWorkArgs, promptSessionConfig, promptPreLaunchConfirmation } from "./work-runner/session-config.js";
 import { workerEvents } from "./core/worker-events.js";
 import { startGatewayLogTailer } from "./core/gateway-log-tailer.js";
-import { ProfileBuilder, ProfileStore, checkDegradation } from "./agents/profiles/index.js";
+import { ProfileBuilder, checkDegradation } from "./agents/profiles/index.js";
 import type { CompletedTaskResult } from "./agents/profiles/types.js";
 import { createWebhookApprovalProvider } from "./webhook/provider.js";
 import type { WebhookApprovalConfig } from "./webhook/types.js";

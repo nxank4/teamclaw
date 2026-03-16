@@ -24,7 +24,7 @@ import {
   resolveModelForAgent,
   type ModelSummary,
 } from "../../core/model-operations.js";
-import { listAvailableModels } from "../../core/model-config.js";
+
 import { randomPhrase } from "../../utils/spinner-phrases.js";
 
 const KNOWN_AGENT_ROLES = [

@@ -6,7 +6,6 @@
 import {
   cancel,
   isCancel,
-  note,
   password,
   select,
   text,

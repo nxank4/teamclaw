@@ -5,7 +5,7 @@
 import { spinner, select, isCancel } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
 import { logger } from "../core/logger.js";
-import { isPortInUse, cleanupManagedGateway, setupGatewayCleanupHandlers } from "../commands/run-openclaw.js";
+import { isPortInUse, setupGatewayCleanupHandlers } from "../commands/run-openclaw.js";
 import { runGatewayHealthCheck } from "../core/health.js";
 import { formatFlatError } from "./outcome-reporter.js";
 import { readLocalOpenClawConfig } from "../core/discovery.js";

@@ -120,6 +120,7 @@ export class DashboardBridge {
         this.stdoutOriginal = process.stdout.write.bind(process.stdout) as (chunk: any, ...args: any[]) => boolean;
         this.stderrOriginal = process.stderr.write.bind(process.stderr) as (chunk: any, ...args: any[]) => boolean;
 
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- closure needs stable ref across patched write()
         const self = this;
         const makeInterceptor = (
             original: (chunk: any, ...args: any[]) => boolean,

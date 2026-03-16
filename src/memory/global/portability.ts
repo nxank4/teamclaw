@@ -3,10 +3,9 @@
  * Strips embedding vectors on export; re-generates on import.
  */
 
-import { randomUUID } from "node:crypto";
 import type { GlobalMemoryManager } from "./store.js";
 import type { HttpEmbeddingFunction } from "../../core/knowledge-base.js";
-import type { MemoryExport, GlobalSuccessPattern, GlobalFailureLesson } from "./types.js";
+import type { MemoryExport, GlobalSuccessPattern } from "./types.js";
 import { logger, isDebugMode } from "../../core/logger.js";
 
 function log(msg: string): void {
@@ -32,7 +31,7 @@ export async function exportGlobalMemory(globalManager: GlobalMemoryManager): Pr
   // Strip embedding vectors — not portable across models
   const patterns: GlobalSuccessPattern[] = rawPatterns.map((p) => {
     const gp = p as GlobalSuccessPattern;
-    const { embedding: _embedding, ...rest } = gp;
+    const { embedding: _omitted, ...rest } = gp; void _omitted;
     return {
       ...rest,
       promotedAt: gp.promotedAt ?? p.createdAt,
@@ -57,7 +56,7 @@ export async function exportGlobalMemory(globalManager: GlobalMemoryManager): Pr
 export async function importGlobalMemory(
   globalManager: GlobalMemoryManager,
   data: MemoryExport,
-  embedder: HttpEmbeddingFunction,
+  _embedder: HttpEmbeddingFunction,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     patternsImported: 0,

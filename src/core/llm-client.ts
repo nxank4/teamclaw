@@ -365,7 +365,6 @@ export async function llmHealthCheck(): Promise<boolean> {
       signal: AbortSignal.timeout(5000),
     });
     const elapsedMs = Date.now() - startedAt;
-    const contentType = res.headers.get("content-type") ?? "";
 
     // Accept any non-5xx response as proof the gateway is alive.
     // Newer gateways serve an SPA (HTML) on all HTTP routes — that's fine,
