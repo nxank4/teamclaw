@@ -1205,6 +1205,21 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
     }
   });
 
+  // Composition history
+  fastify.get("/api/composition-history", async (_req, reply) => {
+    try {
+      const { gm } = await getGlobalManager();
+      const db = gm.getDb();
+      if (!db) return { history: [] };
+      const { CompositionHistoryStore } = await import("../agents/composition/history.js");
+      const store = new CompositionHistoryStore();
+      await store.init(db);
+      return { history: await store.getRecent(10) };
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) });
+    }
+  });
+
   // SPA fallback AFTER all API routes
   if (clientDir) {
     fastify.setNotFoundHandler((request, reply) => {

@@ -6,6 +6,7 @@ import { ModelSettings } from "./settings/ModelSettings";
 import { NotificationSettings } from "./settings/NotificationSettings";
 import { PaletteSettings } from "./settings/PaletteSettings";
 import { WebhookSettings } from "./settings/WebhookSettings";
+import { CompositionSettings } from "./settings/CompositionSettings";
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const config = useWsStore((s) => s.config);
@@ -311,6 +312,10 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                       <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">Session ends when time runs out.</p>
                     </div>
                   )}
+                </div>
+
+                <div className="border-t border-stone-200 dark:border-stone-700 pt-4">
+                  <CompositionSettings />
                 </div>
               </>
             )}

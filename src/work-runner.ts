@@ -949,6 +949,26 @@ export async function runWork(
                         } catch (profileErr) {
                             log("warn", `Agent profile update failed: ${profileErr}`);
                         }
+
+                        // Record composition history if autonomous mode was used
+                        if (teamComposition) {
+                            try {
+                                const { CompositionHistoryStore } = await import("./agents/composition/history.js");
+                                const compStore = new CompositionHistoryStore();
+                                await compStore.init(vmDb);
+                                await compStore.record({
+                                    id: `comp-${Date.now()}-${runId}`,
+                                    composition: teamComposition,
+                                    overrides: [],
+                                    goal,
+                                    runId,
+                                    success: !failed,
+                                    createdAt: new Date().toISOString(),
+                                });
+                            } catch (compErr) {
+                                log("warn", `Composition history recording failed: ${compErr}`);
+                            }
+                        }
                     } catch (err) {
                         log("warn", `Failed to persist success patterns: ${err}`);
                     }
