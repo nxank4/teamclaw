@@ -74,6 +74,7 @@ function printHelp(): void {
         "",
         "  " + cmd(pad("audit")) + desc("Export audit trail (markdown, PDF)"),
         "  " + cmd(pad("diff")) + desc("Compare runs within or across sessions"),
+        "  " + cmd(pad("heatmap")) + desc("Agent utilization heatmap and bottleneck detection"),
         "  " + cmd(pad("replay")) + desc("Replay past sessions (list, play, diff, export)"),
         "  " + cmd(pad("agent")) + desc("Manage custom agents (add, list, remove)"),
         "  " + cmd(pad("logs")) + desc("View session and gateway logs"),
@@ -277,6 +278,10 @@ async function main(): Promise<void> {
     } else if (cmd === "diff") {
         const { runDiffCommand } = await import("./commands/diff.js");
         await runDiffCommand(args.slice(1));
+
+    } else if (cmd === "heatmap") {
+        const { runHeatmapCommand } = await import("./commands/heatmap.js");
+        await runHeatmapCommand(args.slice(1));
 
     } else if (cmd === "audit") {
         const { runAuditCommand } = await import("./commands/audit.js");

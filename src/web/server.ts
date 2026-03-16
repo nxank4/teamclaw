@@ -1343,6 +1343,30 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
     return data;
   });
 
+  // Heatmap API — agent utilization
+  fastify.get<{ Params: { sessionId: string } }>("/api/heatmap/:sessionId", async (req, reply) => {
+    try {
+      const { getSession } = await import("../replay/index.js");
+      const { readRecordingEvents } = await import("../replay/storage.js");
+      const { calculateUtilization } = await import("../heatmap/calculator.js");
+      const { buildHeatmap } = await import("../heatmap/builder.js");
+
+      const query = req.query as Record<string, string>;
+      const session = getSession(req.params.sessionId);
+      if (!session) return reply.status(404).send({ error: "Session not found" });
+
+      const events = await readRecordingEvents(req.params.sessionId);
+      const run = parseInt(query.run ?? String(session.totalRuns || 1), 10);
+      const metric = (query.metric as "duration" | "cost" | "confidence") ?? "duration";
+
+      const utilizations = calculateUtilization(req.params.sessionId, run, events);
+      const heatmap = buildHeatmap(utilizations, "run", { metric });
+      return heatmap;
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) });
+    }
+  });
+
   // Diff API — compare runs within a session
   fastify.get<{ Params: { sessionId: string } }>("/api/diff/:sessionId", async (req, reply) => {
     try {
