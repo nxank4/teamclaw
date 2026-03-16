@@ -1,0 +1,113 @@
+/**
+ * Types for audit trail export.
+ */
+
+export interface AuditTrail {
+  sessionId: string;
+  runIndex: number;
+  goal: string;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  teamComposition: string[];
+  summary: AuditSummary;
+  decisionLog: DecisionEntry[];
+  approvalHistory: ApprovalEntry[];
+  costBreakdown: CostEntry[];
+  memoryUsage: MemoryUsageEntry;
+  agentPerformance: AgentPerformanceEntry[];
+}
+
+export interface AuditSummary {
+  tasksCompleted: number;
+  tasksFailed: number;
+  autoApproved: number;
+  userApproved: number;
+  rejected: number;
+  escalated: number;
+  averageConfidence: number;
+  totalTokensInput: number;
+  totalTokensOutput: number;
+  totalCostUSD: number;
+}
+
+export interface DecisionEntry {
+  timestamp: number;
+  nodeId: string;
+  phase: string;
+  decision: string;
+  data: Record<string, unknown>;
+}
+
+export interface ApprovalEntry {
+  taskId: string;
+  action: string;
+  by: string;
+  at: number;
+  feedback: string | null;
+  confidence?: number;
+  routingDecision?: string;
+}
+
+export interface CostEntry {
+  agent: string;
+  tasks: number;
+  tokensInput: number;
+  tokensOutput: number;
+  costUSD: number;
+}
+
+export interface MemoryUsageEntry {
+  successPatternsRetrieved: number;
+  failureLessonsRetrieved: number;
+  newPatternsStored: number;
+  globalPatternsPromoted: number;
+}
+
+export interface AgentPerformanceEntry {
+  agent: string;
+  roleId: string;
+  tasks: number;
+  avgConfidence: number;
+  vsProfile: number | null;
+  trend: "up" | "down" | "stable";
+}
+
+export interface AuditSectionConfig {
+  decisionLog: boolean;
+  approvalHistory: boolean;
+  costBreakdown: boolean;
+  memoryUsage: boolean;
+  agentPerformance: boolean;
+  rawPrompts: boolean;
+}
+
+export interface AuditConfig {
+  autoExport: boolean;
+  format: "markdown" | "pdf" | "both";
+  includeSections: AuditSectionConfig;
+}
+
+export const DEFAULT_AUDIT_CONFIG: AuditConfig = {
+  autoExport: true,
+  format: "markdown",
+  includeSections: {
+    decisionLog: true,
+    approvalHistory: true,
+    costBreakdown: true,
+    memoryUsage: true,
+    agentPerformance: true,
+    rawPrompts: false,
+  },
+};
+
+export interface MultiRunSummary {
+  sessionId: string;
+  totalRuns: number;
+  runs: AuditTrail[];
+  confidenceTrend: number[];
+  costPerRun: number[];
+  patternsPromoted: string[];
+  totalCostUSD: number;
+  totalDurationMs: number;
+}
