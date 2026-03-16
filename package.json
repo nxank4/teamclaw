@@ -27,6 +27,11 @@
     "ws": "^8.19.0",
     "zod": "^3.25.76"
   },
+  "pnpm": {
+    "overrides": {
+      "langsmith": ">=0.4.6"
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.19.15",
     "@types/ws": "^8.18.1",
