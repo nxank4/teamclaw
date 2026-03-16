@@ -5,9 +5,12 @@
 import type { ActiveAgent, ExcludedAgent, TeamComposition } from "./types.js";
 import { REQUIRED_AGENTS } from "./types.js";
 import { AGENT_INCLUSION_RULES, shouldIncludeAgent } from "./rules.js";
+import type { AgentInclusionRule } from "./rules.js";
 
 export interface AnalyzeGoalOptions {
   runCount?: number;
+  /** Additional inclusion rules from custom agents. */
+  customRules?: AgentInclusionRule[];
 }
 
 /**
@@ -31,8 +34,9 @@ export function analyzeGoal(
     });
   }
 
-  // Evaluate optional agents via keyword rules
-  for (const rule of AGENT_INCLUSION_RULES) {
+  // Evaluate optional agents via keyword rules (built-in + custom)
+  const allRules = [...AGENT_INCLUSION_RULES, ...(options?.customRules ?? [])];
+  for (const rule of allRules) {
     const result = shouldIncludeAgent(rule, goalLower, {
       runCount: options?.runCount,
     });

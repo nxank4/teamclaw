@@ -5,7 +5,9 @@
 import { createTeamOrchestration } from "./core/simulation.js";
 import { analyzeGoal } from "./agents/composition/analyzer.js";
 import type { TeamComposition } from "./agents/composition/types.js";
+import type { AgentInclusionRule } from "./agents/composition/rules.js";
 import { renderCompositionTable, promptCompositionAction, applyOverrides } from "./cli/composition-preview.js";
+import { AgentRegistryStore } from "./agents/registry/index.js";
 import {
     buildTeamFromRoster,
     buildTeamFromTemplate,
@@ -123,6 +125,25 @@ async function withConsoleRedirect<T>(fn: () => Promise<T> | T): Promise<T> {
         console.log = originalLog;
         console.warn = originalWarn;
         console.error = originalError;
+    }
+}
+
+/** Build composition inclusion rules from registered custom agents. */
+function buildCustomCompositionRules(): AgentInclusionRule[] {
+    try {
+        const store = new AgentRegistryStore();
+        const defs = store.loadAllSync();
+        return defs
+            .filter((d) => d.compositionRules)
+            .map((d) => ({
+                role: d.role,
+                required: d.compositionRules?.required ?? false,
+                keywords: d.compositionRules?.includeKeywords ?? [],
+                negativeKeywords: d.compositionRules?.excludeKeywords ?? [],
+                description: d.description,
+            }));
+    } catch {
+        return [];
     }
 }
 
@@ -577,7 +598,9 @@ export async function runWork(
             let teamComposition: TeamComposition | undefined;
 
             if (teamMode === "autonomous") {
-                teamComposition = analyzeGoal(goal, { runCount: maxRuns });
+                // Build custom inclusion rules from registered agents
+                const customRules = buildCustomCompositionRules();
+                teamComposition = analyzeGoal(goal, { runCount: maxRuns, customRules });
                 if (canRenderSpinner && runId === 1) {
                     renderCompositionTable(teamComposition);
                     const compAction = await promptCompositionAction(teamComposition);

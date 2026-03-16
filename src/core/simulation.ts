@@ -35,6 +35,7 @@ import type { AgentProfile } from "../agents/profiles/types.js";
 import type { TeamComposition } from "../agents/composition/types.js";
 import { withCompositionGate } from "../agents/composition/wiring.js";
 import { getCanvasTelemetry } from "./canvas-telemetry.js";
+import { AgentRegistryStore, createCustomWorkerBots } from "../agents/registry/index.js";
 import { createPreviewNode } from "../graph/nodes/preview.js";
 import { createConfidenceRouterNode } from "../graph/nodes/confidence-router.js";
 import type { PreviewProvider } from "../graph/preview/types.js";
@@ -174,6 +175,20 @@ export class TeamOrchestration {
           // non-critical
         }
       }).catch(() => { /* non-critical */ });
+    }
+
+    // Load custom agents from registry and merge into worker bots + team
+    try {
+      const registryStore = new AgentRegistryStore();
+      const customAgentDefs = registryStore.loadAllSync();
+      if (customAgentDefs.length > 0) {
+        const { bots, botDefs } = createCustomWorkerBots(customAgentDefs, workspacePath ?? "");
+        Object.assign(this.workerBots, bots);
+        this.team.push(...botDefs);
+        log(`Loaded ${customAgentDefs.length} custom agent(s): ${botDefs.map((b) => b.role_id).join(", ")}`);
+      }
+    } catch {
+      // Non-critical — custom agents failing to load shouldn't break the session
     }
 
     const taskDispatcher = createTaskDispatcher(this.workerBots, this.team, loadedProfiles);
