@@ -13,3 +13,4 @@ export type {
 } from "./types.js";
 export { PROFILE_CONFIDENCE_THRESHOLDS } from "./types.js";
 export { classifyTaskType, getConfidenceGate, TASK_TYPE_KEYWORDS } from "./classifier.js";
+export { ProfileStore } from "./store.js";
