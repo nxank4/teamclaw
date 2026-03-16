@@ -7,6 +7,9 @@ import { CONFIG } from "../core/config.js";
 import { logger } from "../core/logger.js";
 import { loadTeamConfig } from "../core/team-config.js";
 import { SuccessPatternStore } from "../memory/success/store.js";
+import { PatternQualityStore } from "../memory/success/quality.js";
+import { GlobalMemoryManager } from "../memory/global/store.js";
+import { PromotionEngine } from "../memory/global/promoter.js";
 
 function getArgValue(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag);
@@ -14,6 +17,63 @@ function getArgValue(args: string[], flag: string): string | undefined {
 }
 
 export async function runLessonsExport(args: string[]): Promise<void> {
+  const subCmd = args[0];
+
+  // Handle promote/demote subcommands
+  if (subCmd === "promote" || subCmd === "demote") {
+    const patternId = args[1];
+    if (!patternId) {
+      logger.error(`Usage: teamclaw lessons ${subCmd} <pattern-id>`);
+      process.exit(1);
+    }
+
+    const teamConfig = await loadTeamConfig();
+    const vectorMemory = new VectorMemory(
+      CONFIG.vectorStorePath,
+      teamConfig?.memory_backend ?? CONFIG.memoryBackend,
+    );
+    await vectorMemory.init();
+    const db = vectorMemory.getDb();
+    const embedder = vectorMemory.getEmbedder();
+    if (!db || !embedder) {
+      logger.error("LanceDB not available");
+      process.exit(1);
+    }
+
+    const globalManager = new GlobalMemoryManager();
+    await globalManager.init(embedder);
+
+    if (subCmd === "promote") {
+      const sessionStore = new SuccessPatternStore(db, embedder);
+      await sessionStore.init();
+      const qualityStore = new PatternQualityStore(db);
+      await qualityStore.init();
+      const promoter = new PromotionEngine(globalManager, sessionStore, qualityStore, embedder);
+      const ok = await promoter.promoteById(patternId);
+      if (ok) {
+        logger.success(`Promoted pattern ${patternId} to global memory`);
+      } else {
+        logger.error(`Failed to promote pattern ${patternId} (not found or store unavailable)`);
+        process.exit(1);
+      }
+    } else {
+      const promoter = new PromotionEngine(
+        globalManager,
+        { getAll: async () => [] } as never,
+        { getQuality: async () => null } as never,
+        embedder,
+      );
+      const ok = await promoter.demoteById(patternId);
+      if (ok) {
+        logger.success(`Demoted pattern ${patternId} from global memory`);
+      } else {
+        logger.error(`Failed to demote pattern ${patternId}`);
+        process.exit(1);
+      }
+    }
+    return;
+  }
+
   const format = getArgValue(args, "--format") ?? "markdown";
   const type = getArgValue(args, "--type") ?? "failures";
 

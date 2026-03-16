@@ -73,6 +73,8 @@ import { SuccessPatternStore } from "./memory/success/store.js";
 import { LearningCurveStore } from "./memory/success/learning-curve.js";
 import { PatternQualityStore, pruneStalePatterns } from "./memory/success/quality.js";
 import type { SuccessPattern } from "./memory/success/types.js";
+import { GlobalMemoryManager } from "./memory/global/store.js";
+import { PromotionEngine } from "./memory/global/promoter.js";
 
 let DEBUG_LOG_PATH = "";
 let WORK_HISTORY_LOG_PATH = "";
@@ -844,6 +846,21 @@ export async function runWork(
 
                         if (storedCount > 0 && canRenderSpinner) {
                             logger.success(`📚 Stored ${storedCount} success pattern(s)`);
+                        }
+
+                        // Auto-promote qualifying patterns to global memory
+                        try {
+                            const globalManager = new GlobalMemoryManager();
+                            await globalManager.init(vmEmbedder);
+                            const qualityStore = new PatternQualityStore(vmDb);
+                            await qualityStore.init();
+                            const promoter = new PromotionEngine(globalManager, successStore, qualityStore, vmEmbedder);
+                            const promoResult = await promoter.autoPromote(`work-${Date.now()}`);
+                            if (promoResult.promoted.length > 0 && canRenderSpinner) {
+                                logger.success(`🌐 Promoted ${promoResult.promoted.length} pattern(s) to global memory`);
+                            }
+                        } catch (promoErr) {
+                            log("warn", `Global memory promotion failed: ${promoErr}`);
                         }
                     } catch (err) {
                         log("warn", `Failed to persist success patterns: ${err}`);
