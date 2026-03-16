@@ -16,11 +16,11 @@ const mockClient = {
   on: vi.fn(),
 };
 
-vi.mock("../client/OpenClawClient.js", () => ({
+vi.mock("../src/client/OpenClawClient.js", () => ({
   OpenClawClient: vi.fn().mockImplementation(() => mockClient),
 }));
 
-vi.mock("../core/global-config.js", () => ({
+vi.mock("../src/core/global-config.js", () => ({
   readGlobalConfigWithDefaults: () => ({
     gatewayUrl: "ws://localhost:18789",
     token: "test-token",

@@ -3,7 +3,7 @@
  * Suggestions reference actual profile data — never generic advice.
  */
 
-import type { AgentUtilization, OptimizationSuggestion, SuggestionType } from "./types.js";
+import type { AgentUtilization, OptimizationSuggestion } from "./types.js";
 
 export interface ProfileData {
   agentRole: string;

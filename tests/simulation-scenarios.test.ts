@@ -130,6 +130,32 @@ vi.mock("../src/agents/partial-approval.js", () => ({
   createPartialApprovalNode: vi.fn().mockReturnValue(mockPartialApprovalNode),
 }));
 
+vi.mock("../src/graph/nodes/preview.js", () => ({
+  createPreviewNode: vi.fn().mockReturnValue(
+    vi.fn().mockImplementation(() => ({
+      preview: { tasks: [], estimate: { estimatedUSD: 0, parallelWaves: 0, rfcRequired: false, estimatedMinutes: 0 }, status: "approved" },
+      __node__: "preview",
+    }))
+  ),
+}));
+
+vi.mock("../src/graph/nodes/confidence-router.js", () => ({
+  createConfidenceRouterNode: vi.fn().mockReturnValue(
+    vi.fn().mockImplementation((state: Record<string, unknown>) => {
+      // Transition reviewing/waiting_for_human tasks to auto_approved_pending
+      const taskQueue = (state.task_queue as Record<string, unknown>[]) ?? [];
+      const updated = taskQueue.map((t) => {
+        const st = t.status as string;
+        if (st === "reviewing" || st === "waiting_for_human") {
+          return { ...t, status: "auto_approved_pending", result: { ...(t.result as Record<string, unknown> ?? {}), routing_decision: "auto_approved" } };
+        }
+        return t;
+      });
+      return { task_queue: updated, __node__: "confidence_router" };
+    })
+  ),
+}));
+
 vi.mock("../src/agents/planning.js", () => ({
   createSprintPlanningNode: vi.fn().mockReturnValue(
     vi.fn().mockResolvedValue({ __node__: "sprint_planning" })
@@ -306,13 +332,14 @@ async function simulateGraph(
   let state = { ...initialState } as GraphState;
   const nodeOrder: string[] = [];
 
-  // Linear prefix: __start__ → memory_retrieval → sprint_planning → system_design → rfc_phase → coordinator
+  // Linear prefix: __start__ → memory_retrieval → sprint_planning → system_design → rfc_phase → coordinator → preview
   const linearChain = [
     "memory_retrieval",
     "sprint_planning",
     "system_design",
     "rfc_phase",
     "coordinator",
+    "preview",
   ];
 
   // Execute linear prefix
@@ -326,7 +353,7 @@ async function simulateGraph(
 
   // Now enter the conditional routing loop
   let iterations = 0;
-  let currentNode = "coordinator"; // just completed coordinator
+  let currentNode = "preview"; // just completed preview (after coordinator)
 
   while (iterations < maxIterations) {
     iterations++;
@@ -638,7 +665,7 @@ describe("Scenario: HUMAN_REJECTION", () => {
     expect(String(task?.reviewer_feedback ?? "")).toContain("HUMAN FEEDBACK:");
   });
 
-  it("rework task re-enters worker_execute cycle when coordinator re-queues", async () => {
+  it("rework task re-enters worker_execute cycle when partial_approval routes to worker", async () => {
     mockCoordinateNode.mockResolvedValueOnce({
       user_goal: null,
       task_queue: [makeTask({ task_id: "TASK-001", status: "pending" })],
@@ -646,7 +673,7 @@ describe("Scenario: HUMAN_REJECTION", () => {
       __node__: "coordinator",
     });
     mockWorkerExecuteNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "waiting_for_human" })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing" })],
       __node__: "worker_execute",
     });
     mockPartialApprovalNode.mockResolvedValueOnce({
@@ -654,15 +681,9 @@ describe("Scenario: HUMAN_REJECTION", () => {
       __node__: "partial_approval",
     });
 
-    // Coordinator re-queues as pending so routing continues to worker_execute
-    mockCoordinateNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "pending", retry_count: 0 })],
-      __node__: "coordinator",
-    });
-
-    // Worker processes the rework
+    // Rework goes directly to worker_task (via partial_approval → taskDispatcher)
     mockWorkerExecuteNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "completed", retry_count: 1 })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing", retry_count: 1 })],
       __node__: "worker_execute",
     });
     mockPartialApprovalNode.mockResolvedValueOnce({
@@ -686,7 +707,7 @@ describe("Scenario: HUMAN_REJECTION", () => {
       __node__: "coordinator",
     });
     mockWorkerExecuteNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "waiting_for_human", max_retries: 1 })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing", max_retries: 1 })],
       __node__: "worker_execute",
     });
     // First rejection
@@ -694,13 +715,9 @@ describe("Scenario: HUMAN_REJECTION", () => {
       task_queue: [makeTask({ task_id: "TASK-001", status: "needs_rework", retry_count: 0, max_retries: 1 })],
       __node__: "partial_approval",
     });
-    // Coordinator re-queues as pending
-    mockCoordinateNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "pending", retry_count: 0, max_retries: 1 })],
-      __node__: "coordinator",
-    });
+    // Rework goes directly to worker_task (not coordinator)
     mockWorkerExecuteNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "waiting_for_human", retry_count: 1, max_retries: 1 })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing", retry_count: 1, max_retries: 1 })],
       __node__: "worker_execute",
     });
     // Second rejection — exceeds max_retries → failed
@@ -729,8 +746,8 @@ describe("Scenario: HUMAN_REJECTION", () => {
     });
     mockWorkerExecuteNode.mockResolvedValueOnce({
       task_queue: [
-        makeTask({ task_id: "TASK-001", status: "waiting_for_human" }),
-        makeTask({ task_id: "TASK-002", status: "waiting_for_human", assigned_to: "bot_1" }),
+        makeTask({ task_id: "TASK-001", status: "reviewing" }),
+        makeTask({ task_id: "TASK-002", status: "reviewing", assigned_to: "bot_1" }),
       ],
       __node__: "worker_execute",
     });
@@ -742,17 +759,10 @@ describe("Scenario: HUMAN_REJECTION", () => {
       ],
       __node__: "partial_approval",
     });
-    // Coordinator re-queues TASK-001 as pending
-    mockCoordinateNode.mockResolvedValueOnce({
-      task_queue: [
-        makeTask({ task_id: "TASK-001", status: "pending" }),
-        makeTask({ task_id: "TASK-002", status: "completed", assigned_to: "bot_1" }),
-      ],
-      __node__: "coordinator",
-    });
+    // Rework goes directly to worker_task (not coordinator), then back through pipeline
     mockWorkerExecuteNode.mockResolvedValueOnce({
       task_queue: [
-        makeTask({ task_id: "TASK-001", status: "completed", retry_count: 1 }),
+        makeTask({ task_id: "TASK-001", status: "reviewing", retry_count: 1 }),
         makeTask({ task_id: "TASK-002", status: "completed", assigned_to: "bot_1" }),
       ],
       __node__: "worker_execute",
@@ -782,7 +792,7 @@ describe("Scenario: HUMAN_REJECTION", () => {
       __node__: "coordinator",
     });
     mockWorkerExecuteNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "waiting_for_human", max_retries: 0 })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing", max_retries: 0 })],
       __node__: "worker_execute",
     });
     // Human rejects and worker-bot logic marks as failed (max_retries exceeded)
@@ -998,11 +1008,11 @@ describe("Scenario: SESSION_TIMEOUT", () => {
       __node__: "coordinator",
     });
     mockWorkerExecuteNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "pending" })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing" })],
       __node__: "worker_execute",
     });
     mockPartialApprovalNode.mockResolvedValueOnce({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "pending" })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "completed" })],
       __node__: "partial_approval",
     });
 
@@ -1045,11 +1055,11 @@ describe("Scenario: SESSION_TIMEOUT", () => {
       __node__: "coordinator",
     });
     mockWorkerExecuteNode.mockResolvedValue({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "pending" })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "reviewing" })],
       __node__: "worker_execute",
     });
     mockPartialApprovalNode.mockResolvedValue({
-      task_queue: [makeTask({ task_id: "TASK-001", status: "pending" })],
+      task_queue: [makeTask({ task_id: "TASK-001", status: "completed" })],
       __node__: "partial_approval",
     });
 

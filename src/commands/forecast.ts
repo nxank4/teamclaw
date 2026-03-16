@@ -70,7 +70,6 @@ export async function runForecastCommand(args: string[]): Promise<void> {
 
 function renderForecastCli(forecast: CostForecast): void {
   const border = "─".repeat(61);
-  const doubleBorder = "═".repeat(61);
 
   logger.plain("");
   logger.plain(pc.bold(pc.cyan("┌" + border + "┐")));

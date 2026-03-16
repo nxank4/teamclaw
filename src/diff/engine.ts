@@ -15,10 +15,6 @@ import type {
 } from "./types.js";
 import { matchTasks } from "./matcher.js";
 
-// Per-token cost estimate (matches audit builder)
-const COST_PER_INPUT_TOKEN = 0.000003;
-const COST_PER_OUTPUT_TOKEN = 0.000015;
-
 /** Compute a RunDiff from two run snapshots. */
 export function computeRunDiff(from: RunSnapshot, to: RunSnapshot): RunDiff {
   const { matched, added, removed } = matchTasks(from.tasks, to.tasks);

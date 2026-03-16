@@ -5,7 +5,7 @@
 
 import type { SimilarRun, AgentForecast, PhaseForecast, ModelPricing } from "../types.js";
 import type { PreviewTask } from "../../graph/preview/types.js";
-import { getModelPricing, computeTokenCost } from "../pricing.js";
+import { getModelPricing } from "../pricing.js";
 
 export interface HistoricalResult {
   estimatedMinUSD: number;

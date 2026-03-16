@@ -71,7 +71,7 @@ function statusSymbol(status: string): { symbol: string; color: string } {
   }
 }
 
-export function DiffPanel({ sessionId, totalRuns, runDiffs, overallTrend }: DiffPanelProps) {
+export function DiffPanel({ totalRuns, runDiffs, overallTrend }: DiffPanelProps) {
   const [selectedPair, setSelectedPair] = useState(0);
   const [showUnchanged, setShowUnchanged] = useState(false);
 

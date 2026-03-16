@@ -19,7 +19,6 @@ import { calculateUtilization } from "../heatmap/calculator.js";
 import { buildHeatmap } from "../heatmap/builder.js";
 import { generateSuggestions } from "../heatmap/suggestions.js";
 import {
-  getUtilizationHistory,
   getUtilizationSince,
   parseSinceDuration,
 } from "../heatmap/global.js";
@@ -106,7 +105,7 @@ export async function runHeatmapCommand(args: string[]): Promise<void> {
   renderHeatmapCli(heatmap, false);
 }
 
-async function runGlobalHeatmap(since: string, metric: HeatmapMetric): Promise<void> {
+async function runGlobalHeatmap(since: string, _metric: HeatmapMetric): Promise<void> {
   const sinceMs = parseSinceDuration(since);
   const entries = getUtilizationSince(sinceMs);
 
@@ -156,7 +155,6 @@ async function runGlobalHeatmap(since: string, metric: HeatmapMetric): Promise<v
   for (const agg of sorted) {
     const avgUtil = agg.totalUtil / agg.count;
     const avgConf = agg.totalConf / agg.count;
-    const utilBar = buildUtilBar(avgUtil, 14);
     const isBottleneck = avgUtil >= 0.8;
 
     const line =
@@ -203,7 +201,6 @@ function renderHeatmapCli(heatmap: HeatmapData, suggestionsOnly: boolean): void 
     const bar = buildUtilBar(util, 14);
 
     // Find avg values from cells
-    const avgCell = heatmap.cells[i]?.find((c) => c.columnId === "avg");
     const durationStr = formatCellDuration(heatmap.cells[i]);
     const confStr = formatCellConfidence(heatmap.cells[i]);
     const costStr = formatCellCost(heatmap.cells[i]);

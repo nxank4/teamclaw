@@ -12,7 +12,6 @@
 
 import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import pc from "picocolors";
 import { logger } from "../core/logger.js";
 import { getSession } from "../replay/session-index.js";
@@ -21,10 +20,8 @@ import { extractRunSnapshot } from "../diff/engine.js";
 import { buildDiffChain, buildPairDiff } from "../diff/chain.js";
 import { renderDiffCli, renderOverallTrend } from "../diff/renderers/cli.js";
 import { renderDiffMarkdown } from "../diff/renderers/markdown.js";
-import type { RunSnapshot, DiffChain, CrossSessionDiff, ConfigDifference } from "../diff/types.js";
+import type { RunSnapshot, DiffChain, ConfigDifference } from "../diff/types.js";
 import type { RecordingEvent } from "../replay/types.js";
-
-const SESSIONS_DIR = path.join(os.homedir(), ".teamclaw", "sessions");
 
 export async function runDiffCommand(args: string[]): Promise<void> {
   if (!args[0] || args[0] === "--help" || args[0] === "-h") {
@@ -41,14 +38,6 @@ export async function runDiffCommand(args: string[]): Promise<void> {
   const outputDir = outputIdx >= 0 ? args[outputIdx + 1] : undefined;
   const runsIdx = args.indexOf("--runs");
   const runsPair = runsIdx >= 0 ? args[runsIdx + 1] : undefined;
-
-  // Determine if cross-session or within-session diff
-  const positional = args.filter((a) => !a.startsWith("--") && args.indexOf(a) === 0 || (
-    !a.startsWith("--") &&
-    args[args.indexOf(a) - 1] !== "--format" &&
-    args[args.indexOf(a) - 1] !== "--output" &&
-    args[args.indexOf(a) - 1] !== "--runs"
-  ));
 
   // Simple: first non-flag arg is sessionId, second (if any) is second sessionId
   const sessionId1 = args[0];

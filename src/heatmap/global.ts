@@ -36,7 +36,6 @@ export function recordUtilization(utilizations: AgentUtilization[]): void {
 
     for (const u of utilizations) {
       // Upsert by sessionId + runIndex + agentRole
-      const key = `${u.sessionId}:${u.runIndex}:${u.agentRole}`;
       const idx = entries.findIndex(
         (e) => e.sessionId === u.sessionId && e.runIndex === u.runIndex && e.agentRole === u.agentRole,
       );

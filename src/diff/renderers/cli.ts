@@ -114,12 +114,8 @@ function buildTrendValues(chain: DiffChain, metric: "confidence" | "cost"): stri
   // We can reconstruct from the diffs: first value + cumulative deltas
   if (chain.runDiffs.length === 0) return "—";
 
-  const values: number[] = [];
   // Extract from metricDiffs
   if (metric === "confidence") {
-    // Start with an inferred value: first run had some base confidence
-    // We approximate from the first diff's "from" state
-    const firstDelta = chain.runDiffs[0].metricDiffs.averageConfidenceDelta;
     // We don't have the absolute value, just show deltas
     const arrows = chain.runDiffs.map((d) => {
       const delta = d.metricDiffs.averageConfidenceDelta;

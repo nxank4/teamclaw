@@ -42,7 +42,7 @@ export function calculateUtilization(
   sessionId: string,
   runIndex: number,
   events: RecordingEvent[],
-  options: CalculatorOptions = {},
+  _options: CalculatorOptions = {},
 ): AgentUtilization[] {
   const runEvents = events.filter((e) => e.runIndex === runIndex);
   if (runEvents.length === 0) return [];
@@ -173,7 +173,6 @@ function buildActiveIntervals(events: RecordingEvent[]): ActiveInterval[] {
 
   for (const evt of events) {
     if (evt.phase === "enter") {
-      const key = `${evt.nodeId}:${evt.id}`;
       const existing = enterTimes.get(evt.nodeId) ?? [];
       existing.push(evt.timestamp);
       enterTimes.set(evt.nodeId, existing);

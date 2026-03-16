@@ -4,7 +4,7 @@
  */
 
 import type { PreviewTask } from "../../graph/preview/types.js";
-import type { AgentForecast, PhaseForecast, ForecastPhase } from "../types.js";
+import type { AgentForecast, PhaseForecast } from "../types.js";
 import { getModelPricing, computeTokenCost } from "../pricing.js";
 import type { ModelPricing } from "../types.js";
 
