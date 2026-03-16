@@ -16,3 +16,4 @@ export { renderAuditMarkdown, renderMultiRunSummary } from "./renderers/markdown
 export { renderAuditPDF } from "./renderers/pdf.js";
 export type { RenderOptions } from "./renderers/types.js";
 export { DEFAULT_RENDER_OPTIONS } from "./renderers/types.js";
+export { renderLearningProgression } from "../diff/renderers/markdown.js";

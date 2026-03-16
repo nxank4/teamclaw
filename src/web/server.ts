@@ -1343,6 +1343,37 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
     return data;
   });
 
+  // Diff API — compare runs within a session
+  fastify.get<{ Params: { sessionId: string } }>("/api/diff/:sessionId", async (req, reply) => {
+    try {
+      const { getSession } = await import("../replay/index.js");
+      const { readRecordingEvents } = await import("../replay/storage.js");
+      const { extractRunSnapshot } = await import("../diff/engine.js");
+      const { buildDiffChain } = await import("../diff/chain.js");
+
+      const session = getSession(req.params.sessionId);
+      if (!session) return reply.status(404).send({ error: "Session not found" });
+      if (session.totalRuns < 2) return reply.status(400).send({ error: "Need at least 2 runs to diff" });
+
+      const events = await readRecordingEvents(req.params.sessionId);
+      const snapshots = [];
+      for (let i = 1; i <= session.totalRuns; i++) {
+        const runEvents = events.filter((e) => e.runIndex === i);
+        const exits = runEvents.filter((e) => e.phase === "exit");
+        const enters = runEvents.filter((e) => e.phase === "enter");
+        const state = exits[exits.length - 1]?.stateAfter ?? {};
+        const start = enters[0]?.timestamp ?? 0;
+        const end = exits[exits.length - 1]?.timestamp ?? start;
+        snapshots.push(extractRunSnapshot(req.params.sessionId, i, state, start, end));
+      }
+
+      const chain = buildDiffChain(snapshots);
+      return chain;
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) });
+    }
+  });
+
   // Composition history
   fastify.get("/api/composition-history", async (_req, reply) => {
     try {

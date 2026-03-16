@@ -24,8 +24,12 @@ import {
   buildAuditTrail,
   renderAuditMarkdown,
   renderMultiRunSummary,
+  renderLearningProgression,
 } from "../audit/index.js";
 import type { AuditTrail, MultiRunSummary } from "../audit/types.js";
+import { extractRunSnapshot } from "../diff/engine.js";
+import { buildDiffChain } from "../diff/chain.js";
+import type { RunSnapshot } from "../diff/types.js";
 
 const SESSIONS_DIR = path.join(os.homedir(), ".teamclaw", "sessions");
 
@@ -132,7 +136,29 @@ async function runExport(args: string[]): Promise<void> {
       totalDurationMs: session.completedAt - session.createdAt,
     };
 
-    const md = renderMultiRunSummary(summary);
+    let md = renderMultiRunSummary(summary);
+
+    // Append learning progression diff if multiple runs
+    if (session.totalRuns >= 2) {
+      try {
+        const events = await readRecordingEvents(sessionId);
+        const snapshots: RunSnapshot[] = [];
+        for (let i = 1; i <= session.totalRuns; i++) {
+          const runEvents = events.filter((e) => e.runIndex === i);
+          const exits = runEvents.filter((e) => e.phase === "exit");
+          const enters = runEvents.filter((e) => e.phase === "enter");
+          const state = exits[exits.length - 1]?.stateAfter ?? {};
+          const start = enters[0]?.timestamp ?? session.createdAt;
+          const end = exits[exits.length - 1]?.timestamp ?? session.completedAt;
+          snapshots.push(extractRunSnapshot(sessionId, i, state, start, end));
+        }
+        const chain = buildDiffChain(snapshots);
+        md += "\n\n---\n\n" + renderLearningProgression(chain);
+      } catch {
+        // Learning progression is optional — skip if events unavailable
+      }
+    }
+
     const outPath = path.join(outputDir!, "summary.md");
     await writeFile(outPath, md, "utf-8");
     logger.success(`Multi-run summary exported: ${outPath}`);
