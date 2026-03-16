@@ -15,3 +15,6 @@ export { PROFILE_CONFIDENCE_THRESHOLDS } from "./types.js";
 export { classifyTaskType, getConfidenceGate, TASK_TYPE_KEYWORDS } from "./classifier.js";
 export { ProfileStore } from "./store.js";
 export { ProfileBuilder } from "./builder.js";
+export { ProfileRouter } from "./router.js";
+export { formatProfilesForPrompt } from "./prompt.js";
+export { checkDegradation } from "./alerts.js";
