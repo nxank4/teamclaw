@@ -107,6 +107,13 @@ export const GameStateAnnotation = Annotation.Root({
   }),
   learning_curve: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
 
+  // Cross-session global memory
+  global_memory_context: Annotation<Record<string, unknown>>(lastValue(() => ({}))),
+  promoted_this_run: Annotation<string[]>({
+    reducer: (left, right) => left.concat(Array.isArray(right) ? right : [right]),
+    default: () => [],
+  }),
+
   // Send-payload fields: transient, set by Send() args during parallel worker superstep
   _send_task: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
   _send_bot_id: Annotation<string>(lastValue(() => "")),

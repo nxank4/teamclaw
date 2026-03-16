@@ -29,6 +29,7 @@ import { createSystemDesignNode } from "../agents/system-design.js";
 import { createMemoryRetrievalNode } from "../agents/memory-retrieval.js";
 import type { VectorMemory } from "./knowledge-base.js";
 import { SuccessPatternStore } from "../memory/success/store.js";
+import { GlobalMemoryManager } from "../memory/global/store.js";
 import { getCanvasTelemetry } from "./canvas-telemetry.js";
 import { createPreviewNode } from "../graph/nodes/preview.js";
 import { createConfidenceRouterNode } from "../graph/nodes/confidence-router.js";
@@ -148,8 +149,19 @@ export class TeamOrchestration {
       void successStore.init().catch(() => { successStore = null; });
     }
 
+    // Initialize global memory manager for cross-session knowledge
+    let globalManager: GlobalMemoryManager | null = null;
+    if (vmEmbedder) {
+      try {
+        globalManager = new GlobalMemoryManager();
+        void globalManager.init(vmEmbedder).catch(() => { globalManager = null; });
+      } catch {
+        globalManager = null;
+      }
+    }
+
     const memoryRetrievalNode = vectorMemory
-      ? createMemoryRetrievalNode(vectorMemory, 5, 2, successStore, vmEmbedder)
+      ? createMemoryRetrievalNode(vectorMemory, 5, 2, successStore, vmEmbedder, globalManager)
       : createMemoryRetrievalNode({} as VectorMemory);
 
     const wrapWithTelemetry = (

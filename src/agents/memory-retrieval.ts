@@ -6,6 +6,7 @@ import type { GraphState } from "../core/graph-state.js";
 import type { VectorMemory } from "../core/knowledge-base.js";
 import type { HttpEmbeddingFunction } from "../core/knowledge-base.js";
 import type { SuccessPatternStore } from "../memory/success/store.js";
+import type { GlobalMemoryManager } from "../memory/global/store.js";
 import { retrieveSuccessPatterns } from "../memory/success/retriever.js";
 import { logger, isDebugMode } from "../core/logger.js";
 
@@ -21,6 +22,7 @@ export class MemoryRetrievalNode {
   private readonly maxProjectMemories: number;
   private readonly successStore: SuccessPatternStore | null;
   private readonly embedder: HttpEmbeddingFunction | null;
+  private readonly globalManager: GlobalMemoryManager | null;
 
   constructor(
     vectorMemory: VectorMemory,
@@ -28,13 +30,15 @@ export class MemoryRetrievalNode {
     maxProjectMemories = 2,
     successStore: SuccessPatternStore | null = null,
     embedder: HttpEmbeddingFunction | null = null,
+    globalManager: GlobalMemoryManager | null = null,
   ) {
     this.vectorMemory = vectorMemory;
     this.maxRetroActions = maxRetroActions;
     this.maxProjectMemories = maxProjectMemories;
     this.successStore = successStore;
     this.embedder = embedder;
-    log(`MemoryRetrievalNode initialized (maxActions: ${maxRetroActions}, maxProjects: ${maxProjectMemories}, successStore: ${!!successStore})`);
+    this.globalManager = globalManager;
+    log(`MemoryRetrievalNode initialized (maxActions: ${maxRetroActions}, maxProjects: ${maxProjectMemories}, successStore: ${!!successStore}, globalManager: ${!!globalManager})`);
   }
 
   async retrieveMemories(state: GraphState): Promise<Partial<GraphState>> {
@@ -90,10 +94,47 @@ export class MemoryRetrievalNode {
         }
       }
 
-      const preferencesContext = memoriesLines.join("\n");
-      const summaryMsg = `Retrieved ${retroActions.length} preferences, ${projectMemories.length} project memories, and ${successPatterns.length} success patterns`;
+      // Query global memory if available
+      let globalPatterns: typeof successPatterns = [];
+      let globalLessons: Array<{ text: string }> = [];
+      if (this.globalManager && this.embedder) {
+        try {
+          const globalStore = this.globalManager.getPatternStore();
+          const queryVector = (await this.embedder.generate([userGoal]))[0] ?? [];
+          if (globalStore && queryVector.length > 0) {
+            globalPatterns = await globalStore.search(queryVector, 5);
+          }
+          const rawLessons = await this.globalManager.searchLessons(queryVector, 5);
+          globalLessons = rawLessons.map((l) => ({ text: l.text }));
+        } catch (err) {
+          log(`Global memory query failed: ${err}`);
+        }
 
-      if (retroActions.length > 0 || projectMemories.length > 0 || successPatterns.length > 0) {
+        // Deduplicate: remove global patterns already in session results
+        const sessionIds = new Set(successPatterns.map((p) => p.id));
+        globalPatterns = globalPatterns.filter((p) => !sessionIds.has(p.id));
+
+        // Cap total: 5 patterns + 5 lessons
+        const combinedPatterns = [...successPatterns, ...globalPatterns].slice(0, 5);
+        const allLessons = globalLessons.map((l) => l.text).slice(0, 5);
+
+        if (globalPatterns.length > 0 || globalLessons.length > 0) {
+          memoriesLines.push("\n## Global Knowledge (Cross-Session):");
+          for (const pattern of globalPatterns.slice(0, 5 - successPatterns.length)) {
+            const conf = Math.round(pattern.confidence * 100);
+            memoriesLines.push(`- [Global] Task: "${pattern.taskDescription.slice(0, 60)}" | Approach: ${pattern.approach.slice(0, 100)} | Confidence: ${conf}%`);
+          }
+          for (const lesson of allLessons) {
+            memoriesLines.push(`- [Global Lesson] ${lesson.slice(0, 120)}`);
+          }
+        }
+      }
+
+      const preferencesContext = memoriesLines.join("\n");
+      const globalCount = globalPatterns.length + globalLessons.length;
+      const summaryMsg = `Retrieved ${retroActions.length} preferences, ${projectMemories.length} project memories, ${successPatterns.length} success patterns${globalCount > 0 ? `, and ${globalCount} global memories` : ""}`;
+
+      if (retroActions.length > 0 || projectMemories.length > 0 || successPatterns.length > 0 || globalCount > 0) {
         log(`${summaryMsg}. Context length: ${preferencesContext.length} chars`);
       }
 
@@ -104,6 +145,10 @@ export class MemoryRetrievalNode {
           failureLessons: retroActions.map((a) => a.text),
           successPatterns,
           relevanceScores: [],
+        },
+        global_memory_context: {
+          globalPatterns,
+          globalLessons: globalLessons.map((l) => l.text),
         },
         messages: [summaryMsg],
         last_action: "Memory retrieval complete",
@@ -129,7 +174,8 @@ export function createMemoryRetrievalNode(
   maxProjectMemories = 2,
   successStore: SuccessPatternStore | null = null,
   embedder: HttpEmbeddingFunction | null = null,
+  globalManager: GlobalMemoryManager | null = null,
 ): (state: GraphState) => Promise<Partial<GraphState>> {
-  const node = new MemoryRetrievalNode(vectorMemory, maxRetroActions, maxProjectMemories, successStore, embedder);
+  const node = new MemoryRetrievalNode(vectorMemory, maxRetroActions, maxProjectMemories, successStore, embedder, globalManager);
   return (state: GraphState) => node.retrieveMemories(state);
 }
