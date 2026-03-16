@@ -99,6 +99,14 @@ export const GameStateAnnotation = Annotation.Root({
   }),
   approval_stats: Annotation<Record<string, unknown>>(lastValue<Record<string, unknown>>(() => ({}))),
 
+  // Success pattern learning
+  memory_context: Annotation<Record<string, unknown>>(lastValue(() => ({}))),
+  new_success_patterns: Annotation<string[]>({
+    reducer: (left, right) => left.concat(Array.isArray(right) ? right : [right]),
+    default: () => [],
+  }),
+  learning_curve: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
+
   // Send-payload fields: transient, set by Send() args during parallel worker superstep
   _send_task: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
   _send_bot_id: Annotation<string>(lastValue(() => "")),

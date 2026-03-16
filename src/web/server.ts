@@ -90,6 +90,9 @@ import {
   persistAgentModel,
 } from "../core/model-operations.js";
 import { THREAD_REGISTRY, startTimeoutChecker } from "./timeout-checker.js";
+import { SuccessPatternStore } from "../memory/success/store.js";
+import { LearningCurveStore } from "../memory/success/learning-curve.js";
+import { PatternQualityStore } from "../memory/success/quality.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.env.NODE_ENV === "production";
@@ -972,6 +975,68 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
       }
     }
     return { ok: true };
+  });
+
+  // -----------------------------------------------------------------------
+  // Memory API — success patterns, learning curve, pattern quality
+  // -----------------------------------------------------------------------
+  fastify.get("/api/memory/success-patterns", async () => {
+    const teamConfig = await loadTeamConfig();
+    const vectorMemory = new VectorMemory(
+      CONFIG.vectorStorePath,
+      teamConfig?.memory_backend ?? CONFIG.memoryBackend,
+    );
+    await vectorMemory.init();
+    const db = vectorMemory.getDb();
+    const embedder = vectorMemory.getEmbedder();
+    if (!db || !embedder) return { patterns: [] };
+    const store = new SuccessPatternStore(db, embedder);
+    await store.init();
+    return { patterns: await store.getAll() };
+  });
+
+  fastify.delete("/api/memory/success-patterns/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const teamConfig = await loadTeamConfig();
+    const vectorMemory = new VectorMemory(
+      CONFIG.vectorStorePath,
+      teamConfig?.memory_backend ?? CONFIG.memoryBackend,
+    );
+    await vectorMemory.init();
+    const db = vectorMemory.getDb();
+    const embedder = vectorMemory.getEmbedder();
+    if (!db || !embedder) return reply.status(500).send({ error: "LanceDB not available" });
+    const store = new SuccessPatternStore(db, embedder);
+    await store.init();
+    const ok = await store.delete(id);
+    return ok ? { ok: true } : reply.status(404).send({ error: "Pattern not found" });
+  });
+
+  fastify.get("/api/memory/learning-curve", async () => {
+    const teamConfig = await loadTeamConfig();
+    const vectorMemory = new VectorMemory(
+      CONFIG.vectorStorePath,
+      teamConfig?.memory_backend ?? CONFIG.memoryBackend,
+    );
+    await vectorMemory.init();
+    const db = vectorMemory.getDb();
+    if (!db) return { curves: [] };
+    const store = new LearningCurveStore(db);
+    await store.init();
+    return { curves: await store.getRecent(10) };
+  });
+
+  fastify.get("/api/memory/pattern-quality", async () => {
+    const teamConfig = await loadTeamConfig();
+    const vectorMemory = new VectorMemory(
+      CONFIG.vectorStorePath,
+      teamConfig?.memory_backend ?? CONFIG.memoryBackend,
+    );
+    await vectorMemory.init();
+    const db = vectorMemory.getDb();
+    if (!db) return { qualities: [] };
+    // Pattern quality doesn't have a getAll, return empty for now
+    return { qualities: [] };
   });
 
   // SPA fallback AFTER all API routes

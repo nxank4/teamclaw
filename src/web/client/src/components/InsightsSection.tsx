@@ -3,10 +3,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { EisenhowerMatrix } from "./EisenhowerMatrix";
 import { NodeGraphView } from "./NodeGraphView";
 import { LiveStateGraph } from "./LiveStateGraph";
+import { MemoryPanel } from "./MemoryPanel";
 
 export function InsightsSection() {
   const [open, setOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"matrix" | "graph" | "workflow">("matrix");
+  const [activeTab, setActiveTab] = useState<"matrix" | "graph" | "workflow" | "memory">("matrix");
 
   return (
     <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 shadow-sm transition-colors">
@@ -30,7 +31,7 @@ export function InsightsSection() {
             transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
           >
           <div className="mb-3 flex items-center gap-2">
-            {(["matrix", "graph", "workflow"] as const).map((tab) => (
+            {(["matrix", "graph", "workflow", "memory"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -41,8 +42,8 @@ export function InsightsSection() {
                     : "text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800"
                 }`}
               >
-                <i className={`bi ${tab === "matrix" ? "bi-grid-3x3-gap-fill" : tab === "graph" ? "bi-diagram-3" : "bi-signpost-split"} mr-1`} />
-                {tab === "matrix" ? "Priority Matrix" : tab === "graph" ? "Task Graph" : "Roadmap"}
+                <i className={`bi ${tab === "matrix" ? "bi-grid-3x3-gap-fill" : tab === "graph" ? "bi-diagram-3" : tab === "workflow" ? "bi-signpost-split" : "bi-database"} mr-1`} />
+                {tab === "matrix" ? "Priority Matrix" : tab === "graph" ? "Task Graph" : tab === "workflow" ? "Roadmap" : "Memory"}
               </button>
             ))}
           </div>
@@ -53,8 +54,10 @@ export function InsightsSection() {
               <div className="h-[400px]">
                 <NodeGraphView />
               </div>
-            ) : (
+            ) : activeTab === "workflow" ? (
               <LiveStateGraph />
+            ) : (
+              <MemoryPanel />
             )}
           </div>
           </motion.div>

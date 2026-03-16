@@ -56,12 +56,15 @@ export class SprintPlanningNode {
 
     log(`📋 Creating sprint plan for goal: ${userGoal.slice(0, 50)}...`);
 
+    const memoriesContext = state.retrieved_memories || "";
+
     try {
       const sprintPlan = await this.generateSprintPlanWithLlm(
         userGoal,
         team,
         ancestralLessons,
-        signal
+        signal,
+        memoriesContext,
       );
 
       await this.writePlanningDocument(sprintPlan, userGoal);
@@ -99,7 +102,8 @@ export class SprintPlanningNode {
     goal: string,
     team: Record<string, unknown>[],
     lessons: string[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    memoriesContext?: string,
   ): Promise<SprintPlan> {
     const teamLines = team
       .map(
@@ -113,6 +117,8 @@ export class SprintPlanningNode {
         ? `\n\n## Lessons from Prior Runs:\n${lessons.map((l, i) => `${i + 1}. ${l}`).join("\n")}`
         : "";
 
+    const memoryBlock = memoriesContext ? `\n\n${memoriesContext}` : "";
+
     const prompt = `You are a Scrum Master conducting Sprint Planning.
 
 ## Sprint Goal
@@ -120,7 +126,7 @@ ${goal}
 
 ## Team Roster
 ${teamLines}
-${lessonsBlock}
+${lessonsBlock}${memoryBlock}
 
 ## Your Task
 Create a Sprint Plan with:

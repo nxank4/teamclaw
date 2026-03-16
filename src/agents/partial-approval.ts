@@ -6,6 +6,8 @@
 import { select, text } from "@clack/prompts";
 import pc from "picocolors";
 import type { GraphState } from "../core/graph-state.js";
+import { extractSuccessPattern } from "../memory/success/extractor.js";
+import type { TaskForExtraction } from "../memory/success/extractor.js";
 
 export interface PartialApprovalTask {
   task_id: string;
@@ -184,6 +186,32 @@ export function createPartialApprovalNode(options: {
       sessionAutoApprove = true;
     }
 
+    // Extract success patterns from newly-completed tasks
+    const newPatternIds: string[] = [];
+    const goalContext = state.user_goal ?? "";
+    for (const task of updatedTasks) {
+      const status = task.status as string;
+      if (status === "completed") {
+        const taskForExtraction: TaskForExtraction = {
+          task_id: (task.task_id as string) ?? "",
+          description: (task.description as string) ?? "",
+          assigned_to: (task.assigned_to as string) ?? "",
+          status,
+          retry_count: (task.retry_count as number) ?? 0,
+          result: (task.result as TaskForExtraction["result"]) ?? null,
+        };
+        const pattern = extractSuccessPattern(
+          taskForExtraction,
+          goalContext,
+          "", // sessionId filled by work-runner
+          0,  // runIndex filled by work-runner
+        );
+        if (pattern) {
+          newPatternIds.push(JSON.stringify(pattern));
+        }
+      }
+    }
+
     const stats = {
       autoApprovedCount,
       rejectedCount,
@@ -201,6 +229,7 @@ export function createPartialApprovalNode(options: {
     return {
       task_queue: updatedTasks,
       next_sprint_backlog: escalatedTasks,
+      new_success_patterns: newPatternIds,
       approval_stats: stats,
       messages: [summary],
       last_action: `Partial approval: ${summaryParts.join(", ")}`,

@@ -15,7 +15,7 @@ const RETRO_ACTIONS_TABLE = "retro_actions";
 const EMBEDDING_MODEL = "nomic-embed-text";
 const DEFAULT_EMBEDDING_BASE = "http://localhost:11434";
 
-class HttpEmbeddingFunction {
+export class HttpEmbeddingFunction {
   private readonly baseUrl: string;
   private readonly model: string;
   private readonly token: string;
@@ -401,6 +401,14 @@ export class VectorMemory {
     } catch {
       return [];
     }
+  }
+
+  getDb(): lancedb.Connection | null {
+    return this.db;
+  }
+
+  getEmbedder(): HttpEmbeddingFunction | null {
+    return this.embedder;
   }
 
   getStats(): VectorMemoryStats {

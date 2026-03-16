@@ -28,6 +28,7 @@ import { createRFCNode } from "../agents/rfc.js";
 import { createSystemDesignNode } from "../agents/system-design.js";
 import { createMemoryRetrievalNode } from "../agents/memory-retrieval.js";
 import type { VectorMemory } from "./knowledge-base.js";
+import { SuccessPatternStore } from "../memory/success/store.js";
 import { getCanvasTelemetry } from "./canvas-telemetry.js";
 import { createPreviewNode } from "../graph/nodes/preview.js";
 import { createConfidenceRouterNode } from "../graph/nodes/confidence-router.js";
@@ -138,8 +139,17 @@ export class TeamOrchestration {
     const sprintPlanningNode = createSprintPlanningNode(workspacePath ?? "", sharedLlmAdapter, signal);
     const systemDesignNode = createSystemDesignNode(workspacePath ?? "", sharedLlmAdapter, signal);
     const rfcNode = createRFCNode(workspacePath ?? "", this.team, sharedLlmAdapter, signal);
-    const memoryRetrievalNode = vectorMemory 
-      ? createMemoryRetrievalNode(vectorMemory)
+    // Wire success pattern store into memory retrieval if LanceDB is available
+    let successStore: SuccessPatternStore | null = null;
+    const vmDb = vectorMemory?.getDb?.();
+    const vmEmbedder = vectorMemory?.getEmbedder?.();
+    if (vmDb && vmEmbedder) {
+      successStore = new SuccessPatternStore(vmDb, vmEmbedder);
+      void successStore.init().catch(() => { successStore = null; });
+    }
+
+    const memoryRetrievalNode = vectorMemory
+      ? createMemoryRetrievalNode(vectorMemory, 5, 2, successStore, vmEmbedder)
       : createMemoryRetrievalNode({} as VectorMemory);
 
     const wrapWithTelemetry = (

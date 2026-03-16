@@ -69,6 +69,10 @@ import { workerEvents } from "./core/worker-events.js";
 import { startGatewayLogTailer } from "./core/gateway-log-tailer.js";
 import { createWebhookApprovalProvider } from "./webhook/provider.js";
 import type { WebhookApprovalConfig } from "./webhook/types.js";
+import { SuccessPatternStore } from "./memory/success/store.js";
+import { LearningCurveStore } from "./memory/success/learning-curve.js";
+import { PatternQualityStore, pruneStalePatterns } from "./memory/success/quality.js";
+import type { SuccessPattern } from "./memory/success/types.js";
 
 let DEBUG_LOG_PATH = "";
 let WORK_HISTORY_LOG_PATH = "";
@@ -794,6 +798,55 @@ export async function runWork(
                 if (projectMemory) {
                     if (canRenderSpinner) {
                         logger.success(`📚 Saved project memory: "${projectMemory.slice(0, 50)}..."`);
+                    }
+                }
+
+                // Persist success patterns extracted during approval
+                const vmDb = vectorMemory.getDb();
+                const vmEmbedder = vectorMemory.getEmbedder();
+                if (vmDb && vmEmbedder) {
+                    try {
+                        const successStore = new SuccessPatternStore(vmDb, vmEmbedder);
+                        await successStore.init();
+                        const rawPatterns = (finalState as Record<string, unknown>).new_success_patterns as string[] ?? [];
+                        let storedCount = 0;
+                        for (const raw of rawPatterns) {
+                            try {
+                                const pattern = JSON.parse(raw) as SuccessPattern;
+                                pattern.sessionId = `work-${Date.now()}`;
+                                pattern.runIndex = runId;
+                                void successStore.upsert(pattern).catch(() => {});
+                                storedCount++;
+                            } catch {
+                                // Skip malformed patterns
+                            }
+                        }
+
+                        // Record learning curve
+                        const lcStore = new LearningCurveStore(vmDb);
+                        await lcStore.init();
+                        const approvalStats = (finalState as Record<string, unknown>).approval_stats as Record<string, unknown> ?? {};
+                        const avgConf = (finalState as Record<string, unknown>).average_confidence as number ?? 0;
+                        await lcStore.record(`work-${Date.now()}`, {
+                            runIndex: runId,
+                            averageConfidence: avgConf,
+                            autoApprovedCount: (approvalStats.autoApprovedCount as number) ?? 0,
+                            patternsUsed: 0,
+                            newPatternsStored: storedCount,
+                        });
+
+                        // Prune stale patterns on subsequent runs
+                        if (runId > 1) {
+                            const qualityStore = new PatternQualityStore(vmDb);
+                            await qualityStore.init();
+                            await pruneStalePatterns(successStore, qualityStore);
+                        }
+
+                        if (storedCount > 0 && canRenderSpinner) {
+                            logger.success(`📚 Stored ${storedCount} success pattern(s)`);
+                        }
+                    } catch (err) {
+                        log("warn", `Failed to persist success patterns: ${err}`);
                     }
                 }
 
