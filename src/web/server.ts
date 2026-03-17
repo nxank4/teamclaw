@@ -20,7 +20,7 @@ import {
   updateSessionCreativity,
 } from "../core/config.js";
 import { loadTeamConfig, clearTeamConfigCache } from "../core/team-config.js";
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { VectorMemory } from "../core/knowledge-base.js";
 import { PostMortemAnalyst } from "../agents/analyst.js";
 import { CONFIG } from "../core/config.js";
@@ -1577,6 +1577,123 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
       }
     },
   );
+
+  // ── Handoff endpoints ──────────────────────────────────────────────
+  fastify.get("/api/handoff", async (_req, reply) => {
+    try {
+      const { listSessions } = await import("../replay/session-index.js");
+      const { readRecordingEvents } = await import("../replay/storage.js");
+      const { buildHandoffData } = await import("../handoff/collector.js");
+
+      const sessions = listSessions(5);
+      const last = sessions.find((s) => s.completedAt > 0);
+      if (!last) return reply.status(404).send({ error: "No completed sessions" });
+
+      let finalState: Record<string, unknown> = {};
+      try {
+        const events = await readRecordingEvents(last.sessionId);
+        const exitEvents = events.filter((e) => e.phase === "exit");
+        const lastExit = exitEvents[exitEvents.length - 1];
+        finalState = (lastExit?.stateAfter ?? {}) as Record<string, unknown>;
+      } catch { /* recording may be missing */ }
+
+      let activeDecisions: import("../journal/types.js").Decision[] = [];
+      try {
+        const { VectorMemory } = await import("../core/knowledge-base.js");
+        const { CONFIG } = await import("../core/config.js");
+        const { GlobalMemoryManager } = await import("../memory/global/store.js");
+        const { DecisionStore } = await import("../journal/store.js");
+        const vm = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
+        await vm.init();
+        const embedder = vm.getEmbedder();
+        if (embedder) {
+          const globalMgr = new GlobalMemoryManager();
+          await globalMgr.init(embedder);
+          const db = globalMgr.getDb();
+          if (db) {
+            const store = new DecisionStore();
+            await store.init(db);
+            const recent = await store.getRecentDecisions(30);
+            activeDecisions = recent.filter((d) => d.status === "active");
+          }
+        }
+      } catch { /* non-critical */ }
+
+      const data = buildHandoffData({
+        sessionId: last.sessionId,
+        projectPath: process.cwd(),
+        goal: last.goal || "Unknown goal",
+        taskQueue: (finalState.task_queue ?? []) as Array<Record<string, unknown>>,
+        nextSprintBacklog: (finalState.next_sprint_backlog ?? []) as Array<Record<string, unknown>>,
+        promotedThisRun: (finalState.promoted_this_run ?? []) as string[],
+        agentProfiles: (finalState.agent_profiles ?? []) as Array<Record<string, unknown>>,
+        activeDecisions,
+        rfcDocument: (finalState.rfc_document as string) ?? null,
+      });
+
+      return data;
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) });
+    }
+  });
+
+  fastify.post("/api/handoff/generate", async (_req, reply) => {
+    try {
+      const { listSessions } = await import("../replay/session-index.js");
+      const { readRecordingEvents } = await import("../replay/storage.js");
+      const { buildHandoffData } = await import("../handoff/collector.js");
+      const { renderContextMarkdown } = await import("../handoff/renderer.js");
+      const { DEFAULT_HANDOFF_CONFIG } = await import("../handoff/types.js");
+
+      const sessions = listSessions(5);
+      const last = sessions.find((s) => s.completedAt > 0);
+      if (!last) return reply.status(404).send({ error: "No completed sessions" });
+
+      let finalState: Record<string, unknown> = {};
+      try {
+        const events = await readRecordingEvents(last.sessionId);
+        const exitEvents = events.filter((e) => e.phase === "exit");
+        const lastExit = exitEvents[exitEvents.length - 1];
+        finalState = (lastExit?.stateAfter ?? {}) as Record<string, unknown>;
+      } catch { /* */ }
+
+      const data = buildHandoffData({
+        sessionId: last.sessionId,
+        projectPath: process.cwd(),
+        goal: last.goal || "Unknown goal",
+        taskQueue: (finalState.task_queue ?? []) as Array<Record<string, unknown>>,
+        nextSprintBacklog: (finalState.next_sprint_backlog ?? []) as Array<Record<string, unknown>>,
+        promotedThisRun: (finalState.promoted_this_run ?? []) as string[],
+        agentProfiles: (finalState.agent_profiles ?? []) as Array<Record<string, unknown>>,
+        activeDecisions: [],
+        rfcDocument: (finalState.rfc_document as string) ?? null,
+      });
+
+      const markdown = renderContextMarkdown(data);
+      const outPath = path.resolve(DEFAULT_HANDOFF_CONFIG.outputPath);
+      await writeFile(outPath, markdown, "utf-8");
+
+      const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", last.sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      await writeFile(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
+
+      return { path: outPath, markdown };
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) });
+    }
+  });
+
+  fastify.post("/api/handoff/import", async (_req, reply) => {
+    try {
+      const { importContextFile } = await import("../handoff/importer.js");
+      const contextPath = path.resolve("CONTEXT.md");
+      const result = await importContextFile(contextPath);
+      if (!result) return reply.status(404).send({ error: "No CONTEXT.md found" });
+      return result;
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) });
+    }
+  });
 
   // SPA fallback AFTER all API routes
   if (clientDir) {
