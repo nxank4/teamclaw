@@ -18,6 +18,7 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
     memoryUsage: true,
     agentPerformance: true,
     rawPrompts: false,
+    personality: true,
   },
   includePrompts: false,
   promptMaxLength: 2000,

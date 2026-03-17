@@ -59,6 +59,12 @@ export interface AgentDefinition {
   compositionRules?: CompositionRules;
   /** Lifecycle hooks. */
   hooks?: AgentHooks;
+  /** Personality configuration for this agent. */
+  personality?: {
+    traits?: Array<"pragmatic" | "thorough" | "decisive" | "skeptical" | "forward_thinking" | "quality_focused" | "efficiency_oriented">;
+    pushbackTriggers?: Array<{ pattern: string; response: string; severity: "block" | "warn" | "note" }>;
+    catchphrases?: string[];
+  };
   /** Arbitrary metadata. */
   metadata?: Record<string, unknown>;
 }

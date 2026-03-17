@@ -2,6 +2,14 @@
  * Types for audit trail export.
  */
 
+export interface PersonalityEventSummary {
+  agentRole: string;
+  eventType: string;
+  content: string;
+  severity: string | null;
+  timestamp: number;
+}
+
 export interface AuditTrail {
   sessionId: string;
   runIndex: number;
@@ -16,6 +24,7 @@ export interface AuditTrail {
   costBreakdown: CostEntry[];
   memoryUsage: MemoryUsageEntry;
   agentPerformance: AgentPerformanceEntry[];
+  personalityEvents?: PersonalityEventSummary[];
 }
 
 export interface AuditSummary {
@@ -80,6 +89,7 @@ export interface AuditSectionConfig {
   memoryUsage: boolean;
   agentPerformance: boolean;
   rawPrompts: boolean;
+  personality: boolean;
 }
 
 export interface AuditConfig {
@@ -98,6 +108,7 @@ export const DEFAULT_AUDIT_CONFIG: AuditConfig = {
     memoryUsage: true,
     agentPerformance: true,
     rawPrompts: false,
+    personality: true,
   },
 };
 

@@ -10,7 +10,10 @@ import type {
   CostEntry,
   MemoryUsageEntry,
   AgentPerformanceEntry,
+  PersonalityEventSummary,
 } from "./types.js";
+import { PersonalityEventStore } from "../personality/memory.js";
+import { CONFIG } from "../core/config.js";
 import { readRecordingEvents } from "../replay/storage.js";
 import type { RecordingEvent } from "../replay/types.js";
 import { getRoleName } from "../core/bot-definitions.js";
@@ -53,6 +56,29 @@ export async function buildAuditTrail(
 
   const teamRoles = team.map((b) => getRoleName(b));
 
+  let personalityEvents: PersonalityEventSummary[] | undefined;
+  if (CONFIG.personalityEnabled) {
+    try {
+      const lancedb = await import("@lancedb/lancedb");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const dbPath = path.default.join(os.default.homedir(), ".teamclaw", "memory", "global.db");
+      const db = await lancedb.connect(dbPath);
+      const store = new PersonalityEventStore();
+      await store.init(db);
+      const events = await store.getBySession(sessionId);
+      personalityEvents = events.map((e) => ({
+        agentRole: e.agentRole,
+        eventType: e.eventType,
+        content: e.content,
+        severity: null,
+        timestamp: e.createdAt,
+      }));
+    } catch {
+      // Personality events unavailable
+    }
+  }
+
   return {
     sessionId,
     runIndex,
@@ -67,6 +93,7 @@ export async function buildAuditTrail(
     costBreakdown,
     memoryUsage,
     agentPerformance,
+    ...(personalityEvents?.length ? { personalityEvents } : {}),
   };
 }
 
