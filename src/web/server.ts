@@ -1414,6 +1414,170 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Think (Rubber Duck Mode)
+  // ---------------------------------------------------------------------------
+  const thinkSessions = new Map<string, import("../think/types.js").ThinkSession>();
+  const thinkSessionActivity = new Map<string, number>();
+
+  // Clean up expired sessions every 30 minutes
+  const thinkCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    const THIRTY_MINUTES = 30 * 60 * 1000;
+    for (const [id] of thinkSessions) {
+      const lastActivity = thinkSessionActivity.get(id) ?? 0;
+      if (now - lastActivity > THIRTY_MINUTES) {
+        thinkSessions.delete(id);
+        thinkSessionActivity.delete(id);
+      }
+    }
+  }, 30 * 60 * 1000);
+  // Prevent interval from keeping process alive
+  thinkCleanupInterval.unref();
+
+  fastify.post<{ Body: { question: string } }>("/api/think", async (req, reply) => {
+    const { question } = req.body ?? {} as { question?: string };
+    if (!question?.trim()) {
+      return reply.status(400).send({ error: "Question is required" });
+    }
+
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const send = (event: string, data: unknown) => {
+      raw.write(`data: ${JSON.stringify({ event, data })}\n\n`);
+    };
+
+    try {
+      const { loadThinkContext } = await import("../think/context-loader.js");
+      const { executeThinkRound } = await import("../think/executor.js");
+      const { randomUUID } = await import("node:crypto");
+
+      // Load context first and emit context_loaded before streaming
+      const context = await loadThinkContext(question);
+      send("context_loaded", { relevantDecisions: context.relevantDecisions.length });
+
+      let currentStage = "";
+      const round = await executeThinkRound(question, context, {
+        onChunk: (stage, content) => {
+          if (stage !== currentStage) {
+            currentStage = stage;
+            if (stage !== "coordinator") send(`${stage}_start`, {});
+          }
+          if (stage !== "coordinator") send(`${stage}_chunk`, { content });
+        },
+      });
+
+      const session: import("../think/types.js").ThinkSession = {
+        id: `think-${randomUUID().slice(0, 8)}`,
+        question,
+        context,
+        rounds: [round],
+        recommendation: round.recommendation,
+        savedToJournal: false,
+        createdAt: Date.now(),
+      };
+
+      if (round) {
+        send("tech_lead_done", { perspective: round.techLeadPerspective });
+        send("rfc_author_done", { perspective: round.rfcAuthorPerspective });
+      }
+
+      if (session.recommendation) {
+        send("recommendation", { recommendation: session.recommendation });
+      }
+
+      thinkSessions.set(session.id, session);
+      thinkSessionActivity.set(session.id, Date.now());
+      send("done", { sessionId: session.id });
+    } catch (err) {
+      send("error", { stage: "session", message: String(err) });
+    }
+
+    raw.end();
+  });
+
+  fastify.post<{ Params: { sessionId: string }; Body: { question: string } }>(
+    "/api/think/:sessionId/followup",
+    async (req, reply) => {
+      const { sessionId } = req.params;
+      const { question } = req.body ?? {} as { question?: string };
+
+      const session = thinkSessions.get(sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: "Think session not found or expired" });
+      }
+
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+
+      const send = (event: string, data: unknown) => {
+        raw.write(`data: ${JSON.stringify({ event, data })}\n\n`);
+      };
+
+      try {
+        const { addFollowUp } = await import("../think/session.js");
+        let currentStage = "";
+        const updated = await addFollowUp(session, question, {
+          onChunk: (stage, content) => {
+            if (stage !== currentStage) {
+              currentStage = stage;
+              if (stage !== "coordinator") send(`${stage}_start`, {});
+            }
+            if (stage !== "coordinator") send(`${stage}_chunk`, { content });
+          },
+        });
+
+        const lastRound = updated.rounds[updated.rounds.length - 1];
+        if (lastRound) {
+          send("tech_lead_done", { perspective: lastRound.techLeadPerspective });
+          send("rfc_author_done", { perspective: lastRound.rfcAuthorPerspective });
+        }
+        if (updated.recommendation) {
+          send("recommendation", { recommendation: updated.recommendation });
+        }
+
+        thinkSessions.set(sessionId, updated);
+        thinkSessionActivity.set(sessionId, Date.now());
+        send("done", { sessionId });
+      } catch (err) {
+        send("error", { stage: "followup", message: String(err) });
+      }
+
+      raw.end();
+    },
+  );
+
+  // Save think session to journal
+  fastify.post<{ Params: { sessionId: string } }>(
+    "/api/think/:sessionId/save",
+    async (req, reply) => {
+      const session = thinkSessions.get(req.params.sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: "Think session not found" });
+      }
+      try {
+        const { saveToJournal, recordToHistory } = await import("../think/session.js");
+        const saved = await saveToJournal(session);
+        await recordToHistory(saved);
+        thinkSessions.set(req.params.sessionId, saved);
+        return { success: true, choice: saved.recommendation?.choice };
+      } catch (err) {
+        return reply.status(500).send({ error: String(err) });
+      }
+    },
+  );
+
   // SPA fallback AFTER all API routes
   if (clientDir) {
     fastify.setNotFoundHandler((request, reply) => {
