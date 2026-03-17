@@ -1,5 +1,5 @@
 # Makefile for TeamClaw
-.PHONY: help install install-hooks test lint typecheck check test-full web work clean
+.PHONY: help install install-hooks test lint typecheck check test-full web work clean release
 
 help:
 	@echo "TeamClaw - Available Commands:"
@@ -18,6 +18,9 @@ help:
 	@echo "  Run"
 	@echo "    make web      - Launch web UI (http://localhost:8000)"
 	@echo "    make work    - Run work sessions (CLI)"
+	@echo ""
+	@echo "  Release"
+	@echo "    make release   - Build, package, and create GitHub release"
 	@echo ""
 	@echo "  Maintenance"
 	@echo "    make clean   - Remove build artifacts"
@@ -69,3 +72,32 @@ clean:
 	rm -rf dist node_modules .turbo .pnpm-store
 	rm -rf data/test_vector_store data/vector_store
 	@echo "Cleaned!"
+
+# --- Release ---
+VERSION := $(shell node -p "require('./package.json').version")
+
+release:
+	@echo "Building TeamClaw v$(VERSION)..."
+	pnpm run build
+	@echo ""
+	@echo "Creating release archives..."
+	@mkdir -p release
+	@# Package source-install tarball (includes built dist/)
+	tar -czf "release/teamclaw-$(VERSION)-source.tar.gz" \
+		--exclude=node_modules --exclude=.git --exclude=release \
+		--exclude=coverage --exclude=data --exclude=.teamclaw \
+		-C . .
+	@echo "Created release/teamclaw-$(VERSION)-source.tar.gz"
+	@# Generate checksums
+	@cd release && shasum -a 256 *.tar.gz > SHA256SUMS
+	@echo "Generated release/SHA256SUMS"
+	@echo ""
+	@echo "Creating GitHub release v$(VERSION)..."
+	gh release create "v$(VERSION)" \
+		--title "TeamClaw v$(VERSION)" \
+		--generate-notes \
+		release/teamclaw-$(VERSION)-source.tar.gz \
+		release/SHA256SUMS
+	@echo ""
+	@echo "Release v$(VERSION) published!"
+	@echo "https://github.com/nxank4/teamclaw/releases/tag/v$(VERSION)"

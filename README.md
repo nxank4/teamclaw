@@ -10,6 +10,26 @@ TeamClaw orchestrates teams of specialized AI agents through LangGraph. Define a
 
 ---
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nxank4/teamclaw/main/install.sh | sh
+```
+
+Or via npm:
+```bash
+npm install -g @teamclaw/cli
+```
+
+**Requirements:** Node.js >= 20, pnpm
+
+To uninstall:
+```bash
+curl -fsSL https://raw.githubusercontent.com/nxank4/teamclaw/main/uninstall.sh | sh
+```
+
+---
+
 ## Features
 
 - **Goal-driven orchestration** — describe what you want done; a Coordinator decomposes it into tasks and routes them to the right agents
