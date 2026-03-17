@@ -30,6 +30,12 @@ export interface TeamClawGlobalConfig {
     timeoutSeconds?: number;
     retryAttempts?: number;
   };
+  handoff?: {
+    autoGenerate?: boolean;
+    outputPath?: string;
+    keepHistory?: boolean;
+    gitCommit?: boolean;
+  };
   workspaceDir?: string;
   proxy?: {
     path?: string;
@@ -204,6 +210,21 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
       }
     : undefined;
 
+  const rawHandoff = (input as Record<string, unknown>).handoff;
+  const handoffObj = rawHandoff && typeof rawHandoff === "object" && !Array.isArray(rawHandoff)
+    ? (rawHandoff as Record<string, unknown>)
+    : undefined;
+  const handoff = handoffObj
+    ? {
+        autoGenerate: typeof handoffObj.autoGenerate === "boolean" ? handoffObj.autoGenerate : true,
+        outputPath: typeof handoffObj.outputPath === "string" && handoffObj.outputPath.trim()
+          ? handoffObj.outputPath.trim()
+          : "./CONTEXT.md",
+        keepHistory: typeof handoffObj.keepHistory === "boolean" ? handoffObj.keepHistory : true,
+        gitCommit: typeof handoffObj.gitCommit === "boolean" ? handoffObj.gitCommit : false,
+      }
+    : undefined;
+
   return {
     version: 1,
     managedGateway: typeof input.managedGateway === "boolean" ? input.managedGateway : true,
@@ -221,6 +242,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
     ...(modelAliases && Object.keys(modelAliases).length > 0 ? { modelAliases } : {}),
     ...(modelAllowlist && modelAllowlist.length > 0 ? { modelAllowlist } : {}),
     ...(fallbackChain && fallbackChain.length > 0 ? { fallbackChain } : {}),
+    ...(handoff ? { handoff } : {}),
     ...(workspaceDir ? { workspaceDir } : {}),
     ...(proxy ? { proxy } : {}),
   };

@@ -47,6 +47,7 @@ export interface BriefingData {
   openRFCs: string[];
   relevantDecisions: RelevantDecision[];
   recentThinkSessions?: RecentThinkSession[];
+  contextFileFound?: boolean;
 }
 
 export interface InterRunSummary {

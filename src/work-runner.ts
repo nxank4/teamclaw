@@ -152,6 +152,89 @@ async function autoExportAudit(
   }
 }
 
+/** Auto-generate CONTEXT.md handoff after session completes. Never blocks or throws. */
+async function autoGenerateContext(
+  sessionId: string,
+  goal: string,
+  finalState: Record<string, unknown>,
+  workspacePath: string,
+): Promise<void> {
+  try {
+    const { readGlobalConfigWithDefaults: readCfg } = await import("./core/global-config.js");
+    const cfg = readCfg();
+    if (cfg.handoff?.autoGenerate === false) return;
+
+    const { buildHandoffData, renderContextMarkdown } = await import("./handoff/index.js");
+
+    // Retrieve active decisions (best-effort)
+    let activeDecisions: Array<Record<string, unknown>> = [];
+    try {
+      const { DecisionStore } = await import("./journal/store.js");
+      const { GlobalMemoryManager } = await import("./memory/global/store.js");
+      const vm = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
+      await vm.init();
+      const embedder = vm.getEmbedder();
+      if (embedder) {
+        const gmm = new GlobalMemoryManager();
+        await gmm.init(embedder);
+        const db = gmm.getDb();
+        if (db) {
+          const store = new DecisionStore();
+          await store.init(db);
+          const recent = await store.getRecentDecisions(30);
+          activeDecisions = recent.filter((d) => d.status === "active");
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+
+    const taskQueue = (finalState.task_queue ?? []) as Array<Record<string, unknown>>;
+    const nextSprintBacklog = (finalState.next_sprint_backlog ?? []) as Array<Record<string, unknown>>;
+    const promotedThisRun = (finalState.promoted_this_run ?? []) as string[];
+    const agentProfiles = (finalState.agent_profiles ?? []) as Array<Record<string, unknown>>;
+    const rfcDocument = (finalState.rfc_document as string) ?? null;
+
+    const data = buildHandoffData({
+      sessionId,
+      projectPath: workspacePath,
+      goal,
+      taskQueue,
+      nextSprintBacklog,
+      promotedThisRun,
+      agentProfiles,
+      activeDecisions: activeDecisions as never[],
+      rfcDocument,
+    });
+
+    const markdown = renderContextMarkdown(data);
+
+    const { writeFile: wf, mkdir: mkd } = await import("node:fs/promises");
+
+    // Write to workspace
+    const outputPath = path.resolve(workspacePath, cfg.handoff?.outputPath ?? "./CONTEXT.md");
+    await wf(outputPath, markdown, "utf-8");
+
+    // Timestamped copy in session dir
+    const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
+    await mkd(sessionDir, { recursive: true });
+    await wf(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
+
+    // Git commit if configured
+    if (cfg.handoff?.gitCommit) {
+      try {
+        const { execSync } = await import("node:child_process");
+        execSync(`git add "${outputPath}"`, { stdio: "ignore", cwd: workspacePath });
+        execSync(`git commit -m "docs: auto-generate CONTEXT.md handoff"`, { stdio: "ignore", cwd: workspacePath });
+      } catch {
+        // Never fail loudly
+      }
+    }
+  } catch {
+    // Auto-generation must never block the session
+  }
+}
+
 /** Build composition inclusion rules from registered custom agents. */
 function buildCustomCompositionRules(): AgentInclusionRule[] {
     try {
@@ -1396,6 +1479,16 @@ export async function runWork(
     // Auto-export audit trail (async, non-blocking)
     if (lastFinalState) {
       autoExportAudit(replaySessionId, maxRuns, lastFinalState as Record<string, unknown>, sessionRecordStart, []).catch(() => {});
+    }
+
+    // Auto-generate CONTEXT.md (async, non-blocking)
+    if (lastFinalState) {
+      autoGenerateContext(
+        replaySessionId,
+        effectiveGoal || "(no goal)",
+        lastFinalState as Record<string, unknown>,
+        workspacePath,
+      ).catch(() => {});
     }
 
     const shouldRunRetro = !lastTeamComposition || lastTeamComposition.activeAgents.some(a => a.role === "retrospective");

@@ -5,6 +5,7 @@
  * No LLM calls. All data comes from local storage.
  */
 
+import path from "node:path";
 import type { BriefingData, LeftOpenItem, TeamPerformanceEntry, RelevantDecision } from "./types.js";
 import { summarizeTasks } from "./summarizer.js";
 import { listSessions } from "../replay/session-index.js";
@@ -31,6 +32,21 @@ export async function collectBriefingData(): Promise<BriefingData> {
   const sessions = listSessions(5);
   const lastCompleted = sessions.find((s) => s.completedAt > 0);
   if (!lastCompleted) return empty;
+
+  // Check for CONTEXT.md in cwd
+  let contextFileFound = false;
+  try {
+    const { existsSync, statSync } = await import("node:fs");
+    const contextPath = path.resolve("CONTEXT.md");
+    if (existsSync(contextPath)) {
+      const stat = statSync(contextPath);
+      if (stat.mtimeMs > lastCompleted.completedAt) {
+        contextFileFound = true;
+      }
+    }
+  } catch {
+    // Non-critical
+  }
 
   const now = Date.now();
   const daysAgo = Math.floor((now - lastCompleted.completedAt) / (1000 * 60 * 60 * 24));
@@ -217,5 +233,6 @@ export async function collectBriefingData(): Promise<BriefingData> {
     openRFCs,
     relevantDecisions,
     recentThinkSessions,
+    contextFileFound,
   };
 }

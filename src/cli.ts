@@ -87,6 +87,7 @@ function printHelp(): void {
         "  " + cmd(pad("clarity")) + desc("Check goal clarity before sprinting"),
         "  " + cmd(pad("drift")) + desc("Check goal for conflicts with past decisions"),
         "  " + cmd(pad("journal")) + desc("Decision journal: list, search, show, export"),
+        "  " + cmd(pad("handoff")) + desc("Generate CONTEXT.md handoff file, or import from collaborator"),
         "  " + cmd(pad("clean")) + desc("Remove session data (preserves global memory)"),
         "  " + cmd(pad("run openclaw")) + desc("Start OpenClaw gateway"),
         "  " + cmd(pad("demo")) + desc("Run a synthetic demo (no gateway needed)"),
@@ -374,6 +375,10 @@ async function main(): Promise<void> {
     } else if (cmd === "think") {
         const { runThinkCommand } = await import("./commands/think.js");
         await runThinkCommand(args.slice(1));
+
+    } else if (cmd === "handoff") {
+        const { runHandoffCommand } = await import("./commands/handoff.js");
+        await runHandoffCommand(args.slice(1));
 
     } else if (cmd === "demo") {
         const canRenderSpinner = Boolean(process.stdout.isTTY && process.stderr.isTTY);

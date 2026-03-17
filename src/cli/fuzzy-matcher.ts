@@ -28,6 +28,7 @@ export const COMMANDS = [
     "run",
     "onboard",
     "think",
+    "handoff",
 ] as const;
 
 /** Known subcommands keyed by parent command. */
@@ -46,6 +47,7 @@ export const SUBCOMMANDS: Record<string, string[]> = {
     heatmap: [],
     diff: [],
     think: ["history"],
+    handoff: ["import"],
 };
 
 export type MatchResult = {
