@@ -5,7 +5,7 @@
 
 import { ProxyService, createProxyService } from "../proxy/ProxyService.js";
 import { readGlobalConfigWithDefaults } from "../core/global-config.js";
-import { OpenClawClientConfigSchema, type StreamChunk } from "../client/types.js";
+import { OpenClawClientConfigSchema } from "../client/types.js";
 import type { ThinkContext, ThinkRound, ThinkRecommendation } from "./types.js";
 import {
   buildTechLeadPrompt,

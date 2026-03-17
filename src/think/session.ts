@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { ThinkSession, ThinkRecommendation } from "./types.js";
+import type { ThinkSession } from "./types.js";
 import type { Decision } from "../journal/types.js";
 import { loadThinkContext } from "./context-loader.js";
 import { executeThinkRound, type ExecuteOptions } from "./executor.js";
