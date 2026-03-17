@@ -381,6 +381,130 @@ export async function runWork(
     logger.plain(pc.gray(`>>> Session: ${sessionSummary}`));
 
     // ---------------------------------------------------------------------------
+    // Drift detection — check goal against past decisions
+    // ---------------------------------------------------------------------------
+    if (effectiveGoal && canRenderSpinner) {
+        let driftRetries = 0;
+        const MAX_DRIFT_RETRIES = 3;
+        let goalToCheck = effectiveGoal;
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            try {
+                const { detectDrift } = await import("./drift/detector.js");
+                const { DecisionStore } = await import("./journal/store.js");
+                const { GlobalMemoryManager } = await import("./memory/global/store.js");
+
+                const vmForDrift = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
+                await vmForDrift.init();
+                const embedderForDrift = vmForDrift.getEmbedder();
+
+                let decisions: import("./journal/types.js").Decision[] = [];
+                if (embedderForDrift) {
+                    const gmDrift = new GlobalMemoryManager();
+                    await gmDrift.init(embedderForDrift);
+                    const dbDrift = gmDrift.getDb();
+                    if (dbDrift) {
+                        const dStore = new DecisionStore();
+                        await dStore.init(dbDrift);
+                        decisions = await dStore.getAll();
+                    }
+                }
+
+                const driftResult = detectDrift(goalToCheck, decisions);
+
+                if (driftResult.hasDrift) {
+                    const { select, text: clackText, isCancel: clackIsCancel } = await import("@clack/prompts");
+
+                    const icon = driftResult.severity === "hard" ? "🚨" : "⚠";
+                    const label = driftResult.severity === "hard" ? "Strong drift detected" : "Drift detected";
+                    logger.plain(`\n${icon} ${pc.yellow(`${label} — ${driftResult.conflicts.length} conflict(s) with past decisions`)}`);
+
+                    const hasPermanent = driftResult.conflicts.some((c) => c.decision.permanent);
+
+                    for (const conflict of driftResult.conflicts) {
+                        const d = conflict.decision;
+                        const date = new Date(d.capturedAt).toISOString().slice(0, 10);
+                        const lockIcon = d.permanent ? " 🔒" : "";
+                        logger.plain(pc.dim("─".repeat(50)));
+                        logger.plain(`${conflict.explanation}${lockIcon}`);
+                        logger.plain(pc.dim(`Past decision (${date}, ${d.recommendedBy}, confidence ${d.confidence.toFixed(2)}):`));
+                        logger.plain(pc.dim(`"${d.decision}"`));
+                        logger.plain(pc.dim(`Reasoning: "${d.reasoning.slice(0, 100)}${d.reasoning.length > 100 ? "..." : ""}"`));
+                    }
+                    logger.plain(pc.dim("─".repeat(50)));
+
+                    const options: Array<{ label: string; value: string }> = [];
+                    if (!hasPermanent) {
+                        options.push({ label: "Proceed anyway — I know what I'm doing", value: "proceed" });
+                    }
+                    options.push(
+                        { label: "Reconsider the past decision(s) — they no longer apply", value: "reconsider" },
+                        { label: "Adjust my goal — let me rephrase it", value: "adjust_goal" },
+                        { label: "Abort — I need to think about this", value: "abort" },
+                    );
+
+                    const choice = await select({
+                        message: "How would you like to proceed?",
+                        options,
+                    });
+
+                    if (clackIsCancel(choice) || choice === "abort") {
+                        cancel("Work session cancelled due to drift conflict.");
+                        process.exit(0);
+                    }
+
+                    if (choice === "reconsider") {
+                        // Mark conflicting decisions as reconsidered
+                        if (embedderForDrift) {
+                            const gmRecon = new GlobalMemoryManager();
+                            await gmRecon.init(embedderForDrift);
+                            const dbRecon = gmRecon.getDb();
+                            if (dbRecon) {
+                                const reconStore = new DecisionStore();
+                                await reconStore.init(dbRecon);
+                                for (const c of driftResult.conflicts) {
+                                    await reconStore.markReconsidered(c.decision.id);
+                                }
+                                logger.success(`Reconsidered ${driftResult.conflicts.length} past decision(s).`);
+                            }
+                        }
+                        break;
+                    }
+
+                    if (choice === "adjust_goal") {
+                        driftRetries++;
+                        if (driftRetries >= MAX_DRIFT_RETRIES) {
+                            logger.warn("Max goal adjustment retries reached. Proceeding with current goal.");
+                            break;
+                        }
+                        const newGoalInput = await clackText({
+                            message: "Enter adjusted goal:",
+                            placeholder: goalToCheck,
+                        });
+                        if (clackIsCancel(newGoalInput) || !newGoalInput) {
+                            cancel("Work session cancelled.");
+                            process.exit(0);
+                        }
+                        goalToCheck = String(newGoalInput).trim();
+                        effectiveGoal = goalToCheck;
+                        continue; // Re-run drift detection
+                    }
+
+                    // choice === "proceed"
+                    break;
+                } else {
+                    // No drift — silent continue
+                    break;
+                }
+            } catch {
+                // Drift detection must never crash work session
+                break;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
     // Dashboard auto-start
     // ---------------------------------------------------------------------------
     if (!noWebFlag) {

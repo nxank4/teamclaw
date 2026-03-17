@@ -282,6 +282,8 @@ export async function runJournalCommand(args: string[]): Promise<void> {
       "  search <query>                Keyword search",
       "  show <decisionId|sessionId>   Full decision detail",
       "  reconsider <decisionId>       Mark decision as reconsidered",
+      "  permanent <decisionId>        Mark decision as permanent (never auto-expire)",
+      "  unpermanent <decisionId>      Remove permanent flag",
       "  export                        Export all as markdown",
     ].join("\n"));
     return;
@@ -300,6 +302,26 @@ export async function runJournalCommand(args: string[]): Promise<void> {
     case "reconsider":
       await reconsiderDecision(args.slice(1));
       break;
+    case "permanent": {
+      const permId = args[1];
+      if (!permId) { logger.error("Usage: teamclaw journal permanent <decisionId>"); break; }
+      const permStore = await getStore();
+      if (!permStore) { logger.error("Could not initialize decision store."); break; }
+      const permOk = await permStore.markPermanent(permId);
+      if (permOk) logger.success(`Decision ${permId} marked as permanent 🔒`);
+      else logger.error(`Decision "${permId}" not found.`);
+      break;
+    }
+    case "unpermanent": {
+      const unpermId = args[1];
+      if (!unpermId) { logger.error("Usage: teamclaw journal unpermanent <decisionId>"); break; }
+      const unpermStore = await getStore();
+      if (!unpermStore) { logger.error("Could not initialize decision store."); break; }
+      const unpermOk = await unpermStore.unmarkPermanent(unpermId);
+      if (unpermOk) logger.success(`Decision ${unpermId} permanent flag removed.`);
+      else logger.error(`Decision "${unpermId}" not found.`);
+      break;
+    }
     case "export":
       await exportJournal();
       break;

@@ -139,6 +139,11 @@ export const GameStateAnnotation = Annotation.Root({
   replaySpeed: Annotation<number>(lastValue(() => 1)),
   replayFromNode: Annotation<string | null>(lastValue<string | null>(() => null)),
 
+  // Drift detection
+  drift_result: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
+  drift_resolution: Annotation<string | null>(lastValue<string | null>(() => null)),
+  drift_reconsidered: Annotation<string[]>(lastValue<string[]>(() => [])),
+
   // Send-payload fields: transient, set by Send() args during parallel worker superstep
   _send_task: Annotation<Record<string, unknown> | null>(lastValue<Record<string, unknown> | null>(() => null)),
   _send_bot_id: Annotation<string>(lastValue(() => "")),

@@ -30,6 +30,7 @@ interface DecisionRow {
   tags: string;
   status: string;
   superseded_by: string;
+  permanent: number;
   vector: number[];
 }
 
@@ -49,6 +50,7 @@ function decisionToRow(d: Decision): DecisionRow {
     tags: JSON.stringify(d.tags),
     status: d.status,
     superseded_by: d.supersededBy ?? "",
+    permanent: d.permanent ? 1 : 0,
     vector: d.embedding.length > 0 ? d.embedding : [0],
   };
 }
@@ -77,6 +79,7 @@ function rowToDecision(row: Record<string, unknown>): Decision {
     embedding: [],
     supersededBy: String(row.superseded_by ?? "") || undefined,
     status: (row.status as Decision["status"]) ?? "active",
+    permanent: Number(row.permanent ?? 0) === 1,
   };
 }
 
@@ -187,6 +190,20 @@ export class DecisionStore {
     const d = await this.getById(id);
     if (!d) return false;
     d.status = "reconsidered";
+    return this.upsert(d);
+  }
+
+  async markPermanent(id: string): Promise<boolean> {
+    const d = await this.getById(id);
+    if (!d) return false;
+    d.permanent = true;
+    return this.upsert(d);
+  }
+
+  async unmarkPermanent(id: string): Promise<boolean> {
+    const d = await this.getById(id);
+    if (!d) return false;
+    d.permanent = false;
     return this.upsert(d);
   }
 

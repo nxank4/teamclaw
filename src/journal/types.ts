@@ -18,6 +18,7 @@ export interface Decision {
   embedding: number[];
   supersededBy?: string;
   status: "active" | "superseded" | "reconsidered";
+  permanent?: boolean;
 }
 
 export interface SupersessionAlert {
