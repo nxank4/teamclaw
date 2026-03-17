@@ -131,3 +131,6 @@ export class PriceRegistry {
     return { ...pricing, cachedPerM };
   }
 }
+
+/** Module-level singleton used by costCalculator and other consumers. */
+export const priceRegistry = new PriceRegistry();

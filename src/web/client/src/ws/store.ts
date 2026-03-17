@@ -177,6 +177,18 @@ interface WsStore {
 
 function noopSendMessage(_payload: object): void {}
 
+/** Simple pub/sub for raw terminal output strings. */
+const terminalListeners = new Set<(data: string) => void>();
+
+export function subscribeToTerminalOutput(cb: (data: string) => void): () => void {
+  terminalListeners.add(cb);
+  return () => { terminalListeners.delete(cb); };
+}
+
+export function emitTerminalOutput(data: string): void {
+  for (const cb of terminalListeners) cb(data);
+}
+
 const COMMAND_ROUTES: Record<string, { method: string; path: string | ((body: Record<string, unknown>) => string) }> = {
   start: { method: "POST", path: "/api/session/start" },
   pause: { method: "POST", path: "/api/session/pause" },

@@ -149,13 +149,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   const inputClass = "w-full rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-sm text-stone-800 dark:text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-[border-color,box-shadow] duration-150 placeholder:text-stone-400 dark:placeholder:text-stone-500";
   const selectClass = "w-full appearance-none rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 pr-9 text-sm text-stone-800 dark:text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-[border-color,box-shadow] duration-150 bg-[length:16px_16px] bg-[position:right_0.625rem_center] bg-no-repeat bg-[url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2378716c' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E\")]";
-  const tabBase = "flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors text-center";
+  const tabBase = "shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors text-center whitespace-nowrap";
   const tabActive = `${tabBase} bg-stone-800 dark:bg-stone-600 text-white`;
   const tabInactive = `${tabBase} text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300`;
 
   return (
       <motion.aside
-        className="shrink-0 bg-gradient-to-b from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 shadow-lg border-l border-stone-200 dark:border-stone-700 overflow-auto"
+        className="shrink-0 bg-gradient-to-b from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 shadow-lg border-l border-stone-200 dark:border-stone-700 overflow-hidden"
         initial={{ width: 0, opacity: 0 }}
         animate={{ width: 384, opacity: 1 }}
         exit={{ width: 0, opacity: 0 }}
@@ -173,7 +173,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
-          <div className="flex gap-1 rounded-lg bg-stone-100 dark:bg-stone-800 p-1 mx-6 mt-4">
+          <div className="flex gap-1 rounded-lg bg-stone-100 dark:bg-stone-800 p-1 mx-6 mt-4 overflow-x-auto">
             <button type="button" className={activeTab === "general" ? tabActive : tabInactive} onClick={() => setActiveTab("general")}>
               <i className="bi bi-sliders mr-1" />General
             </button>
