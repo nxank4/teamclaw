@@ -167,7 +167,7 @@ async function autoGenerateContext(
     const { buildHandoffData, renderContextMarkdown } = await import("./handoff/index.js");
 
     // Retrieve active decisions (best-effort)
-    let activeDecisions: Array<Record<string, unknown>> = [];
+    let activeDecisions: import("./journal/types.js").Decision[] = [];
     try {
       const { DecisionStore } = await import("./journal/store.js");
       const { GlobalMemoryManager } = await import("./memory/global/store.js");

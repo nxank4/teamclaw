@@ -109,7 +109,7 @@ async function handleGenerate(
   const goal = (finalState.goal as string) ?? sessions.find((s) => s.sessionId === targetSessionId)?.goal ?? "(unknown goal)";
 
   // Retrieve active decisions (best-effort)
-  let activeDecisions: Array<Record<string, unknown>> = [];
+  let activeDecisions: import("../journal/types.js").Decision[] = [];
   try {
     const { VectorMemory } = await import("../core/knowledge-base.js");
     const { CONFIG } = await import("../core/config.js");
@@ -218,7 +218,7 @@ async function handleImport(): Promise<void> {
   if (result.leftToDo.length > 0) {
     logger.info(`Left to do: ${result.leftToDo.length} items`);
     for (const item of result.leftToDo.slice(0, 5)) {
-      logger.plain(`  ${pc.yellow("→")} ${item.description}`);
+      logger.plain(`  ${pc.yellow("→")} ${item}`);
     }
   }
 }
