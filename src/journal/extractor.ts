@@ -105,7 +105,7 @@ function extractTopic(decision: string): string {
 }
 
 /** Extract keyword tags from decision + reasoning. */
-function extractTags(decision: string, reasoning: string): string[] {
+export function extractTags(decision: string, reasoning: string): string[] {
   const text = `${decision} ${reasoning}`.toLowerCase();
   const tags = new Set<string>();
 
