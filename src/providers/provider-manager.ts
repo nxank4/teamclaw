@@ -1,4 +1,4 @@
-import type { StreamChunk, StreamOptions } from "../client/types.js";
+import type { StreamChunk, StreamOptions } from "./stream-types.js";
 import type { StreamProvider } from "./provider.js";
 import { ProviderError, type ProviderName, type ProviderStats, emptyStats } from "./types.js";
 import { logger } from "../core/logger.js";

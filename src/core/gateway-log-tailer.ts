@@ -8,13 +8,13 @@ import { existsSync, watch as fsWatch } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { openclawEvents, type OpenClawLogLevel } from "./openclaw-events.js";
+import { llmEvents, type LlmLogLevel } from "./llm-events.js";
 
 const GATEWAY_LOG = path.join(os.homedir(), ".openclaw", "teamclaw-gateway.log");
 const POLL_INTERVAL_MS = 5_000;
 const DEBOUNCE_MS = 50;
 
-function parseLevel(raw: string): OpenClawLogLevel {
+function parseLevel(raw: string): LlmLogLevel {
   if (raw === "error") return "error";
   if (raw === "warn") return "warn";
   if (raw === "success") return "success";
@@ -22,7 +22,7 @@ function parseLevel(raw: string): OpenClawLogLevel {
 }
 
 interface ParsedGatewayLine {
-  level: OpenClawLogLevel;
+  level: LlmLogLevel;
   action: string;
   message: string;
   meta: Record<string, unknown>;
@@ -98,7 +98,7 @@ export function startGatewayLogTailer(): () => void {
         for (const line of text.split("\n")) {
           const parsed = parseGatewayLine(line);
           if (!parsed) continue;
-          openclawEvents.emit("log", {
+          llmEvents.emit("log", {
             id: randomUUID(),
             level: parsed.level,
             source: "gateway",

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { StreamChunk, StreamOptions } from "../client/types.js";
+import type { StreamChunk, StreamOptions } from "./stream-types.js";
 import type { StreamProvider } from "./provider.js";
 import { ProviderError } from "./types.js";
 import { logger } from "../core/logger.js";

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { OpenClawError } from "../client/errors.js";
-import { OpenClawClientConfigSchema, type StreamOptions } from "../client/types.js";
+import { OpenClawClientConfigSchema } from "../client/types.js";
+import type { StreamOptions } from "../providers/stream-types.js";
 import { ProviderError } from "../providers/types.js";
 import { readGlobalConfigWithDefaults } from "../core/global-config.js";
 import { createProxyService } from "./ProxyService.js";

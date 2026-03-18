@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type { StreamChunk } from "../src/client/types.js";
+import type { StreamChunk } from "../src/providers/stream-types.js";
 import { NEVER_CACHE_ROLES } from "../src/cache/types.js";
 
 // Mock the logger to suppress output during tests

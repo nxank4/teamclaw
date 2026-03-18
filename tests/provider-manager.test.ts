@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { StreamChunk, StreamOptions } from "../src/client/types.js";
+import type { StreamChunk, StreamOptions } from "../src/providers/stream-types.js";
 import type { StreamProvider } from "../src/providers/provider.js";
 import { ProviderError } from "../src/providers/types.js";
 

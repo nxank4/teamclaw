@@ -5,7 +5,7 @@
  * Cache writes never block the stream (async fire-and-forget).
  */
 
-import type { StreamChunk, StreamOptions } from "../client/types.js";
+import type { StreamChunk, StreamOptions } from "../providers/stream-types.js";
 import { ResponseCacheStore, buildCacheKey, hasSessionSpecificContent } from "./cache-store.js";
 import {
   CACHE_TTL,

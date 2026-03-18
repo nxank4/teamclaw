@@ -27,7 +27,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 });
 
 import { AnthropicProvider } from "../src/providers/anthropic-provider.js";
-import type { StreamChunk } from "../src/client/types.js";
+import type { StreamChunk } from "../src/providers/stream-types.js";
 
 async function collectChunks(gen: AsyncGenerator<StreamChunk, void, undefined>): Promise<StreamChunk[]> {
   const result: StreamChunk[] = [];

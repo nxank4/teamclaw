@@ -13,7 +13,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { openclawEvents } from "../core/openclaw-events.js";
+import { llmEvents } from "../core/llm-events.js";
 import { isMockLlmEnabled, generateMockResponse } from "../core/mock-llm.js";
 
 export type WorkerAdapterType = "openclaw";
@@ -185,7 +185,7 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
     this.onTokenUsage = options.onTokenUsage;
     this.systemPromptOverride = options.systemPromptOverride;
     this.onReasoning = options.onReasoning;
-    openclawEvents.emit("log", {
+    llmEvents.emit("log", {
       id: `wa-${Date.now()}-init`,
       level: "info",
       source: "worker-adapter",
@@ -226,7 +226,7 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
     this.lastReasoning = "";
 
     const sessionId = `teamclaw-${this.botId}-${Date.now()}`;
-    openclawEvents.emit("log", {
+    llmEvents.emit("log", {
       id: `wa-${Date.now()}-req`,
       level: "info",
       source: "worker-adapter",
@@ -243,7 +243,7 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
     if (isMockLlmEnabled()) {
       const mockText = generateMockResponse(fullMessage, this.botId);
       if (tokenUsageCb) tokenUsageCb(500, 200, 0, "mock-model");
-      openclawEvents.emit("log", {
+      llmEvents.emit("log", {
         id: `wa-${Date.now()}-mock`,
         level: "success",
         source: "worker-adapter",
@@ -289,7 +289,7 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
           }
           // Extract a meaningful error instead of echoing the full command
           const errMsg = classifyExecError(err, stderr);
-          openclawEvents.emit("log", {
+          llmEvents.emit("log", {
             id: `wa-${Date.now()}-err`,
             level: "error",
             source: "worker-adapter",
@@ -370,7 +370,7 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
             }
           }
 
-          openclawEvents.emit("log", {
+          llmEvents.emit("log", {
             id: `wa-${Date.now()}-ok`,
             level: "success",
             source: "worker-adapter",
@@ -405,7 +405,7 @@ export class UniversalOpenClawAdapter implements WorkerAdapter {
         const text = data.toString().trim();
         if (text) {
           log(`[openclaw] ${text.slice(0, 300)}`);
-          openclawEvents.emit("log", {
+          llmEvents.emit("log", {
             id: `wa-${Date.now()}-stderr`,
             level: /error|fail|refused|timeout/i.test(text) ? "error" : "warn",
             source: "worker-adapter",

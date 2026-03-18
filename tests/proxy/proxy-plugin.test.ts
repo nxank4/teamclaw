@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { OpenClawError } from "@/client/errors.js";
-import type { StreamChunk } from "@/client/types.js";
+import type { StreamChunk } from "@/providers/stream-types.js";
 
 // ---------------------------------------------------------------------------
 // Mock OpenClawClient

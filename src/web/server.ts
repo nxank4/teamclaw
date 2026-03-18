@@ -45,7 +45,7 @@ import { getDefaultGoal } from "../core/configManager.js";
 import { ProfileStore } from "../agents/profiles/store.js";
 import { coordinatorEvents, type CoordinatorStep } from "../core/coordinator-events.js";
 import { workerEvents } from "../core/worker-events.js";
-import { openclawEvents, type OpenClawLogEntry } from "../core/openclaw-events.js";
+import { llmEvents, type LlmLogEntry } from "../core/llm-events.js";
 import { startGatewayLogTailer } from "../core/gateway-log-tailer.js";
 
 import { existsSync } from "node:fs";
@@ -154,7 +154,7 @@ export async function runWeb(args: string[]): Promise<void> {
     updateSessionState({ taskQueue: data.taskQueue });
   });
 
-  openclawEvents.on("log", (entry: OpenClawLogEntry) => {
+  llmEvents.on("log", (entry: LlmLogEntry) => {
     broadcast({ type: "openclaw_log", entry });
   });
 

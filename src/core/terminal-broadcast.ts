@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { randomUUID } from "node:crypto";
-import { openclawEvents, type OpenClawLogEntry } from "./openclaw-events.js";
+import { llmEvents, type LlmLogEntry } from "./llm-events.js";
 
 const stdoutOriginal = process.stdout.write.bind(process.stdout) as (chunk: any, ...args: any[]) => boolean;
 const stderrOriginal = process.stderr.write.bind(process.stderr) as (chunk: any, ...args: any[]) => boolean;
@@ -50,7 +50,7 @@ function flushBuffer(): void {
   if (normalized === lastNormalized) return;
   lastNormalized = normalized;
 
-  const entry: OpenClawLogEntry = {
+  const entry: LlmLogEntry = {
     id: randomUUID(),
     level: hasError ? "warn" : "info",
     source: "console",
@@ -60,7 +60,7 @@ function flushBuffer(): void {
     message: cleaned,
     timestamp: Date.now(),
   };
-  openclawEvents.emit("log", entry);
+  llmEvents.emit("log", entry);
 }
 
 function scheduleBroadcast(): void {

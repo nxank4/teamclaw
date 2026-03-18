@@ -6,7 +6,7 @@ import { CONFIG, getSessionTemperature } from "./config.js";
 import { logger, isDebugMode } from "./logger.js";
 import { getTrafficController } from "./traffic-control.js";
 import { resolveModelForAgent, getFallbackChain } from "./model-config.js";
-import { openclawEvents } from "./openclaw-events.js";
+import { llmEvents } from "./llm-events.js";
 import { getLlmCache } from "./llm-cache.js";
 
 export interface GenerateOptions {
@@ -201,7 +201,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
     const cacheKey = llmCache.buildKey(prompt, model, temperature);
     const cached = llmCache.get(cacheKey);
     if (cached !== null) {
-      openclawEvents.emit("log", {
+      llmEvents.emit("log", {
         id: `llm-cache-hit-${Date.now()}`,
         level: "success",
         source: "llm-client",
@@ -227,7 +227,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
   for (let attempt = 0; attempt < modelChain.length; attempt++) {
     const currentModel = modelChain[attempt]!;
     const startedAt = Date.now();
-    openclawEvents.emit("log", {
+    llmEvents.emit("log", {
       id: `llm-${Date.now()}-${attempt}`,
       level: "info",
       source: "llm-client",
@@ -262,7 +262,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
       });
       const elapsedMs = Date.now() - startedAt;
       const statusLabel = typeof res.status === "number" ? String(res.status) : "unknown";
-      openclawEvents.emit("log", {
+      llmEvents.emit("log", {
         id: `llm-${Date.now()}-${attempt}-end`,
         level: res.ok ? "success" : "warn",
         source: "llm-client",
@@ -283,7 +283,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
         // Retry with fallback on 404 or model-not-found errors
         const isModelError = res.status === 404 || (res.status === 400 && body.toLowerCase().includes("model"));
         if (isModelError && attempt < modelChain.length - 1) {
-          openclawEvents.emit("log", {
+          llmEvents.emit("log", {
             id: `llm-${Date.now()}-${attempt}-fallback`,
             level: "warn",
             source: "llm-client",
@@ -311,7 +311,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
       if (useStreaming && res.body) {
         const sseResult = await consumeSSEStream(res.body, (chunk) => {
           options!.onChunk!(chunk);
-          openclawEvents.emit("stream_chunk", {
+          llmEvents.emit("stream_chunk", {
             botId,
             model: currentModel,
             chunk,
@@ -333,7 +333,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
       return responseText;
     } catch (err) {
       const elapsedMs = Date.now() - startedAt;
-      openclawEvents.emit("log", {
+      llmEvents.emit("log", {
         id: `llm-${Date.now()}-${attempt}-error`,
         level: "error",
         source: "llm-client",
@@ -383,7 +383,7 @@ export async function llmHealthCheck(): Promise<boolean> {
     if (CONFIG.openclawToken) {
       headers.Authorization = `Bearer ${CONFIG.openclawToken}`;
     }
-    openclawEvents.emit("log", {
+    llmEvents.emit("log", {
       id: `health-${Date.now()}`,
       level: "info",
       source: "llm-client",
@@ -406,7 +406,7 @@ export async function llmHealthCheck(): Promise<boolean> {
     // Newer gateways serve an SPA (HTML) on all HTTP routes — that's fine,
     // it still proves the gateway process is running and reachable.
     const ok = res.status < 500;
-    openclawEvents.emit("log", {
+    llmEvents.emit("log", {
       id: `health-${Date.now()}-result`,
       level: ok ? "success" : "error",
       source: "llm-client",
@@ -419,7 +419,7 @@ export async function llmHealthCheck(): Promise<boolean> {
     });
     return ok;
   } catch (err) {
-    openclawEvents.emit("log", {
+    llmEvents.emit("log", {
       id: `health-${Date.now()}-err`,
       level: "error",
       source: "llm-client",

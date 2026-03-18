@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { logger, isDebugMode } from "./logger.js";
 import { coordinatorEvents, type CoordinatorStep } from "./coordinator-events.js";
 import { workerEvents, type WorkerProgressStep, type WorkerReasoningStep } from "./worker-events.js";
-import { openclawEvents, type OpenClawLogEntry, type OpenClawStreamChunk } from "./openclaw-events.js";
+import { llmEvents, type LlmLogEntry, type LlmStreamChunk } from "./llm-events.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -22,8 +22,8 @@ export class DashboardBridge {
     private coordinatorListener: ((data: CoordinatorStep) => void) | null = null;
     private workerListener: ((data: WorkerProgressStep) => void) | null = null;
     private reasoningListener: ((data: WorkerReasoningStep) => void) | null = null;
-    private openclawLogListener: ((entry: OpenClawLogEntry) => void) | null = null;
-    private streamChunkListener: ((chunk: OpenClawStreamChunk) => void) | null = null;
+    private llmLogListener: ((entry: LlmLogEntry) => void) | null = null;
+    private streamChunkListener: ((chunk: LlmStreamChunk) => void) | null = null;
 
     // Terminal forwarding state
     private terminalBuffer: string[] = [];
@@ -70,12 +70,12 @@ export class DashboardBridge {
         };
         workerEvents.on("reasoning", this.reasoningListener);
 
-        this.openclawLogListener = (entry: OpenClawLogEntry) => {
+        this.llmLogListener = (entry: LlmLogEntry) => {
             this.relay({ type: "openclaw_log", entry });
         };
-        openclawEvents.on("log", this.openclawLogListener);
+        llmEvents.on("log", this.llmLogListener);
 
-        this.streamChunkListener = (data: OpenClawStreamChunk) => {
+        this.streamChunkListener = (data: LlmStreamChunk) => {
             this.relay({
                 type: "telemetry",
                 payload: {
@@ -87,7 +87,7 @@ export class DashboardBridge {
                 },
             });
         };
-        openclawEvents.on("stream_chunk", this.streamChunkListener);
+        llmEvents.on("stream_chunk", this.streamChunkListener);
     }
 
     async connect(): Promise<boolean> {
@@ -318,12 +318,12 @@ export class DashboardBridge {
             workerEvents.off("reasoning", this.reasoningListener);
             this.reasoningListener = null;
         }
-        if (this.openclawLogListener) {
-            openclawEvents.off("log", this.openclawLogListener);
-            this.openclawLogListener = null;
+        if (this.llmLogListener) {
+            llmEvents.off("log", this.llmLogListener);
+            this.llmLogListener = null;
         }
         if (this.streamChunkListener) {
-            openclawEvents.off("stream_chunk", this.streamChunkListener);
+            llmEvents.off("stream_chunk", this.streamChunkListener);
             this.streamChunkListener = null;
         }
         this.connected = false;

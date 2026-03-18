@@ -1,4 +1,4 @@
-import type { StreamChunk, StreamOptions } from "../client/types.js";
+import type { StreamChunk, StreamOptions } from "./stream-types.js";
 
 export interface StreamProvider {
   readonly name: string;

@@ -1,6 +1,7 @@
 import { OpenClawClient } from "../client/OpenClawClient.js";
 import { OpenClawError } from "../client/errors.js";
-import type { OpenClawClientConfig, StreamChunk, StreamOptions } from "../client/types.js";
+import type { OpenClawClientConfig } from "../client/types.js";
+import type { StreamChunk, StreamOptions } from "./stream-types.js";
 import type { StreamProvider } from "./provider.js";
 import { ProviderError } from "./types.js";
 

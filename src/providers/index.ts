@@ -1,3 +1,4 @@
+export type { StreamChunk, StreamOptions } from "./stream-types.js";
 export type { StreamProvider } from "./provider.js";
 export { OpenClawProvider } from "./openclaw-provider.js";
 export { AnthropicProvider } from "./anthropic-provider.js";

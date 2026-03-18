@@ -26,28 +26,10 @@ export const OpenClawClientConfigSchema = z.object({
 export type OpenClawClientConfig = z.infer<typeof OpenClawClientConfigSchema>;
 
 // ---------------------------------------------------------------------------
-// Streaming
+// Streaming (re-exported from providers/stream-types for backward compat)
 // ---------------------------------------------------------------------------
 
-export interface StreamOptions {
-  /** Model to use for the completion */
-  model?: string;
-  /** Temperature (0-2) */
-  temperature?: number;
-  /** System prompt prepended to the conversation */
-  systemPrompt?: string;
-  /** AbortSignal to cancel the stream mid-flight */
-  signal?: AbortSignal;
-}
-
-export interface StreamChunk {
-  /** Incremental text content from the model */
-  content: string;
-  /** True when this is the final chunk (stream finished) */
-  done: boolean;
-  /** Token usage stats, present only on the final chunk when reported */
-  usage?: { promptTokens: number; completionTokens: number };
-}
+export type { StreamOptions, StreamChunk } from "../providers/stream-types.js";
 
 // ---------------------------------------------------------------------------
 // Lifecycle events

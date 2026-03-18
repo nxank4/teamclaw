@@ -1,8 +1,5 @@
-import type {
-  OpenClawClientConfig,
-  StreamChunk,
-  StreamOptions,
-} from "../client/types.js";
+import type { OpenClawClientConfig } from "../client/types.js";
+import type { StreamChunk, StreamOptions } from "../providers/stream-types.js";
 import type { ProxyHealthResponse, ProxyReconnectResponse } from "./types.js";
 import { isMockLlmEnabled, generateMockResponse } from "../core/mock-llm.js";
 import { streamWithCache } from "../cache/cache-interceptor.js";

@@ -4,7 +4,7 @@
  */
 
 import { CONFIG } from "./config.js";
-import { openclawEvents } from "./openclaw-events.js";
+import { llmEvents } from "./llm-events.js";
 
 export interface ProvisionOptions {
   workerUrl: string;
@@ -78,7 +78,7 @@ export async function provisionOpenClaw(options: ProvisionOptions): Promise<Prov
     headers.Authorization = `Bearer ${CONFIG.openclawToken}`;
   }
 
-  openclawEvents.emit("log", {
+  llmEvents.emit("log", {
     id: `prov-${Date.now()}-start`,
     level: "info",
     source: "llm-client",
@@ -107,7 +107,7 @@ export async function provisionOpenClaw(options: ProvisionOptions): Promise<Prov
       // as long as the server responded. A 404 from the Express CDP service
       // still counts — it proves the gateway process is running.
       if (res.status < 500) {
-        openclawEvents.emit("log", {
+        llmEvents.emit("log", {
           id: `prov-${Date.now()}-ok`,
           level: "success",
           source: "llm-client",
@@ -127,7 +127,7 @@ export async function provisionOpenClaw(options: ProvisionOptions): Promise<Prov
     }
   }
 
-  openclawEvents.emit("log", {
+  llmEvents.emit("log", {
     id: `prov-${Date.now()}-err`,
     level: "error",
     source: "llm-client",

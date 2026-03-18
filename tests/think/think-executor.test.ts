@@ -1,6 +1,6 @@
 // tests/think-executor.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { StreamChunk } from "@/client/types.js";
+import type { StreamChunk } from "@/providers/stream-types.js";
 import type { ThinkContext, ThinkRound } from "@/think/types.js";
 
 // Mock ProxyService

@@ -1,29 +1,10 @@
 /**
- * OpenClaw structured log events — emitted from llm-client and worker-adapter
- * so the dashboard can display LLM request activity in real time.
+ * Backward-compat shim — re-exports from llm-events.ts with old names.
+ * Will be deleted in Phase 12.
  */
-
-import { EventEmitter } from "node:events";
-
-export type OpenClawLogLevel = "info" | "success" | "warn" | "error";
-
-export interface OpenClawLogEntry {
-  id: string;
-  level: OpenClawLogLevel;
-  source: "llm-client" | "worker-adapter" | "gateway" | "console";
-  action: string;
-  model: string;
-  botId: string;
-  message: string;
-  meta?: Record<string, unknown>;
-  timestamp: number;
-}
-
-export interface OpenClawStreamChunk {
-  botId: string;
-  model: string;
-  chunk: string;
-  timestamp: number;
-}
-
-export const openclawEvents = new EventEmitter();
+export {
+  llmEvents as openclawEvents,
+  type LlmLogLevel as OpenClawLogLevel,
+  type LlmLogEntry as OpenClawLogEntry,
+  type LlmStreamChunk as OpenClawStreamChunk,
+} from "./llm-events.js";
