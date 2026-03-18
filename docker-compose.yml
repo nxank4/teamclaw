@@ -1,48 +1,38 @@
-# TeamClaw | Docker Compose
+# TeamClaw Docker Compose
 # Quick start:
-#   docker compose up                         # web UI
-#   docker compose --profile openclaw up     # + OpenClaw worker
-#   docker compose up --build                # rebuild after code changes
+#   cp .env.example .env        # add your API key
+#   docker compose up -d        # start dashboard
+#   open http://localhost:8000
 
 services:
-  # TeamClaw Web UI (Fastify + WebSocket)
-  teamclaw-web:
+  teamclaw:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: teamclaw-web
+      target: production
+    image: teamclaw:latest
+    container_name: teamclaw
     ports:
-      - "${WEB_PORT:-8000}:8000"
+      - "${TEAMCLAW_PORT:-8000}:8000"
+    volumes:
+      - teamclaw-data:/home/node/.teamclaw
+      - ${WORKSPACE_PATH:-./workspace}:/workspace
     environment:
-      - MAX_CYCLES=${MAX_CYCLES:-10}
-      - MAX_RUNS=${MAX_RUNS:-5}
-      - OPENCLAW_WORKER_URL=${OPENCLAW_WORKER_URL:-}
-      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - TEAMCLAW_MOCK_LLM=${TEAMCLAW_MOCK_LLM:-false}
+      - NODE_ENV=production
     restart: unless-stopped
-    networks:
-      - teamclaw-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
-  # OpenClaw Worker (optional profile) ────────────────────────────────────
-  # UI/browser automation container. Replace image with your OpenClaw worker image.
-  # When using this profile, set OPENCLAW_WORKER_URL=http://openclaw:3000 in .env
-  # so teamclaw-web can reach OpenClaw on the shared network.
-  #
-  # GUI / browser-automation note: This container may need extra config:
-  #   - shm_size: '2g'   (Chrome/Chromium often need larger shared memory)
-  #   - VNC port (e.g. 6080:6080) to attach a client and watch the bot's virtual display
-  # Uncomment or add below as needed. See docs for "OpenClaw in Docker".
-  openclaw:
-    image: ${OPENCLAW_IMAGE:?Set OPENCLAW_IMAGE to your OpenClaw worker image (the default openclaw/worker:latest is not published)}
-    container_name: teamclaw-openclaw
-    profiles:
-      - openclaw
-    ports:
-      - "${OPENCLAW_PORT:-3000}:3000"
-    # shm_size: '2g'   # Uncomment for Chrome/Chromium-based automation
-    # ports: ... 6080:6080  # Optional: VNC for debugging
-    networks:
-      - teamclaw-net
-
-networks:
-  teamclaw-net:
-    driver: bridge
+volumes:
+  teamclaw-data:
+    driver: local

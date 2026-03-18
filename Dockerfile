@@ -1,25 +1,44 @@
-# TeamClaw | OpenClaw team orchestration
-# Build:   docker compose build teamclaw-web
-# Run:     docker compose up
+# TeamClaw — multi-stage Docker build
+# Build:  docker compose build
+# Run:    docker compose up -d
 
 FROM node:20-alpine AS builder
+
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
+
 COPY . .
 RUN pnpm run build
 
-FROM node:20-alpine AS runtime
+# ── Production ─────────────────────────────────────
+FROM node:20-alpine AS production
+
 WORKDIR /app
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
 COPY --from=builder /app/dist ./dist
+
+# Data directories (mounted as volume in production)
+RUN mkdir -p /home/node/.teamclaw/memory /home/node/.teamclaw/sessions \
+    /home/node/.teamclaw/cache /home/node/.teamclaw/templates \
+    && chown -R node:node /home/node/.teamclaw /app
+
+RUN chmod +x /app/dist/cli.js
+
+USER node
 
 ENV NODE_ENV=production
 EXPOSE 8000
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q -O- http://localhost:8000/ || exit 1
 
-CMD ["node", "dist/cli.js", "web", "-p", "8000"]
+CMD ["node", "/app/dist/cli.js", "web", "-p", "8000"]

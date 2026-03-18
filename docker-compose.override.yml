@@ -1,0 +1,13 @@
+# Development overrides — applied automatically with `docker compose up`
+services:
+  teamclaw:
+    build:
+      target: builder
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - teamclaw-data:/home/node/.teamclaw
+    environment:
+      - NODE_ENV=development
+      - TEAMCLAW_MOCK_LLM=true
+    command: ["node", "/app/dist/cli.js", "web", "-p", "8000"]
