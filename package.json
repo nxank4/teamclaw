@@ -1,11 +1,22 @@
 {
-  "name": "teamclaw-app",
-  "version": "0.1.0",
-  "private": true,
+  "name": "teamclaw",
+  "version": "1.0.0",
+  "description": "Orchestrate AI agent teams with memory, learning, and structured collaboration",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nxank4/teamclaw.git"
+  },
+  "homepage": "https://github.com/nxank4/teamclaw",
+  "keywords": ["ai", "agents", "cli", "llm", "team", "orchestration"],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "bin": {
     "teamclaw": "./dist/cli.js"
   },
+  "files": ["dist"],
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup && pnpm --dir src/web/client build",
