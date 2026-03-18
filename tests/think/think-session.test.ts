@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ThinkRecommendation, ThinkContext } from "@/think/types.js";
+import { parseLlmJson } from "@/utils/jsonExtractor.js";
 
 const mockRecommendation: ThinkRecommendation = {
   choice: "Use SSE",
@@ -184,5 +185,72 @@ describe("sprint handoff", () => {
     const session = await createThinkSession("SSE or WebSocket?");
     const goal = `Implement: ${session.recommendation?.choice}`;
     expect(goal).toBe("Implement: Use SSE");
+  });
+});
+
+// Test coordinator JSON parsing resilience.
+// parseLlmJson handles fence-stripping and boundary extraction;
+// extractFallbackRecommendation handles the total-failure case.
+const { extractFallbackRecommendation } = await vi.importActual<
+  typeof import("@/think/executor.js")
+>("@/think/executor.js");
+
+const validJson: ThinkRecommendation = {
+  choice: "Use Redis",
+  confidence: 0.85,
+  reasoning: "Best for this use case.",
+  tradeoffs: { pros: ["Fast"], cons: ["Complexity"] },
+};
+
+describe("coordinator JSON parsing", () => {
+  it("parses JSON wrapped in ```json fences", () => {
+    const input = "Here is my analysis:\n```json\n" + JSON.stringify(validJson) + "\n```\nHope this helps!";
+    const result = parseLlmJson<ThinkRecommendation>(input);
+    expect(result.choice).toBe("Use Redis");
+    expect(result.confidence).toBe(0.85);
+  });
+
+  it("parses JSON wrapped in ``` fences", () => {
+    const input = "```\n" + JSON.stringify(validJson) + "\n```";
+    const result = parseLlmJson<ThinkRecommendation>(input);
+    expect(result.choice).toBe("Use Redis");
+  });
+
+  it("parses JSON with prose before and after", () => {
+    const input = "After careful analysis, I recommend:\n\n" + JSON.stringify(validJson) + "\n\nLet me know if you need more details.";
+    const result = parseLlmJson<ThinkRecommendation>(input);
+    expect(result.choice).toBe("Use Redis");
+    expect(result.confidence).toBe(0.85);
+  });
+
+  it("returns text fallback for completely non-JSON response", () => {
+    const raw = "I recommend using Redis for caching. It provides low latency and high throughput.";
+    const result = extractFallbackRecommendation(raw);
+    expect(result.choice).not.toBe("Inconclusive");
+    expect(result.confidence).toBe(0.7);
+    expect(result.reasoning.length).toBeGreaterThan(0);
+    expect(result.tradeoffs.pros).toContain("See full analysis");
+  });
+
+  it("returns text fallback for partial/truncated JSON", () => {
+    const raw = '{"choice": "Use Redis", "confidence": 0.85, "reasoning": "Best for';
+    const result = extractFallbackRecommendation(raw);
+    expect(result.choice).not.toBe("Inconclusive");
+    expect(result.confidence).toBe(0.7);
+    expect(result.reasoning.length).toBeGreaterThan(0);
+  });
+
+  it("returns text fallback for empty response", () => {
+    const result = extractFallbackRecommendation("");
+    expect(result.choice).not.toBe("Inconclusive");
+    expect(result.confidence).toBe(0.7);
+    expect(result.reasoning).toContain("empty response");
+  });
+
+  it("extracts choice from 'Recommendation:' pattern in text", () => {
+    const raw = "After weighing the options, here is my conclusion.\n\nRecommendation: Use SSE for real-time updates. It is simpler and more reliable for this use case.";
+    const result = extractFallbackRecommendation(raw);
+    expect(result.choice).toBe("Use SSE for real-time updates");
+    expect(result.confidence).toBe(0.7);
   });
 });

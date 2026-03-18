@@ -84,8 +84,10 @@ describe("executeThinkRound", () => {
 
     expect(round.techLeadPerspective).toContain("SSE is simpler");
     expect(round.rfcAuthorPerspective).toBe("");
-    expect(round.recommendation.choice).toBe("Inconclusive");
-    expect(round.recommendation.confidence).toBe(0);
+    // Coordinator stream also fails (mock throws on call >= 2), so
+    // fallback recommendation is used instead of Inconclusive
+    expect(round.recommendation.choice).not.toBe("Inconclusive");
+    expect(round.recommendation.confidence).toBe(0.7);
   });
 
   it("includes previous rounds in follow-up prompts", async () => {
