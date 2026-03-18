@@ -204,6 +204,8 @@ export class OpenClawClient extends EventEmitter<OpenClawClientEvents> {
       throw new OpenClawError(
         "STREAM_FAILED",
         `HTTP ${res.status}: ${text.slice(0, 200)}`,
+        undefined,
+        res.status,
       );
     }
 

@@ -12,12 +12,14 @@ export type OpenClawErrorCode =
 
 export class OpenClawError extends Error {
   readonly code: OpenClawErrorCode;
+  readonly statusCode?: number;
   readonly cause?: unknown;
 
-  constructor(code: OpenClawErrorCode, message: string, cause?: unknown) {
+  constructor(code: OpenClawErrorCode, message: string, cause?: unknown, statusCode?: number) {
     super(message);
     this.name = "OpenClawError";
     this.code = code;
     this.cause = cause;
+    this.statusCode = statusCode;
   }
 }
