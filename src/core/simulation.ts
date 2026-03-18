@@ -1,5 +1,5 @@
 /**
- * Team Orchestration - LangGraph workflow for OpenClaw bot teams.
+ * Team Orchestration - LangGraph workflow for AI agent teams.
  */
 
 import { randomUUID } from "node:crypto";
@@ -20,7 +20,7 @@ import { getFirstTaskNeedingApproval, createApprovalNode } from "../agents/appro
 import type { ApprovalProvider } from "../agents/approval.js";
 import { createPartialApprovalNode } from "../agents/partial-approval.js";
 import type { PerTaskApprovalProvider } from "../agents/partial-approval.js";
-import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
+import { UniversalWorkerAdapter } from "../adapters/worker-adapter.js";
 import { resolveModelForAgent } from "./model-config.js";
 import { logger, isDebugMode } from "./logger.js";
 import { createSprintPlanningNode } from "../agents/planning.js";
@@ -132,7 +132,7 @@ export class TeamOrchestration {
     this.workerBots = createWorkerBots(this.team, workerUrls, workspacePath);
     const sharedLlmAdapter =
       Object.values(this.workerBots)[0]?.adapter ??
-      new UniversalOpenClawAdapter({
+      new UniversalWorkerAdapter({
         model: resolveModelForAgent("coordinator"),
         botId: "coordinator",
       });

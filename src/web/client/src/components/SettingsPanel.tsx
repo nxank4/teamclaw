@@ -227,7 +227,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
                 <div>
                   <label htmlFor="settings-worker" className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-400">
-                    OpenClaw Worker URL
+                    LLM Gateway URL
                   </label>
                   <input
                     id="settings-worker"

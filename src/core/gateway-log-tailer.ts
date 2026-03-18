@@ -1,6 +1,6 @@
 /**
- * Tails the OpenClaw gateway log file (~/.openclaw/teamclaw-gateway.log)
- * and emits parsed entries into openclawEvents so they appear in the dashboard.
+ * Tails the gateway log file (~/.teamclaw/gateway.log)
+ * and emits parsed entries into llmEvents so they appear in the dashboard.
  */
 
 import { open, stat } from "node:fs/promises";
@@ -10,7 +10,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { llmEvents, type LlmLogLevel } from "./llm-events.js";
 
-const GATEWAY_LOG = path.join(os.homedir(), ".openclaw", "teamclaw-gateway.log");
+const GATEWAY_LOG = path.join(os.homedir(), ".teamclaw", "gateway.log");
 const POLL_INTERVAL_MS = 5_000;
 const DEBOUNCE_MS = 50;
 

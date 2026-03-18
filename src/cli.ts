@@ -93,7 +93,7 @@ function printHelp(): void {
         "  " + cmd(pad("cache")) + desc("Response cache: stats, clear, prune, enable/disable"),
         "  " + cmd(pad("providers")) + desc("List and test configured LLM providers"),
         "  " + cmd(pad("clean")) + desc("Remove session data (preserves global memory)"),
-        "  " + cmd(pad("run openclaw")) + desc("Start OpenClaw gateway"),
+        "  " + cmd(pad("run gateway")) + desc("Start LLM gateway"),
         "  " + cmd(pad("update")) + desc("Self-update TeamClaw to the latest version"),
         "  " + cmd(pad("demo")) + desc("Run a synthetic demo (no gateway needed)"),
         "",
@@ -341,13 +341,13 @@ async function main(): Promise<void> {
     } else if (cmd === "run") {
         const runArgs = args.slice(1);
         if (!runArgs[0] || runArgs[0] === "--help" || runArgs[0] === "-h") {
-            logger.plain("Usage: teamclaw run openclaw [--port PORT]");
+            logger.plain("Usage: teamclaw run gateway [--port PORT]");
             logger.plain("");
-            logger.plain("Start the OpenClaw gateway.");
+            logger.plain("Start the LLM gateway.");
             logger.plain("");
             logger.plain("Examples:");
-            logger.plain("  teamclaw run openclaw            # interactive (auto-detect port)");
-            logger.plain("  teamclaw run openclaw --port 9000");
+            logger.plain("  teamclaw run gateway             # interactive (auto-detect port)");
+            logger.plain("  teamclaw run gateway --port 9000");
             return;
         }
         if (runArgs[0] === "openclaw" || runArgs[0] === "gateway") {
@@ -360,7 +360,7 @@ async function main(): Promise<void> {
             await startOpenclawGateway({ port: explicitPort });
         } else {
             logger.error(`Unknown run target: ${runArgs[0]}`);
-            logger.error("Usage: teamclaw run openclaw [--port PORT]");
+            logger.error("Usage: teamclaw run gateway [--port PORT]");
             process.exit(1);
         }
 

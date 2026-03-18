@@ -25,7 +25,7 @@ import { extractDecisions } from "../journal/extractor.js";
 import type { AgentProfile, RoutingDecision } from "./profiles/types.js";
 import { ProfileRouter } from "./profiles/router.js";
 
-const OPENCLAW_UNAVAILABLE_MSG = "OpenClaw required but service unavailable";
+const LLM_UNAVAILABLE_MSG = "LLM service required but unavailable";
 
 /** Module-level accumulator for routing decisions made during task dispatch */
 let pendingRoutingDecisions: RoutingDecision[] = [];
@@ -132,8 +132,8 @@ export class WorkerBot {
       if (worker_tier === "heavy" && this.heavyAdapter) {
         const healthy = await this.heavyAdapter.healthCheck();
         if (!healthy) {
-          log(`Heavy task ${task.task_id} failed: OpenClaw unavailable`);
-          telemetry.sendStreamDone(taskId, botId, { message: "OpenClaw unavailable" });
+          log(`Heavy task ${task.task_id} failed: LLM service unavailable`);
+          telemetry.sendStreamDone(taskId, botId, { message: "LLM service unavailable" });
           clearStreaming(adapterWithStream);
           if (heavyAdapterWithStream) {
             clearStreaming(heavyAdapterWithStream);
@@ -141,7 +141,7 @@ export class WorkerBot {
           return {
             task_id: task.task_id,
             success: false,
-            output: OPENCLAW_UNAVAILABLE_MSG,
+            output: LLM_UNAVAILABLE_MSG,
             quality_score: 0,
           };
         }

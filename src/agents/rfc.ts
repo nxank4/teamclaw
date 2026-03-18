@@ -11,7 +11,7 @@ import { logger, isDebugMode } from "../core/logger.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseLlmJson } from "../utils/jsonExtractor.js";
-import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
+import { UniversalWorkerAdapter } from "../adapters/worker-adapter.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { writeTextFile, readTextFile } from "../core/workspace-fs.js";
 import { getCanvasTelemetry } from "../core/canvas-telemetry.js";
@@ -48,7 +48,7 @@ export class RFCNode {
   ) {
     this.llmAdapter =
       options.llmAdapter ??
-      new UniversalOpenClawAdapter({
+      new UniversalWorkerAdapter({
         model: resolveModelForAgent("rfc"),
         botId: "rfc",
       });

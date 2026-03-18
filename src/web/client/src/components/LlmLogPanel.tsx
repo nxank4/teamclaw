@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import { useWsStore, type OpenClawLogFilter, type OpenClawSourceFilter } from "../ws/store";
+import { useWsStore, type LlmLogFilter, type LlmSourceFilter } from "../ws/store";
 
 const LEVEL_STYLES: Record<string, { badge: string; border: string }> = {
   info: {
@@ -20,7 +20,7 @@ const LEVEL_STYLES: Record<string, { badge: string; border: string }> = {
   },
 };
 
-const FILTERS: { label: string; value: OpenClawLogFilter }[] = [
+const FILTERS: { label: string; value: LlmLogFilter }[] = [
   { label: "All", value: "all" },
   { label: "Info", value: "info" },
   { label: "Success", value: "success" },
@@ -28,7 +28,7 @@ const FILTERS: { label: string; value: OpenClawLogFilter }[] = [
   { label: "Error", value: "error" },
 ];
 
-const SOURCE_FILTERS: { label: string; value: OpenClawSourceFilter }[] = [
+const SOURCE_FILTERS: { label: string; value: LlmSourceFilter }[] = [
   { label: "All Sources", value: "all" },
   { label: "LLM", value: "llm-client" },
   { label: "Worker", value: "worker-adapter" },
@@ -48,13 +48,13 @@ function sourceIcon(source: string) {
   return <i className="bi bi-cpu text-[11px]" />;
 }
 
-export function OpenClawLogPanel() {
-  const logs = useWsStore((s) => s.openclawLogs);
-  const filter = useWsStore((s) => s.openclawLogFilter);
-  const setFilter = useWsStore((s) => s.setOpenClawLogFilter);
-  const sourceFilter = useWsStore((s) => s.openclawSourceFilter);
-  const setSourceFilter = useWsStore((s) => s.setOpenClawSourceFilter);
-  const clearLogs = useWsStore((s) => s.clearOpenClawLogs);
+export function LlmLogPanel() {
+  const logs = useWsStore((s) => s.llmLogs);
+  const filter = useWsStore((s) => s.llmLogFilter);
+  const setFilter = useWsStore((s) => s.setLlmLogFilter);
+  const sourceFilter = useWsStore((s) => s.llmSourceFilter);
+  const setSourceFilter = useWsStore((s) => s.setLlmSourceFilter);
+  const clearLogs = useWsStore((s) => s.clearLlmLogs);
 
   const listRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);

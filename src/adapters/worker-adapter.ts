@@ -333,10 +333,6 @@ This format is REQUIRED — your file outputs will be extracted and written to d
   }
 }
 
-// Backward-compat aliases
-export const OpenClawAdapter = UniversalWorkerAdapter;
-export const UniversalOpenClawAdapter = UniversalWorkerAdapter;
-
 function normalizeWorkerKey(input: string): string {
   return input.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }

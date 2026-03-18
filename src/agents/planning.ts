@@ -7,7 +7,7 @@ import type { WorkerAdapter } from "../adapters/worker-adapter.js";
 import { CONFIG } from "../core/config.js";
 import { logger, isDebugMode } from "../core/logger.js";
 import { parseLlmJson } from "../utils/jsonExtractor.js";
-import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
+import { UniversalWorkerAdapter } from "../adapters/worker-adapter.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { ensureWorkspaceDir, writeTextFile } from "../core/workspace-fs.js";
 import { getCanvasTelemetry } from "../core/canvas-telemetry.js";
@@ -36,7 +36,7 @@ export class SprintPlanningNode {
   constructor(options: { llmAdapter?: WorkerAdapter; workspacePath?: string; profiles?: AgentProfile[] } = {}) {
     this.llmAdapter =
       options.llmAdapter ??
-      new UniversalOpenClawAdapter({
+      new UniversalWorkerAdapter({
         model: resolveModelForAgent("planner"),
         botId: "planner",
       });

@@ -1,6 +1,6 @@
 /**
- * OpenClaw device identity loader and Ed25519 signing helpers.
- * Mirrors the openclaw CLI's device auth protocol (v3).
+ * Device identity loader and Ed25519 signing helpers.
+ * Mirrors the gateway CLI's device auth protocol (v3).
  */
 
 import * as crypto from "node:crypto";
@@ -14,11 +14,11 @@ export interface DeviceIdentity {
   privateKeyPem: string;
 }
 
-const IDENTITY_DIR = path.join(os.homedir(), ".openclaw", "identity");
+const IDENTITY_DIR = path.join(os.homedir(), ".teamclaw", "identity");
 const IDENTITY_FILE = path.join(IDENTITY_DIR, "device.json");
 
 /**
- * Loads existing device identity from ~/.openclaw/identity/device.json,
+ * Loads existing device identity from ~/.teamclaw/identity/device.json,
  * or generates a new Ed25519 keypair if none exists.
  */
 export function loadOrCreateDeviceIdentity(): DeviceIdentity {
@@ -73,7 +73,7 @@ export function publicKeyRawBase64Url(publicKeyPem: string): string {
 
 /**
  * SHA-256 hex digest of the raw 32-byte public key.
- * This is how openclaw derives the deviceId.
+ * This is how the gateway derives the deviceId.
  */
 export function fingerprintPublicKey(publicKeyPem: string): string {
   const keyObj = crypto.createPublicKey(publicKeyPem);

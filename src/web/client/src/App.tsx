@@ -11,7 +11,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { HumanApprovalModal } from "./components/HumanApprovalModal";
 import { CostBadge } from "./components/CostBadge";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { OpenClawLogPanel } from "./components/OpenClawLogPanel";
+import { LlmLogPanel } from "./components/LlmLogPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { useState, useEffect } from "react";
 import { AnimatePresence } from "motion/react";
@@ -180,7 +180,7 @@ function GatewayBanner() {
   return (
     <div className="rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 flex items-center gap-2">
       <i className="bi bi-exclamation-triangle text-base" />
-      <span>OpenClaw Gateway not connected — start the gateway to run sessions.</span>
+      <span>LLM Gateway not connected — configure a provider to run sessions.</span>
     </div>
   );
 }
@@ -330,7 +330,7 @@ function Dashboard() {
               <div className="resize-handle-indicator" />
             </div>
             <div style={{ height: panelHeight }} className={isDragging ? "pointer-events-none" : ""}>
-              <OpenClawLogPanel />
+              <LlmLogPanel />
             </div>
           </>
         )}

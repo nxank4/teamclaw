@@ -87,7 +87,7 @@ export interface ReasoningEntry {
   timestamp: number;
 }
 
-export interface OpenClawLogEntry {
+export interface LlmLogEntry {
   id: string;
   level: "info" | "success" | "warn" | "error";
   source: string;
@@ -99,8 +99,8 @@ export interface OpenClawLogEntry {
   timestamp: number;
 }
 
-export type OpenClawLogFilter = "all" | "info" | "success" | "warn" | "error";
-export type OpenClawSourceFilter = "all" | "llm-client" | "worker-adapter" | "gateway" | "console";
+export type LlmLogFilter = "all" | "info" | "success" | "warn" | "error";
+export type LlmSourceFilter = "all" | "llm-client" | "worker-adapter" | "gateway" | "console";
 
 export interface StreamingTextEntry {
   botId: string;
@@ -129,9 +129,9 @@ interface WsStore {
   notificationPrefs: NotificationPreferences;
   reasoning: Record<string, ReasoningEntry>;
   streamingText: Record<string, StreamingTextEntry>;
-  openclawLogs: OpenClawLogEntry[];
-  openclawLogFilter: OpenClawLogFilter;
-  openclawSourceFilter: OpenClawSourceFilter;
+  llmLogs: LlmLogEntry[];
+  llmLogFilter: LlmLogFilter;
+  llmSourceFilter: LlmSourceFilter;
   gatewayAvailable: boolean;
   serverStartTs: number | null;
   serverRestarted: boolean;
@@ -166,10 +166,10 @@ interface WsStore {
   setReasoning: (taskId: string, botId: string, text: string) => void;
   appendStreamChunk: (botId: string, chunk: string) => void;
   clearStreamingText: (botId: string) => void;
-  pushOpenClawLog: (entry: OpenClawLogEntry) => void;
-  setOpenClawLogFilter: (filter: OpenClawLogFilter) => void;
-  setOpenClawSourceFilter: (filter: OpenClawSourceFilter) => void;
-  clearOpenClawLogs: () => void;
+  pushLlmLog: (entry: LlmLogEntry) => void;
+  setLlmLogFilter: (filter: LlmLogFilter) => void;
+  setLlmSourceFilter: (filter: LlmSourceFilter) => void;
+  clearLlmLogs: () => void;
   setGatewayAvailable: (available: boolean) => void;
   setServerStartTs: (ts: number) => void;
   dismissServerRestart: () => void;
@@ -242,9 +242,9 @@ export const useWsStore = create<WsStore>((set) => ({
   modelConfig: null,
   reasoning: {},
   streamingText: {},
-  openclawLogs: [],
-  openclawLogFilter: "all",
-  openclawSourceFilter: "all",
+  llmLogs: [],
+  llmLogFilter: "all",
+  llmSourceFilter: "all",
   gatewayAvailable: true,
   serverStartTs: null,
   serverRestarted: false,
@@ -383,13 +383,13 @@ export const useWsStore = create<WsStore>((set) => ({
       delete next[botId];
       return { streamingText: next };
     }),
-  pushOpenClawLog: (entry) =>
+  pushLlmLog: (entry) =>
     set((prev) => ({
-      openclawLogs: [...prev.openclawLogs, entry].slice(-200),
+      llmLogs: [...prev.llmLogs, entry].slice(-200),
     })),
-  setOpenClawLogFilter: (filter) => set({ openclawLogFilter: filter }),
-  setOpenClawSourceFilter: (filter) => set({ openclawSourceFilter: filter }),
-  clearOpenClawLogs: () => set({ openclawLogs: [] }),
+  setLlmLogFilter: (filter) => set({ llmLogFilter: filter }),
+  setLlmSourceFilter: (filter) => set({ llmSourceFilter: filter }),
+  clearLlmLogs: () => set({ llmLogs: [] }),
   setGatewayAvailable: (available) => set({ gatewayAvailable: available }),
   setServerStartTs: (ts) =>
     set((prev) => {

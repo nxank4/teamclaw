@@ -8,7 +8,7 @@ import { CONFIG } from "../core/config.js";
 import { logger, isDebugMode } from "../core/logger.js";
 import { parseLlmJson } from "../utils/jsonExtractor.js";
 import type { WorkerAdapter } from "../adapters/worker-adapter.js";
-import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
+import { UniversalWorkerAdapter } from "../adapters/worker-adapter.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { coordinatorEvents } from "../core/coordinator-events.js";
 
@@ -27,7 +27,7 @@ export class CoordinatorAgent {
   constructor(options: { llmAdapter?: WorkerAdapter; workspacePath?: string } = {}) {
     this.llmAdapter =
       options.llmAdapter ??
-      new UniversalOpenClawAdapter({
+      new UniversalWorkerAdapter({
         model: resolveModelForAgent("coordinator"),
         botId: "coordinator",
       });

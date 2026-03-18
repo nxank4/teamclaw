@@ -8,7 +8,7 @@ import { llmHealthCheck } from "./llm-client.js";
 import { getTeamTemplate } from "./team-templates.js";
 
 export const LLM_UNAVAILABLE_MSG =
-  "❌ OpenClaw Gateway not found. TeamClaw requires OpenClaw to function.";
+  "❌ No LLM provider available. TeamClaw requires at least one configured provider.";
 
 const StartupConfigSchema = z.object({
   templateId: z.string().optional(),

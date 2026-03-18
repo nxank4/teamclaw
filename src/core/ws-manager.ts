@@ -58,7 +58,7 @@ export class WebSocketManager {
 
   /**
    * Connects to a WebSocket endpoint and enables auto-reconnect.
-   * When handshakeOpts is provided, performs the openclaw challenge-response handshake.
+   * When handshakeOpts is provided, performs the gateway challenge-response handshake.
    */
   async connect(
     url: string,
@@ -276,7 +276,7 @@ export class WebSocketManager {
   }
 
   /**
-   * Sends the openclaw v3 connect request with device auth.
+   * Sends the gateway v3 connect request with device auth.
    */
   private sendConnectRequest(
     ws: WebSocket,

@@ -27,9 +27,3 @@ export interface LlmStreamChunk {
 }
 
 export const llmEvents = new EventEmitter();
-
-// Backward-compat aliases
-export type OpenClawLogLevel = LlmLogLevel;
-export type OpenClawLogEntry = LlmLogEntry;
-export type OpenClawStreamChunk = LlmStreamChunk;
-export const openclawEvents = llmEvents;

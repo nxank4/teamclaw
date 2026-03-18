@@ -7,7 +7,7 @@ import type { GraphState } from "../core/graph-state.js";
 import type { WorkerAdapter } from "../adapters/worker-adapter.js";
 import { CONFIG } from "../core/config.js";
 import { logger, isDebugMode } from "../core/logger.js";
-import { UniversalOpenClawAdapter } from "../adapters/worker-adapter.js";
+import { UniversalWorkerAdapter } from "../adapters/worker-adapter.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { ensureDir, writeTextFile } from "../core/workspace-fs.js";
 import { parseLlmJson } from "../utils/jsonExtractor.js";
@@ -56,7 +56,7 @@ export class SystemDesignNode {
   constructor(options: { llmAdapter?: WorkerAdapter; workspacePath?: string } = {}) {
     this.llmAdapter =
       options.llmAdapter ??
-      new UniversalOpenClawAdapter({
+      new UniversalWorkerAdapter({
         model: resolveModelForAgent("architect"),
         botId: "architect",
       });

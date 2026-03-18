@@ -35,15 +35,15 @@ function uniquePorts(ports: number[]): number[] {
 function inferHttpServiceName(port: number, serverHeader: string): string {
     const h = serverHeader.toLowerCase();
     if (h.includes("ollama") || port === 11434) return "Ollama";
-    if (h.includes("openclaw")) return "OpenClaw";
+    if (h.includes("openclaw")) return "OpenClaw Gateway";
     return "OpenAI-Compatible";
 }
 
 function inferWsServiceName(port: number, htmlSignature: string): string {
     const sig = htmlSignature.toLowerCase();
-    // 8001 is the legacy default; 18789 is the current default OpenClaw gateway port.
+    // 8001 is the legacy default; 18789 is the current default gateway port.
     if (sig.includes("openclaw") || port === 8001 || port === 18789)
-        return "OpenClaw";
+        return "OpenClaw Gateway";
     return "WebSocket AI Gateway";
 }
 

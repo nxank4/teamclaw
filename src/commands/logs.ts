@@ -1,5 +1,5 @@
 /**
- * Logs Command — View OpenClaw gateway, web dashboard, and work session logs.
+ * Logs Command — View gateway, web dashboard, and work session logs.
  *
  * Usage:
  *   teamclaw logs                  # Show all available log files
@@ -31,8 +31,8 @@ function getLogSources(): LogSource[] {
   return [
     {
       name: "gateway",
-      label: "OpenClaw Gateway",
-      path: path.join(homeDir, ".openclaw", "teamclaw-gateway.log"),
+      label: "LLM Gateway",
+      path: path.join(homeDir, ".teamclaw", "gateway.log"),
       description: "Gateway process output (LLM routing, WebSocket protocol)",
     },
     {
@@ -159,7 +159,7 @@ export async function runLogs(args: string[]): Promise<void> {
     resolvedPath = latest;
   } else if (!existsSync(resolvedPath)) {
     logger.warn(`Log file not found: ${resolvedPath}`);
-    logger.plain(pc.dim("The gateway may not have been started yet. Run `teamclaw work` or `teamclaw run openclaw`."));
+    logger.plain(pc.dim("The gateway may not have been started yet. Run `teamclaw work` to start a session."));
     return;
   }
 

@@ -64,7 +64,7 @@ export function generateMockResponse(prompt: string, botId: string): string {
 }
 
 /**
- * Generate mock CLI JSON output (what `openclaw agent --json` returns).
+ * Generate mock CLI JSON output.
  */
 export function generateMockCliJson(prompt: string, botId: string): string {
   const text = generateMockResponse(prompt, botId);

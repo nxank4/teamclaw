@@ -71,7 +71,7 @@ export class DashboardBridge {
         workerEvents.on("reasoning", this.reasoningListener);
 
         this.llmLogListener = (entry: LlmLogEntry) => {
-            this.relay({ type: "openclaw_log", entry });
+            this.relay({ type: "llm_log", entry });
         };
         llmEvents.on("log", this.llmLogListener);
 
@@ -178,7 +178,7 @@ export class DashboardBridge {
         this.lastNormalizedTerminal = normalized;
 
         this.relay({
-            type: "openclaw_log",
+            type: "llm_log",
             entry: {
                 id: randomUUID(),
                 level: "info",

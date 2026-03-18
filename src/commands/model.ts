@@ -192,7 +192,7 @@ async function runModelDashboard(): Promise<void> {
 async function runModelList(): Promise<void> {
   const models = await listAvailableModels();
   if (models.length === 0) {
-    logger.warn("No models discovered. Ensure OpenClaw is running or check ~/.openclaw/openclaw.json");
+    logger.warn("No models discovered. Check your provider configuration with `teamclaw setup`.");
     return;
   }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useWsStore, type OpenClawLogEntry } from "./store";
+import { useWsStore, type LlmLogEntry } from "./store";
 import { getApiBase } from "../utils/api";
 
 function getEventsUrl(): string {
@@ -26,7 +26,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const setCycleProgress = useWsStore((s) => s.setCycleProgress);
   const setModelConfig = useWsStore((s) => s.setModelConfig);
   const setReasoning = useWsStore((s) => s.setReasoning);
-  const pushOpenClawLog = useWsStore((s) => s.pushOpenClawLog);
+  const pushLlmLog = useWsStore((s) => s.pushLlmLog);
   const appendStreamChunk = useWsStore((s) => s.appendStreamChunk);
   const setServerStartTs = useWsStore((s) => s.setServerStartTs);
   const setGatewayAvailable = useWsStore((s) => s.setGatewayAvailable);
@@ -209,7 +209,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } else if (type === "provision_error") {
-          const msg = (payload.error as string) || "OpenClaw Gateway not available.";
+          const msg = (payload.error as string) || "LLM Gateway not available.";
           setLastError(msg);
           const prefs = useWsStore.getState().notificationPrefs;
           if (prefs.enabled && prefs.types.system_error) {
@@ -294,8 +294,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
             aliases: (payload.aliases as Record<string, string>) ?? {},
             allowlist: (payload.allowlist as string[]) ?? [],
           });
-        } else if (type === "openclaw_log" && payload.entry) {
-          pushOpenClawLog(payload.entry as OpenClawLogEntry);
+        } else if ((type === "llm_log" || type === "openclaw_log") && payload.entry) {
+          pushLlmLog(payload.entry as LlmLogEntry);
         } else if (type === "session_cancelled") {
           setGenerationProgress(null);
           setCycleProgress(null);
@@ -335,7 +335,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     setCycleProgress,
     setModelConfig,
     setReasoning,
-    pushOpenClawLog,
+    pushLlmLog,
     appendStreamChunk,
     setServerStartTs,
     setGatewayAvailable,

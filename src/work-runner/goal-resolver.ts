@@ -89,6 +89,7 @@ export async function suggestGoalFromWorkspace(
         ].join("\n");
 
         s.message(randomPhrase("ai"));
+        // Legacy: shells out to openclaw CLI binary. Will gracefully fail if not installed.
         const { stdout } = await execFileAsync(
             "openclaw",
             ["agent", "-m", prompt, "--json", "--timeout", "30"],

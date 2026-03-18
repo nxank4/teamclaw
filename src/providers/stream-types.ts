@@ -1,6 +1,6 @@
 /**
  * Shared streaming types used by all providers, cache interceptor, and proxy.
- * Extracted from client/types.ts so downstream code doesn't pull in OpenClaw types.
+ * Extracted from client/types.ts so downstream code doesn't pull in client types.
  */
 
 export interface StreamOptions {
