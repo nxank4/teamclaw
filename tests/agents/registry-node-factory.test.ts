@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ROLE_TEMPLATES } from "@/core/bot-definitions.js";
 import { KNOWN_FLAGS } from "@/graph/confidence/types.js";
 
-// Mock the adapter to avoid needing OpenClaw
+// Mock the adapter to avoid needing a real LLM provider
 vi.mock("@/adapters/worker-adapter.js", () => ({
   UniversalWorkerAdapter: class {
     constructor(public options: Record<string, unknown>) {}

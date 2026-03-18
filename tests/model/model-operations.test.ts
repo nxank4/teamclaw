@@ -33,11 +33,6 @@ vi.mock("@/core/config.js", () => ({
   CONFIG: {},
 }));
 
-// Mock discovery to avoid filesystem reads
-vi.mock("@/core/discovery.js", () => ({
-  readLocalOpenClawConfig: () => null,
-  discoverOpenAIApi: vi.fn(async () => []),
-}));
 
 // We need to import AFTER mocking
 const {

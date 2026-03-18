@@ -1,7 +1,7 @@
 /**
  * Tests for src/core/canvas-telemetry.ts
  *
- * Canvas telemetry is currently disabled (OpenClaw gateway removed).
+ * Canvas telemetry is currently disabled.
  * These tests verify it gracefully no-ops.
  */
 

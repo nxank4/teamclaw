@@ -45,18 +45,18 @@ async function createManager(providers: StreamProvider[]) {
 
 describe("ProviderManager", () => {
   it("tries first provider on success", async () => {
-    const mgr = await createManager([makeProvider("openclaw"), makeProvider("anthropic")]);
+    const mgr = await createManager([makeProvider("primary"), makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
-    expect(chunks[0]!.content).toBe("from-openclaw");
-    expect(stat(mgr.getStats(), "openclaw").requests).toBe(1);
+    expect(chunks[0]!.content).toBe("from-primary");
+    expect(stat(mgr.getStats(), "primary").requests).toBe(1);
   });
 
   it("switches to next provider on ECONNREFUSED", async () => {
     const err = new ProviderError({
-      provider: "openclaw", code: "CONNECTION_FAILED",
+      provider: "primary", code: "CONNECTION_FAILED",
       message: "ECONNREFUSED", isFallbackTrigger: true,
     });
-    const mgr = await createManager([failingProvider("openclaw", err), makeProvider("anthropic")]);
+    const mgr = await createManager([failingProvider("primary", err), makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
     expect(chunks[0]!.content).toBe("from-anthropic");
     expect(mgr.getStats().fallbacksTriggered).toBe(1);
@@ -64,67 +64,67 @@ describe("ProviderManager", () => {
 
   it("switches on first-chunk timeout", async () => {
     const err = new ProviderError({
-      provider: "openclaw", code: "FIRST_CHUNK_TIMEOUT",
+      provider: "primary", code: "FIRST_CHUNK_TIMEOUT",
       message: "Timeout", isFallbackTrigger: true,
     });
-    const mgr = await createManager([failingProvider("openclaw", err), makeProvider("anthropic")]);
+    const mgr = await createManager([failingProvider("primary", err), makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
     expect(chunks[0]!.content).toBe("from-anthropic");
   });
 
   it("does NOT switch on 4xx (except 429)", async () => {
     const err = new ProviderError({
-      provider: "openclaw", code: "STREAM_FAILED",
+      provider: "primary", code: "STREAM_FAILED",
       message: "HTTP 401", statusCode: 401, isFallbackTrigger: false,
     });
-    const mgr = await createManager([failingProvider("openclaw", err), makeProvider("anthropic")]);
+    const mgr = await createManager([failingProvider("primary", err), makeProvider("anthropic")]);
     await expect(collectChunks(mgr.stream("test"))).rejects.toThrow("HTTP 401");
     expect(stat(mgr.getStats(), "anthropic")).toBeUndefined();
   });
 
   it("switches on 429", async () => {
     const err = new ProviderError({
-      provider: "openclaw", code: "STREAM_FAILED",
+      provider: "primary", code: "STREAM_FAILED",
       message: "HTTP 429", statusCode: 429, isFallbackTrigger: true,
     });
-    const mgr = await createManager([failingProvider("openclaw", err), makeProvider("anthropic")]);
+    const mgr = await createManager([failingProvider("primary", err), makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
     expect(chunks[0]!.content).toBe("from-anthropic");
   });
 
   it("throws ProviderError when all providers fail", async () => {
     const err1 = new ProviderError({
-      provider: "openclaw", code: "CONNECTION_FAILED",
+      provider: "primary", code: "CONNECTION_FAILED",
       message: "down", isFallbackTrigger: true,
     });
     const err2 = new ProviderError({
       provider: "anthropic", code: "STREAM_FAILED",
       message: "also down", isFallbackTrigger: true,
     });
-    const mgr = await createManager([failingProvider("openclaw", err1), failingProvider("anthropic", err2)]);
+    const mgr = await createManager([failingProvider("primary", err1), failingProvider("anthropic", err2)]);
     await expect(collectChunks(mgr.stream("test"))).rejects.toThrow("ALL_PROVIDERS_FAILED");
   });
 
   it("skips unavailable providers immediately", async () => {
-    const unavailable = makeProvider("openclaw", { isAvailable: () => false });
+    const unavailable = makeProvider("primary", { isAvailable: () => false });
     const mgr = await createManager([unavailable, makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
     expect(chunks[0]!.content).toBe("from-anthropic");
-    expect(stat(mgr.getStats(), "openclaw")).toBeUndefined();
+    expect(stat(mgr.getStats(), "primary")).toBeUndefined();
   });
 
   it("stats track requests, failures, and fallbacks", async () => {
     const err = new ProviderError({
-      provider: "openclaw", code: "CONNECTION_FAILED",
+      provider: "primary", code: "CONNECTION_FAILED",
       message: "down", isFallbackTrigger: true,
     });
-    const mgr = await createManager([failingProvider("openclaw", err), makeProvider("anthropic")]);
+    const mgr = await createManager([failingProvider("primary", err), makeProvider("anthropic")]);
     await collectChunks(mgr.stream("test1"));
     await collectChunks(mgr.stream("test2"));
 
     const stats = mgr.getStats();
-    expect(stat(stats, "openclaw").requests).toBe(2);
-    expect(stat(stats, "openclaw").failures).toBe(2);
+    expect(stat(stats, "primary").requests).toBe(2);
+    expect(stat(stats, "primary").failures).toBe(2);
     expect(stat(stats, "anthropic").requests).toBe(2);
     expect(stat(stats, "anthropic").failures).toBe(0);
     expect(stats.fallbacksTriggered).toBe(2);

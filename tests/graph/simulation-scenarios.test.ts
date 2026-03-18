@@ -209,7 +209,7 @@ vi.mock("@/core/logger.js", () => ({
 }));
 
 vi.mock("@/interfaces/worker-adapter.js", () => ({
-  UniversalOpenClawAdapter: class {
+  UniversalWorkerAdapter: class {
     constructor(_opts: unknown) {}
     executeTask = mockExecuteTask;
   },
