@@ -172,19 +172,59 @@ async function readSSEStream(
     return accumulated.trim();
 }
 
+// Build chat completion URL and headers from the first provider entry.
+function resolveProviderEndpoint(state: WizardState): {
+    chatUrl: string;
+    model: string;
+    headers: Record<string, string>;
+} | null {
+    const provider = state.providerEntries[0];
+    if (!provider) return null;
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    const PROVIDER_BASES: Record<string, string> = {
+        anthropic: "https://api.anthropic.com/v1",
+        openai: "https://api.openai.com/v1",
+        openrouter: "https://openrouter.ai/api/v1",
+        deepseek: "https://api.deepseek.com/v1",
+        groq: "https://api.groq.com/openai/v1",
+        ollama: "http://localhost:11434/v1",
+    };
+
+    const DEFAULT_MODELS: Record<string, string> = {
+        anthropic: "claude-sonnet-4-20250514",
+        openai: "gpt-4o",
+        openrouter: "anthropic/claude-sonnet-4-20250514",
+        ollama: "llama3.1",
+        deepseek: "deepseek-chat",
+        groq: "llama-3.3-70b-versatile",
+    };
+
+    const baseURL = provider.baseURL || PROVIDER_BASES[provider.type] || "";
+    if (!baseURL) return null;
+
+    const chatUrl = `${baseURL.replace(/\/+$/, "")}/chat/completions`;
+    const model = state.selectedModel || provider.model || DEFAULT_MODELS[provider.type] || "default";
+
+    if (provider.apiKey) {
+        headers.Authorization = `Bearer ${provider.apiKey}`;
+    }
+
+    return { chatUrl, model, headers };
+}
+
 async function refineGoalWithAI(state: WizardState, draft: string): Promise<string> {
-    const apiPort = state.apiPort || parseInt(state.port, 10) + 2;
-    const apiBase = `http://${state.ip}:${apiPort}`;
-    const chatUrl = `${apiBase}/v1/chat/completions`;
-    const model = state.selectedModel || state.detectedModel || "gateway-default";
+    const endpoint = resolveProviderEndpoint(state);
+    if (!endpoint) {
+        return draft;
+    }
+    const { chatUrl, model, headers } = endpoint;
 
     const s = spinner();
     s.start(randomPhrase("ai"));
 
     try {
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (state.token) headers.Authorization = `Bearer ${state.token}`;
-
         const res = await fetch(chatUrl, {
             method: "POST",
             headers,

@@ -1,5 +1,3 @@
-import type { StreamChunk, StreamOptions } from "./stream-types.js";
-
 export type ProviderName =
   | "openclaw"
   | "anthropic"

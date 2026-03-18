@@ -102,7 +102,7 @@ function renderTemplateEntry(entry: TemplateIndexEntry, installed: boolean): str
   const stars = `★ ${String(entry.stars).padEnd(5)}`;
   const downloads = `↓ ${String(entry.downloads).padEnd(5)}`;
   const tags = entry.tags.length > 0 ? pc.dim(`tags: ${entry.tags.join(", ")}`) : "";
-  const cost = entry.estimatedCostPerRun > 0 ? pc.dim(`~$${entry.estimatedCostPerRun.toFixed(2)}/run`) : "";
+  const cost = entry.estimatedCostPerRun && entry.estimatedCostPerRun > 0 ? pc.dim(`~$${entry.estimatedCostPerRun.toFixed(2)}/run`) : "";
   const author = pc.dim(`by ${entry.author}`);
   const badge = installed ? pc.green(" [installed]") : "";
 
@@ -273,6 +273,11 @@ async function runInstall(args: string[]): Promise<void> {
       logger.error(`Failed to fetch template: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
+  }
+
+  if (!template) {
+    logger.error("Failed to fetch template: received null");
+    process.exit(1);
   }
 
   logger.success(
@@ -519,7 +524,7 @@ async function runPublish(args: string[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function runInit(): Promise<void> {
-  const { text, select, multiselect, confirm, isCancel, cancel } = await import("@clack/prompts");
+  const { text, confirm, isCancel, cancel } = await import("@clack/prompts");
 
   const idInput = await text({
     message: "Template ID (kebab-case):",
@@ -682,7 +687,7 @@ async function runUpdate(): Promise<void> {
       logger.info(`Updating ${local.id}: v${local.installedVersion} → v${remote.version}`);
       try {
         const template = await client.fetchTemplate(remote.path);
-        await store.install(template);
+        if (template) await store.install(template);
         updated++;
       } catch (err) {
         logger.warn(`Failed to update ${local.id}: ${err instanceof Error ? err.message : String(err)}`);

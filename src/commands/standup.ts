@@ -26,15 +26,6 @@ function getMondayMidnight(): number {
   return monday.getTime();
 }
 
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
 export async function runStandupCommand(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     logger.plain([

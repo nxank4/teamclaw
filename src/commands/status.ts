@@ -1,12 +1,8 @@
 import { intro, note, outro } from "@clack/prompts";
 import { buildTeamFromRoster, buildTeamFromTemplate } from "../core/team-templates.js";
 import { loadTeamConfig } from "../core/team-config.js";
-import { getWorkerUrlsForTeam } from "../core/config.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 
-function formatMs(n: number): string {
-  return n >= 0 ? `${n}ms` : "n/a";
-}
 
 export async function runStatusCommand(): Promise<void> {
   intro("TeamClaw Status");
@@ -29,9 +25,6 @@ export async function runStatusCommand(): Promise<void> {
     teamConfig?.roster && teamConfig.roster.length > 0
       ? buildTeamFromRoster(teamConfig.roster)
       : buildTeamFromTemplate(teamConfig?.template ?? "game_dev");
-  const workerUrls = getWorkerUrlsForTeam(team.map((b) => b.id), {
-    workers: teamConfig?.workers,
-  });
   const botLines: string[] = [];
   for (const bot of team) {
     botLines.push(`${bot.id} (${bot.name})`);

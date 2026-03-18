@@ -1,13 +1,14 @@
 /**
  * Unified TeamClaw Setup Wizard — `teamclaw setup` / `teamclaw init`
  *
- * 6-step sequential wizard:
- *   Step 1: Connection  — auto-detect or prompt, verify with retry loop
- *   Step 2: Workspace   — choose workspace directory
- *   Step 3: Project     — name the project within the workspace
- *   Step 4: Model       — select from available models
- *   Step 5: Goal        — set the team's objective
- *   Step 6: Team        — pick a template or build custom roster
+ * 7-step sequential wizard:
+ *   Step 1: Providers  — select LLM providers and API keys
+ *   Step 2: Workspace  — choose workspace directory
+ *   Step 3: Project    — name the project within the workspace
+ *   Step 4: Model      — select model (defaults from provider)
+ *   Step 5: Goal       — set the team's objective
+ *   Step 6: Team       — pick a template or build custom roster
+ *   Step 7: Composition Mode
  *   Summary + Save
  */
 
@@ -17,41 +18,42 @@ import {
     note,
     outro,
     select,
-    spinner,
     text,
     cancel,
 } from "@clack/prompts";
 import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import {
     readTeamclawConfig,
 } from "../core/jsonConfigManager.js";
-import {
-    setOpenClawWorkerUrl,
-    setOpenClawHttpUrl,
-    setOpenClawModel,
-    setOpenClawToken,
-    setOpenClawChatEndpoint,
-} from "../core/config.js";
 import { logger } from "../core/logger.js";
 import {
     writeGlobalConfig,
     readGlobalConfig,
     type TeamClawGlobalConfig,
 } from "../core/global-config.js";
-import { listAvailableModels } from "../core/model-config.js";
 import { getDefaultGoal } from "../core/configManager.js";
 import { writeConfig } from "../onboard/writeConfig.js";
 import { promptPath } from "../utils/path-autocomplete.js";
 
-import { handleCancel, stepConnection, type WizardState } from "./setup/connection.js";
+import { handleCancel, stepProvider, type WizardState } from "./setup/connection.js";
 import { stepGoal } from "./setup/goal-input.js";
 import { stepTeam } from "./setup/team-builder.js";
 import { stepCompositionMode } from "./setup/composition-mode.js";
 import type { CompositionWizardState } from "./setup/composition-mode.js";
-import { randomPhrase } from "../utils/spinner-phrases.js";
+
+// Default models per provider type for the model selection step
+const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
+    anthropic: "claude-sonnet-4-20250514",
+    openai: "gpt-4o",
+    openrouter: "anthropic/claude-sonnet-4-20250514",
+    ollama: "llama3.1",
+    deepseek: "deepseek-chat",
+    groq: "llama-3.3-70b-versatile",
+    custom: "",
+};
 
 // ---------------------------------------------------------------------------
 // Step 2: Workspace
@@ -297,83 +299,41 @@ async function stepProject(state: WizardState): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: Model
+// Step 4: Model Selection (simplified — defaults from first provider)
 // ---------------------------------------------------------------------------
 
 async function stepModel(state: WizardState): Promise<void> {
-    const s = spinner();
-    s.start(randomPhrase("model"));
+    const firstProvider = state.providerEntries[0];
+    const providerType = firstProvider?.type ?? "anthropic";
+    const providerModel = firstProvider?.model;
+    const defaultModel = providerModel || PROVIDER_DEFAULT_MODELS[providerType] || "";
 
-    let models: string[] = [];
-    try {
-        models = await listAvailableModels();
-    } catch {
-        // ignore — will fall back to detected model or manual entry
-    }
-
-    s.stop(models.length > 0
-        ? `Found ${models.length} available model(s)`
-        : "No models discovered from gateway");
-
-    if (models.length > 0) {
-        const options: Array<{ value: string; label: string }> = models.map((m) => ({
-            value: m,
-            label: m,
-        }));
-        options.push({ value: "__custom", label: "Enter custom model..." });
-
-        const picked = handleCancel(
-            await select({
-                message: "Select a model:",
-                options,
-                initialValue: state.detectedModel && models.includes(state.detectedModel)
-                    ? state.detectedModel
-                    : models[0],
-            }),
-        ) as string;
-
-        if (picked === "__custom") {
-            const custom = handleCancel(
-                await text({
-                    message: "Enter model name:",
-                    placeholder: state.detectedModel ?? "gateway-default",
-                    initialValue: state.detectedModel ?? "",
-                }),
-            ) as string;
-            state.selectedModel = custom.trim() || "gateway-default";
-        } else {
-            state.selectedModel = picked;
-        }
-    } else if (state.detectedModel) {
-        note(`Detected model from gateway: ${pc.cyan(state.detectedModel)}`, "Model");
-        const useDetected = handleCancel(
+    if (defaultModel) {
+        note(
+            `Default model from ${providerType} provider: ${pc.cyan(defaultModel)}`,
+            "Model",
+        );
+        const useDefault = handleCancel(
             await confirm({
-                message: `Use ${state.detectedModel}?`,
+                message: `Use ${defaultModel}?`,
                 initialValue: true,
             }),
         ) as boolean;
 
-        if (useDetected) {
-            state.selectedModel = state.detectedModel;
-        } else {
-            const custom = handleCancel(
-                await text({
-                    message: "Enter model name:",
-                    placeholder: "gateway-default",
-                }),
-            ) as string;
-            state.selectedModel = custom.trim() || "gateway-default";
+        if (useDefault) {
+            state.selectedModel = defaultModel;
+            return;
         }
-    } else {
-        const custom = handleCancel(
-            await text({
-                message: "Enter model name (leave empty to let gateway decide):",
-                placeholder: "gateway-default",
-                initialValue: "",
-            }),
-        ) as string;
-        state.selectedModel = custom.trim() || "gateway-default";
     }
+
+    const custom = handleCancel(
+        await text({
+            message: "Enter model name:",
+            placeholder: defaultModel || "model-name",
+            initialValue: defaultModel,
+        }),
+    ) as string;
+    state.selectedModel = custom.trim() || defaultModel || "default";
 }
 
 // ---------------------------------------------------------------------------
@@ -381,42 +341,27 @@ async function stepModel(state: WizardState): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function persistAllConfig(state: WizardState): string {
-    const wsUrl = `ws://${state.ip}:${state.port}`;
-    const httpUrl = `http://${state.ip}:${state.apiPort}`;
-
     const globalConfig: TeamClawGlobalConfig = {
         version: 1,
-        managedGateway: state.managed,
-        gatewayHost: state.ip,
-        gatewayPort: Number(state.port),
-        apiPort: state.apiPort,
-        gatewayUrl: wsUrl,
-        apiUrl: httpUrl,
-        token: state.token,
-        model: state.selectedModel || "gateway-default",
+        managedGateway: false,
+        gatewayHost: "127.0.0.1",
+        gatewayPort: 0,
+        apiPort: 0,
+        gatewayUrl: "",
+        apiUrl: "",
+        token: "",
+        model: state.selectedModel || "default",
         chatEndpoint: "/v1/chat/completions",
         dashboardPort: 9001,
         debugMode: false,
         workspaceDir: state.workspaceDir,
+        providers: state.providerEntries,
     };
     const globalConfigPath = writeGlobalConfig(globalConfig);
 
-    if (state.anthropicApiKey) {
-        const raw = JSON.parse(readFileSync(globalConfigPath, "utf-8")) as Record<string, unknown>;
-        raw.providers = {
-            chain: ["openclaw", "anthropic"],
-            firstChunkTimeoutMs: 15000,
-            anthropic: {
-                apiKey: state.anthropicApiKey,
-                model: "claude-sonnet-4-6",
-            },
-        };
-        writeFileSync(globalConfigPath, JSON.stringify(raw, null, 2), "utf-8");
-    }
-
     writeConfig({
-        workerUrl: wsUrl,
-        authToken: state.token,
+        workerUrl: "",
+        authToken: "",
         roster: state.roster,
         goal: state.goal,
         model: state.selectedModel,
@@ -426,12 +371,6 @@ function persistAllConfig(state: WizardState): string {
         projectName: state.projectName,
         teamMode: state.teamMode as "manual" | "autonomous" | undefined,
     });
-
-    setOpenClawWorkerUrl(wsUrl);
-    setOpenClawHttpUrl(httpUrl);
-    if (state.selectedModel) setOpenClawModel(state.selectedModel);
-    setOpenClawToken(state.token);
-    setOpenClawChatEndpoint("/v1/chat/completions");
 
     return globalConfigPath;
 }
@@ -450,23 +389,18 @@ export async function runSetup(): Promise<void> {
     }
 
     const state: CompositionWizardState = {
-        ip: "127.0.0.1",
-        port: "18789",
-        token: "",
-        apiPort: 18791,
-        detectedModel: null,
+        providerEntries: [],
         workspaceDir: path.resolve("./teamclaw-workspace"),
         projectName: "",
         selectedModel: "",
         goal: getDefaultGoal(),
         roster: [],
         templateId: "",
-        managed: true,
     };
 
-    // Step 1/7: Connection
-    note("Step 1/7", pc.bold("Connection"));
-    await stepConnection(state);
+    // Step 1/7: Providers
+    note("Step 1/7", pc.bold("Providers"));
+    await stepProvider(state);
 
     // Step 2/7: Workspace
     note("Step 2/7", pc.bold("Workspace"));
@@ -476,38 +410,9 @@ export async function runSetup(): Promise<void> {
     note("Step 3/7", pc.bold("Project"));
     await stepProject(state);
 
-    // Step 4/7: Model
+    // Step 4/7: Model Selection
     note("Step 4/7", pc.bold("Model Selection"));
     await stepModel(state);
-
-    // Fallback Provider (optional)
-    note("Fallback Provider (optional)", pc.bold("Anthropic API Key"));
-    const wantsFallback = handleCancel(
-        await confirm({
-            message: "Add Anthropic API key for fallback? (recommended)",
-            initialValue: false,
-        }),
-    ) as boolean;
-
-    if (wantsFallback) {
-        const keyInput = handleCancel(
-            await text({
-                message: "Enter Anthropic API key (starts with sk-ant-):",
-                placeholder: "sk-ant-...",
-                validate: (val) => {
-                    if (val && !val.startsWith("sk-ant-") && !val.startsWith("sk-")) {
-                        return "API key should start with sk-ant- or sk-";
-                    }
-                },
-            }),
-        ) as string;
-
-        if (keyInput?.trim()) {
-            state.anthropicApiKey = keyInput.trim();
-            const masked = "..." + state.anthropicApiKey.slice(-4);
-            logger.success(`Anthropic API key: ${masked}`);
-        }
-    }
 
     // Step 5/7: Goal
     note("Step 5/7", pc.bold("Goal"));
@@ -526,6 +431,14 @@ export async function runSetup(): Promise<void> {
         ? state.roster.map((r) => `${r.count}x ${r.role}`).join(", ")
         : "(none)";
 
+    const providerSummary = state.providerEntries
+        .map((p, i) => {
+            const name = p.name || p.type;
+            const model = p.model || PROVIDER_DEFAULT_MODELS[p.type] || "default";
+            return `Provider ${i + 1}: ${name} (${model})`;
+        })
+        .join("\n            ");
+
     const maxVal = 50;
     const trunc = (s: string) => {
         const flat = s.replace(/\n/g, " ").trim();
@@ -534,17 +447,14 @@ export async function runSetup(): Promise<void> {
 
     note(
         [
-            `Gateway   : ${trunc(`ws://${state.ip}:${state.port}`)}`,
-            `API URL   : ${trunc(`http://${state.ip}:${state.apiPort}`)}`,
-            `Token     : ${state.token ? "configured" : "none"}`,
+            `Providers : ${providerSummary}`,
             `Workspace : ${trunc(state.workspaceDir)}`,
             `Project   : ${state.projectName || "(none)"}`,
-            `Model     : ${trunc(state.selectedModel || "gateway-default")}`,
+            `Model     : ${trunc(state.selectedModel || "default")}`,
             `Goal      : ${trunc(state.goal)}`,
             `Team      : ${trunc(rosterSummary)}`,
             `Template  : ${state.templateId || "custom"}`,
             `Team Mode : ${state.teamMode || "manual"}`,
-            `Fallback  : ${state.anthropicApiKey ? "Anthropic API (configured)" : "none"}`,
         ].join("\n"),
         "Configuration Summary",
     );
