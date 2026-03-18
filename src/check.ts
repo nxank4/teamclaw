@@ -93,4 +93,25 @@ export async function runCheck(_args: string[]): Promise<void> {
     }
     process.exit(1);
   }
+
+  // Provider status
+  logger.plain("");
+  logger.plain("Provider chain:");
+  logger.plain("  Primary:  OpenClaw gateway");
+
+  const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY);
+  let hasConfigKey = false;
+  try {
+    const { readGlobalConfig } = await import("./core/global-config.js");
+    const cfg = readGlobalConfig();
+    const providers = (cfg as Record<string, unknown> | null)?.providers as Record<string, unknown> | undefined;
+    const anthropic = providers?.anthropic as Record<string, unknown> | undefined;
+    hasConfigKey = !!(anthropic?.apiKey);
+  } catch {}
+
+  if (hasAnthropicKey || hasConfigKey) {
+    logger.plain("  Fallback: Anthropic API (configured)");
+  } else {
+    logger.plain("  Fallback: Anthropic API (not configured)");
+  }
 }

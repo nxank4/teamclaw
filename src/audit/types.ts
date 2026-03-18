@@ -40,6 +40,11 @@ export interface AuditTrail {
     costSaved: number;
     timeSavedMs: number;
   };
+  providerStats?: {
+    openclaw: { requests: number; failures: number };
+    anthropic: { requests: number; failures: number };
+    fallbacksTriggered: number;
+  };
 }
 
 export interface AuditSummary {

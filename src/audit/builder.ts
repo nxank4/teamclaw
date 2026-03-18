@@ -100,6 +100,22 @@ export async function buildAuditTrail(
     // Score calculation non-critical
   }
 
+  // Build provider stats (best-effort)
+  let providerStats: import("./types.js").AuditTrail["providerStats"];
+  try {
+    const { getProviderManager } = await import("../proxy/ProxyService.js");
+    const mgr = getProviderManager();
+    if (mgr) {
+      const stats = mgr.getStats();
+      const total = stats.openclaw.requests + stats.anthropic.requests;
+      if (total > 0) {
+        providerStats = stats;
+      }
+    }
+  } catch {
+    // Provider stats unavailable
+  }
+
   // Build cache performance stats (best-effort)
   let cachePerformance: import("./types.js").AuditTrail["cachePerformance"];
   try {
@@ -135,6 +151,7 @@ export async function buildAuditTrail(
     ...(personalityEvents?.length ? { personalityEvents } : {}),
     ...(vibeScore ? { vibeScore } : {}),
     ...(cachePerformance ? { cachePerformance } : {}),
+    ...(providerStats ? { providerStats } : {}),
   };
 }
 

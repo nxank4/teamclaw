@@ -38,6 +38,9 @@ export function renderAuditMarkdown(
   if (audit.cachePerformance) {
     sections.push(renderCachePerformance(audit));
   }
+  if (audit.providerStats) {
+    sections.push(renderProviderUsage(audit));
+  }
 
   return sections.join("\n\n---\n\n") + "\n";
 }
@@ -237,6 +240,18 @@ function renderCachePerformance(audit: AuditTrail): string {
     `- Cost saved: $${c.costSaved.toFixed(2)}`,
     `- Time saved: ${timeSaved}`,
   ].join("\n");
+}
+
+function renderProviderUsage(audit: AuditTrail): string {
+  const p = audit.providerStats!;
+  const lines = [
+    "## Provider Usage",
+    "",
+    `- OpenClaw: ${p.openclaw.requests} requests, ${p.openclaw.failures} failures`,
+    `- Anthropic: ${p.anthropic.requests} requests (fallback), ${p.anthropic.failures} failures`,
+    `- Fallbacks triggered: ${p.fallbacksTriggered}`,
+  ];
+  return lines.join("\n");
 }
 
 /** Render a multi-run summary as markdown. */

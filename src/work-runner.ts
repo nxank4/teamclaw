@@ -85,6 +85,7 @@ import { LearningCurveStore } from "./memory/success/learning-curve.js";
 import { PatternQualityStore, pruneStalePatterns } from "./memory/success/quality.js";
 import { ResponseCacheStore } from "./cache/cache-store.js";
 import { resetSessionCacheStats } from "./cache/cache-interceptor.js";
+import { getHealthMonitor, getProviderManager } from "./proxy/ProxyService.js";
 import type { SuccessPattern } from "./memory/success/types.js";
 import { GlobalMemoryManager } from "./memory/global/store.js";
 import { PromotionEngine } from "./memory/global/promoter.js";
@@ -781,6 +782,16 @@ export async function runWork(
     cacheStore.prune().then((pruned) => {
         if (pruned > 0) log("info", `Pruned ${pruned} expired cache entries`);
     }).catch(() => {});
+
+    // Start provider health monitor for the work session
+    const healthMonitor = getHealthMonitor();
+    if (healthMonitor) {
+        healthMonitor.start();
+    }
+    const providerMgr = getProviderManager();
+    if (providerMgr) {
+        providerMgr.resetStats();
+    }
 
     if (clearLegacy) {
         log("warn", "Clearing lesson data is not implemented (delete data/vector_store manually)");
