@@ -350,14 +350,14 @@ async function main(): Promise<void> {
             logger.plain("  teamclaw run gateway --port 9000");
             return;
         }
-        if (runArgs[0] === "openclaw" || runArgs[0] === "gateway") {
+        if (runArgs[0] === "gateway") {
             const portIndex = runArgs.indexOf("--port");
             const explicitPort =
                 portIndex !== -1 && runArgs[portIndex + 1]
                     ? runArgs[portIndex + 1]
                     : undefined;
-            const { startOpenclawGateway } = await import("./commands/run-openclaw.js");
-            await startOpenclawGateway({ port: explicitPort });
+            const { startGateway } = await import("./commands/run-gateway.js");
+            await startGateway({ port: explicitPort });
         } else {
             logger.error(`Unknown run target: ${runArgs[0]}`);
             logger.error("Usage: teamclaw run gateway [--port PORT]");

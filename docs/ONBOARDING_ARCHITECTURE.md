@@ -1,28 +1,26 @@
-# Onboarding Wizard Architecture (OpenClaw-Only)
+# Onboarding Wizard Architecture
 
 ## Overview
 
-The onboarding flow is state-machine based and focused on a lightweight OpenClaw setup.
+The onboarding flow is state-machine based and focused on a lightweight provider setup.
 
 TeamClaw onboarding now collects only:
-1. OpenClaw Gateway URL
-2. OpenClaw Token
-3. Dynamic team roster
-4. Default goal
+1. LLM Provider configuration (API key, model)
+2. Dynamic team roster
+3. Default goal
 
 ## State Machine Flow
 
 ```text
-WORKER_URL -> AUTH_TOKEN -> TEAM_SIZE -> TEAM_BUILDER -> GOAL -> SUMMARY -> FINISH
+PROVIDER_CONFIG -> TEAM_SIZE -> TEAM_BUILDER -> GOAL -> SUMMARY -> FINISH
 ```
 
-Back navigation is supported using a history stack and `← Back` options on `select` prompts.
+Back navigation is supported using a history stack and `<- Back` options on `select` prompts.
 
 ## Persisted Outputs
 
 ### `.env`
-- `OPENCLAW_WORKER_URL`
-- `OPENCLAW_TOKEN`
+- Provider API keys (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
 ### `teamclaw.config.json`
 - `roster` (dynamic array: role/count/description)
@@ -30,5 +28,5 @@ Back navigation is supported using a history stack and `← Back` options on `se
 
 ## Notes
 
-- Legacy gateway/API-key prompts are removed from onboarding.
-- TeamClaw runtime expects OpenClaw to be reachable and fails fast otherwise.
+- Legacy gateway prompts are removed from onboarding.
+- TeamClaw runtime uses the configured provider system and fails fast if no provider is available.

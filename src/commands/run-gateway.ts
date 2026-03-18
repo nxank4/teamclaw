@@ -17,7 +17,7 @@ function commandExists(cmd: string): Promise<boolean> {
 }
 
 export function detectPortFromConfig(): string {
-    // Try to read from local OpenClaw config file
+    // Try to read from local gateway config file
     const localCfg = readLocalOpenClawConfig();
     if (localCfg) {
         return String(localCfg.port);
@@ -26,12 +26,11 @@ export function detectPortFromConfig(): string {
 }
 
 /**
- * Auto-detect the OpenClaw HTTP API port by reading the local openclaw.json config
- * file first (gateway.http.port), then falling back to OPENCLAW_HTTP_URL env var,
- * and finally defaulting to 18789.
+ * Auto-detect the gateway HTTP API port by reading the local config
+ * file first (gateway.http.port), then defaulting to 18789.
  */
 export function detectHttpPortFromConfig(): string {
-    // Try reading ~/.openclaw/openclaw.json directly
+    // Try reading local gateway config
     try {
         const localCfg = readLocalOpenClawConfig();
         if (localCfg && localCfg.httpPort > 0) {
@@ -67,7 +66,7 @@ export interface StartGatewayOptions {
     skipPrompt?: boolean;
 }
 
-export async function startOpenclawGateway(options: StartGatewayOptions = {}): Promise<void> {
+export async function startGateway(options: StartGatewayOptions = {}): Promise<void> {
     const { port: explicitPort, skipPrompt } = options;
 
     let port = explicitPort;
@@ -75,7 +74,7 @@ export async function startOpenclawGateway(options: StartGatewayOptions = {}): P
     if (!port && !skipPrompt) {
         const detectedPort = detectPortFromConfig();
         const input = await text({
-            message: `Enter OpenClaw gateway port`,
+            message: `Enter gateway port`,
             defaultValue: detectedPort,
             placeholder: detectedPort,
         });
@@ -96,19 +95,19 @@ export async function startOpenclawGateway(options: StartGatewayOptions = {}): P
         process.exit(1);
     }
 
-    logger.success(`OpenClaw gateway is running in the background on port ${port}.`);
+    logger.success(`LLM gateway is running in the background on port ${port}.`);
     logger.plain(`PID: ${pid}`);
     logger.plain(`Log: ${logPath}`);
 
     process.exit(0);
 }
 
-async function findOpenclawCommand(): Promise<string | null> {
-    const openclawCmd = "openclaw";
+async function findGatewayCommand(): Promise<string | null> {
+    const gatewayCmd = "openclaw";
     const npxCmd = "npx";
 
-    const hasOpenclaw = await commandExists(openclawCmd);
-    if (hasOpenclaw) return openclawCmd;
+    const hasGateway = await commandExists(gatewayCmd);
+    if (hasGateway) return gatewayCmd;
 
     const hasNpx = await commandExists(npxCmd);
     if (hasNpx) return npxCmd;
@@ -118,23 +117,20 @@ async function findOpenclawCommand(): Promise<string | null> {
 
 function getGatewayLogPath(): string {
     const homeDir = os.homedir();
-    const openclawDir = path.join(homeDir, ".openclaw");
-    if (!fs.existsSync(openclawDir)) {
-        fs.mkdirSync(openclawDir, { recursive: true });
+    const logDir = path.join(homeDir, ".teamclaw");
+    if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
     }
-    return path.join(openclawDir, "teamclaw-gateway.log");
+    return path.join(logDir, "gateway.log");
 }
 
 export async function startGatewayBinary(port: string): Promise<ChildProcess> {
-    const cmd = await findOpenclawCommand();
+    const cmd = await findGatewayCommand();
 
     if (!cmd) {
-        logger.error("Neither 'openclaw' nor 'npx' found in PATH.");
+        logger.error("No gateway binary found in PATH.");
         logger.plain("");
-        logger.plain("To install OpenClaw:");
-        logger.plain("  npm install -g openclaw");
-        logger.plain("  # or");
-        logger.plain("  pnpm add -g openclaw");
+        logger.plain("Install a gateway binary or use the built-in provider system instead.");
         process.exit(1);
     }
 

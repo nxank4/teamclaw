@@ -294,7 +294,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
             aliases: (payload.aliases as Record<string, string>) ?? {},
             allowlist: (payload.allowlist as string[]) ?? [],
           });
-        } else if ((type === "llm_log" || type === "openclaw_log") && payload.entry) {
+        } else if (type === "llm_log" && payload.entry) {
           pushLlmLog(payload.entry as LlmLogEntry);
         } else if (type === "session_cancelled") {
           setGenerationProgress(null);

@@ -16,10 +16,10 @@ export interface OpenAIApiDiscovery {
 }
 
 /**
- * Values extracted directly from a local OpenClaw server config file.
+ * Values extracted from a legacy OpenClaw server config file on disk.
  * When present these are authoritative — no network probe or token prompt needed.
  */
-export interface LocalOpenClawConfig {
+export interface LegacyGatewayConfig {
     /** Numeric port from gateway.port (WebSocket gateway port) */
     port: number;
     /** HTTP API port from gateway.http.port (defaults to 18789) */
@@ -108,7 +108,7 @@ function getOpenClawConfigCandidates(): string[] {
 }
 
 /**
- * Attempts to read and parse the local OpenClaw server configuration file.
+ * Attempts to read and parse a legacy OpenClaw server configuration file.
  * Returns null when no valid file is found.
  *
  * Extraction map:
@@ -117,7 +117,7 @@ function getOpenClawConfigCandidates(): string[] {
  *   model ← agents.defaults.model.primary
  *   url   ← ws://127.0.0.1:<port>  (always loopback — matches gateway.bind default)
  */
-export function readLocalOpenClawConfig(): LocalOpenClawConfig | null {
+export function readLegacyGatewayConfig(): LegacyGatewayConfig | null {
     const candidates = getOpenClawConfigCandidates();
 
     for (const configPath of candidates) {
@@ -206,3 +206,9 @@ export function readLocalOpenClawConfig(): LocalOpenClawConfig | null {
 
     return null;
 }
+
+// Backward-compat aliases — existing importers can keep working during migration.
+/** @deprecated Use {@link LegacyGatewayConfig} */
+export type LocalOpenClawConfig = LegacyGatewayConfig;
+/** @deprecated Use {@link readLegacyGatewayConfig} */
+export const readLocalOpenClawConfig = readLegacyGatewayConfig;

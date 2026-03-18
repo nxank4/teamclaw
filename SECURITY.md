@@ -1,6 +1,6 @@
 # Security Policy
 
-TeamClaw is a Node.js / TypeScript application that orchestrates AI agent teams using LangGraph, Fastify + WebSocket, LanceDB, and the OpenClaw gateway. This document covers how we handle security and how to report issues responsibly.
+TeamClaw is a Node.js / TypeScript application that orchestrates AI agent teams using LangGraph, Fastify + WebSocket, LanceDB, and configurable LLM providers. This document covers how we handle security and how to report issues responsibly.
 
 ## Supported Versions
 
@@ -39,9 +39,9 @@ We prefer to coordinate responsible disclosure so users have time to upgrade bef
 
 TeamClaw has several trust boundaries worth understanding:
 
-### OpenClaw Gateway
+### LLM Provider Communication
 
-All LLM traffic routes through OpenClaw (`OPENCLAW_WORKER_URL` + `OPENCLAW_TOKEN`). A compromised or man-in-the-middle gateway can inject arbitrary content into agent responses. Always connect over TLS and restrict network access to trusted endpoints.
+All LLM traffic routes through configured providers (Anthropic, OpenAI, etc.). A compromised or man-in-the-middle provider endpoint can inject arbitrary content into agent responses. Always connect over TLS and restrict network access to trusted endpoints.
 
 ### WebSocket / Fastify Server
 

@@ -13,7 +13,7 @@ import {
 import pc from "picocolors";
 import {
     discoverOpenAIApi,
-    readLocalOpenClawConfig,
+    readLegacyGatewayConfig,
 } from "../core/discovery.js";
 import {
     readTeamclawConfig,
@@ -34,10 +34,10 @@ type LoggingLevel = "info" | "verbose";
 type RosterEntry = { role: string; count: number; description: string };
 
 interface DashboardState {
-    openclawWorkerUrl: string;
-    openclawToken: string;
-    openclawModel: string;
-    openclawChatEndpoint: string;
+    gatewayUrl: string;
+    token: string;
+    model: string;
+    chatEndpoint: string;
     memoryBackend: MemoryBackend;
     memoryPath: string;
     roster: RosterEntry[];
@@ -160,26 +160,33 @@ async function loadDashboardState(): Promise<DashboardState> {
     const loggingLevel: LoggingLevel =
         (verboseRaw === true || verboseRaw === "true") ? "verbose" : "info";
 
-    const openclawWorkerUrl =
+    const gatewayUrl =
         String(globalCfg.gatewayUrl || "") ||
         (typeof data.worker_url === "string" ? data.worker_url.trim() : "") ||
         (parsed?.worker_url?.trim() ?? "");
 
-    const openclawChatEndpoint =
+    const chatEndpoint =
         String(globalCfg.chatEndpoint || "") ||
-        (typeof data.openclaw_chat_endpoint === "string"
-            ? data.openclaw_chat_endpoint.trim()
-            : "") ||
+        (typeof data.chat_endpoint === "string"
+            ? data.chat_endpoint.trim()
+            : typeof data.openclaw_chat_endpoint === "string"
+                ? data.openclaw_chat_endpoint.trim()
+                : "") ||
         (parsed?.openclaw_chat_endpoint?.trim() ?? "/v1/chat/completions");
 
-    const openclawModel =
+    const model =
         String(globalCfg.model || "") ||
-        (typeof data.openclaw_model === "string"
-            ? data.openclaw_model.trim()
-            : "") ||
+        (typeof data.model === "string"
+            ? data.model.trim()
+            : typeof data.openclaw_model === "string"
+                ? data.openclaw_model.trim()
+                : "") ||
         (parsed?.openclaw_model?.trim() ?? "");
 
     const token = String(globalCfg.token || "") ||
+        (typeof data.token === "string"
+            ? data.token.trim()
+            : "") ||
         (parsed?.openclaw_token?.trim() ?? "");
 
     const memoryPath =
@@ -216,10 +223,10 @@ async function loadDashboardState(): Promise<DashboardState> {
         (typeof data.webhook_secret === "string" ? data.webhook_secret : "");
 
     return {
-        openclawWorkerUrl,
-        openclawToken: token,
-        openclawModel,
-        openclawChatEndpoint,
+        gatewayUrl,
+        token,
+        model,
+        chatEndpoint,
         memoryBackend,
         memoryPath,
         roster,
@@ -234,24 +241,24 @@ async function loadDashboardState(): Promise<DashboardState> {
     };
 }
 
-async function openClawMenu(state: DashboardState): Promise<void> {
+async function providerMenu(state: DashboardState): Promise<void> {
     let back = false;
     while (!back) {
         const choice = handleCancel(
             await select({
-                message: "OpenClaw Gateway Settings",
+                message: "LLM Provider Settings",
                 options: [
                     {
                         value: "url",
-                        label: `Edit OpenClaw Gateway URL (Current: ${state.openclawWorkerUrl || "(not set)"})`,
+                        label: `Edit LLM Gateway URL (Current: ${state.gatewayUrl || "(not set)"})`,
                     },
                     {
                         value: "token",
-                        label: `Edit API Token (Current: ${maskSecret(state.openclawToken)})`,
+                        label: `Edit API Token (Current: ${maskSecret(state.token)})`,
                     },
                     {
                         value: "endpoint",
-                        label: `Edit Chat Endpoint (Current: ${state.openclawChatEndpoint || "(not set)"})`,
+                        label: `Edit Chat Endpoint (Current: ${state.chatEndpoint || "(not set)"})`,
                     },
                     { value: "discover", label: "Run Auto-Discovery Scanner" },
                     { value: "back", label: "Back to Main Menu" },
@@ -267,9 +274,9 @@ async function openClawMenu(state: DashboardState): Promise<void> {
         if (choice === "url") {
             const value = handleCancel(
                 await text({
-                    message: "OpenClaw Gateway URL",
+                    message: "LLM Gateway URL",
                     initialValue:
-                        state.openclawWorkerUrl || "ws://localhost:18789",
+                        state.gatewayUrl || "ws://localhost:18789",
                     placeholder: "ws://localhost:18789",
                     validate: (v) =>
                         isHttpOrWsUrl(v ?? "")
@@ -277,30 +284,30 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                             : "URL must start with http://, https://, ws://, or wss://",
                 }),
             ) as string;
-            state.openclawWorkerUrl = value.trim();
+            state.gatewayUrl = value.trim();
             continue;
         }
 
         if (choice === "token") {
             const value = handleCancel(
                 await password({
-                    message: "OpenClaw API Token",
+                    message: "API Token",
                     validate: (v) =>
                         (v ?? "").trim().length > 0
                             ? undefined
                             : "Token cannot be empty",
                 }),
             ) as string;
-            state.openclawToken = value.trim();
+            state.token = value.trim();
             continue;
         }
 
         if (choice === "endpoint") {
             const value = handleCancel(
                 await text({
-                    message: "OpenClaw Chat Endpoint",
+                    message: "Chat Endpoint",
                     initialValue:
-                        state.openclawChatEndpoint || "/v1/chat/completions",
+                        state.chatEndpoint || "/v1/chat/completions",
                     placeholder: "/v1/chat/completions",
                     validate: (v) =>
                         (v ?? "").trim().startsWith("/")
@@ -308,7 +315,7 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                             : "Endpoint must start with '/'",
                 }),
             ) as string;
-            state.openclawChatEndpoint = value.trim();
+            state.chatEndpoint = value.trim();
             continue;
         }
 
@@ -316,23 +323,23 @@ async function openClawMenu(state: DashboardState): Promise<void> {
             const s = spinner();
             s.start(randomPhrase("scan"));
 
-            // Prefer the on-disk OpenClaw server config — it contains the exact
+            // Try the legacy on-disk config — it contains the exact
             // port and token with no network probing required.
-            const localCfg = readLocalOpenClawConfig();
+            const localCfg = readLegacyGatewayConfig();
 
             if (localCfg) {
                 const modelLabel = localCfg.model
                     ? `, model: ${localCfg.model}`
                     : "";
                 s.stop(
-                    `✅ [Config File] Found OpenClaw configuration! (Port: ${localCfg.port}${modelLabel})`,
+                    `✅ [Config File] Found LLM configuration! (Port: ${localCfg.port}${modelLabel})`,
                 );
 
-                state.openclawWorkerUrl = localCfg.url;
-                state.openclawToken = localCfg.token;
-                state.openclawChatEndpoint = "/v1/chat/completions";
+                state.gatewayUrl = localCfg.url;
+                state.token = localCfg.token;
+                state.chatEndpoint = "/v1/chat/completions";
                 if (localCfg.model) {
-                    state.openclawModel = localCfg.model;
+                    state.model = localCfg.model;
                 }
 
                 note(
@@ -343,7 +350,7 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                             ? `Model       : ${localCfg.model}`
                             : `Model       : (not set in config file — edit manually if needed)`,
                     ].join("\n"),
-                    "OpenClaw config file loaded",
+                    "Legacy config file loaded",
                 );
                 continue;
             }
@@ -351,15 +358,15 @@ async function openClawMenu(state: DashboardState): Promise<void> {
             // Config file not found — fall back to the network port scanner.
             s.start(randomPhrase("scan"));
             const discovered = await discoverOpenAIApi("http://localhost", {
-                preferredPort: parsePortFromUrl(state.openclawWorkerUrl),
+                preferredPort: parsePortFromUrl(state.gatewayUrl),
                 timeoutMs: 1000,
             }).catch(() => []);
             if (discovered.length === 0) {
                 s.stop("⚠️ Could not auto-detect API.");
                 note(
                     [
-                        "No local OpenClaw config file found and no API responded on common ports.",
-                        "Locations checked: ~/.openclaw/config.json (and OS equivalents).",
+                        "No local config file found and no API responded on common ports.",
+                        "Locations checked: ~/.teamclaw/config.json, ~/.openclaw/config.json (and OS equivalents).",
                         "Tip: ensure you are pointing to the API port, not the Web UI port.",
                     ].join("\n"),
                     "Discovery warning",
@@ -400,24 +407,24 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                 selectedService = discovered[pickedIdx]!;
             }
 
-            state.openclawWorkerUrl = selectedService.baseUrl;
-            state.openclawChatEndpoint = selectedService.chatEndpoint;
+            state.gatewayUrl = selectedService.baseUrl;
+            state.chatEndpoint = selectedService.chatEndpoint;
 
             if (selectedService.protocol === "ws") {
                 const tokenValue = handleCancel(
                     await password({
                         message:
-                            "Selected WebSocket gateway. Enter OPENCLAW_TOKEN:",
+                            "Selected WebSocket gateway. Enter API token:",
                         validate: (v) =>
                             (v ?? "").trim().length > 0
                                 ? undefined
                                 : "Token cannot be empty",
                     }),
                 ) as string;
-                state.openclawToken = tokenValue.trim();
+                state.token = tokenValue.trim();
                 const models = await fetchModelsForService(
                     selectedService.baseUrl,
-                    state.openclawToken,
+                    state.token,
                 );
                 if (models.length > 0) {
                     const selectedModel = handleCancel(
@@ -431,13 +438,13 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                             initialValue: models[0],
                         }),
                     ) as string;
-                    state.openclawModel = selectedModel.trim();
+                    state.model = selectedModel.trim();
                 } else {
                     const modelValue = handleCancel(
                         await text({
                             message:
-                                "Could not auto-fetch models for this WS gateway. Enter OPENCLAW_MODEL manually:",
-                            initialValue: state.openclawModel || "",
+                                "Could not auto-fetch models for this WS gateway. Enter model manually:",
+                            initialValue: state.model || "",
                             placeholder: "qwen2.5-coder:7b",
                             validate: (v) =>
                                 (v ?? "").trim().length > 0
@@ -445,7 +452,7 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                                     : "Model cannot be empty",
                         }),
                     ) as string;
-                    state.openclawModel = modelValue.trim();
+                    state.model = modelValue.trim();
                     note(
                         "Model list not returned by gateway on /v1/models. Saved manual model value.",
                         "WebSocket service selected",
@@ -462,7 +469,7 @@ async function openClawMenu(state: DashboardState): Promise<void> {
                         initialValue: selectedService.models[0],
                     }),
                 ) as string;
-                state.openclawModel = selectedModel.trim();
+                state.model = selectedModel.trim();
             }
         }
     }
@@ -570,12 +577,12 @@ async function teamMenu(state: DashboardState): Promise<void> {
         const refreshed = await loadDashboardState();
         state.roster = refreshed.roster;
         state.workers = refreshed.workers;
-        state.openclawWorkerUrl =
-            refreshed.openclawWorkerUrl || state.openclawWorkerUrl;
-        state.openclawToken = refreshed.openclawToken || state.openclawToken;
-        state.openclawModel = refreshed.openclawModel || state.openclawModel;
-        state.openclawChatEndpoint =
-            refreshed.openclawChatEndpoint || state.openclawChatEndpoint;
+        state.gatewayUrl =
+            refreshed.gatewayUrl || state.gatewayUrl;
+        state.token = refreshed.token || state.token;
+        state.model = refreshed.model || state.model;
+        state.chatEndpoint =
+            refreshed.chatEndpoint || state.chatEndpoint;
         note(
             "Reloaded configuration from onboarding.",
             "Roster builder completed",
@@ -637,7 +644,7 @@ async function systemMenu(state: DashboardState): Promise<void> {
 }
 
 function applyRuntime(_state: DashboardState): void {
-    // OpenClaw runtime setters removed; config is now persisted to global config
+    // Runtime setters removed; config is now persisted to global config
     // and providers are configured via the provider system.
 }
 
@@ -646,10 +653,10 @@ function saveState(state: DashboardState): void {
     const globalCfg = readGlobalConfigWithDefaults();
     writeGlobalConfig({
         ...globalCfg,
-        gatewayUrl: state.openclawWorkerUrl,
-        token: state.openclawToken,
-        chatEndpoint: state.openclawChatEndpoint,
-        model: state.openclawModel,
+        gatewayUrl: state.gatewayUrl,
+        token: state.token,
+        chatEndpoint: state.chatEndpoint,
+        model: state.model,
         dashboardPort: state.webPort,
         ...({
             webhookOnTaskComplete: state.webhookOnTaskComplete || undefined,
@@ -662,9 +669,9 @@ function saveState(state: DashboardState): void {
     const cfg = readTeamclawConfig();
     const next = {
         ...cfg.data,
-        worker_url: state.openclawWorkerUrl,
-        openclaw_chat_endpoint: state.openclawChatEndpoint,
-        openclaw_model: state.openclawModel,
+        worker_url: state.gatewayUrl,
+        chat_endpoint: state.chatEndpoint,
+        model: state.model,
         memory_backend: state.memoryBackend,
         vector_store_path: state.memoryPath,
         verbose_logging: state.loggingLevel === "verbose",
@@ -689,7 +696,7 @@ export async function runConfigDashboard(): Promise<void> {
             await select({
                 message: "Main Menu",
                 options: [
-                    { value: "openclaw", label: "🔌 OpenClaw & LLM Settings" },
+                    { value: "providers", label: "🔌 LLM Provider Settings" },
                     { value: "models", label: "🧩 Model Management" },
                     { value: "memory", label: "🧠 Memory & Database" },
                     { value: "team", label: "🤖 Team Roster & Workers" },
@@ -698,17 +705,17 @@ export async function runConfigDashboard(): Promise<void> {
                     { value: "save", label: "💾 Save & Exit" },
                 ],
             }),
-        ) as "openclaw" | "models" | "memory" | "team" | "advanced" | "system" | "save";
+        ) as "providers" | "models" | "memory" | "team" | "advanced" | "system" | "save";
 
-        if (choice === "openclaw") {
-            await openClawMenu(state);
+        if (choice === "providers") {
+            await providerMenu(state);
             continue;
         }
         if (choice === "models") {
             await modelManagementMenu();
             // Refresh state from disk — model menu persists changes directly
             const refreshedCfg = readGlobalConfigWithDefaults();
-            state.openclawModel = String(refreshedCfg.model || "") || state.openclawModel;
+            state.model = String(refreshedCfg.model || "") || state.model;
             continue;
         }
         if (choice === "memory") {

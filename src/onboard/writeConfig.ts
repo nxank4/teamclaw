@@ -27,16 +27,12 @@ export function writeConfig(cfg: PersistConfig): void {
 
   const config: Record<string, unknown> = {
     roster: cfg.roster,
-    openclaw_worker_url: cfg.workerUrl,
-    openclaw_chat_endpoint: cfg.chatEndpoint ?? "/v1/chat/completions",
-  };
-  if (cfg.model) config.openclaw_model = cfg.model;
-  if (cfg.workers && Object.keys(cfg.workers).length > 0) {
+    worker_url: cfg.workerUrl,     chat_endpoint: cfg.chatEndpoint ?? "/v1/chat/completions",   };
+  if (cfg.model) config.model = cfg.model;   if (cfg.workers && Object.keys(cfg.workers).length > 0) {
     config.workers = cfg.workers;
   }
   if (cfg.goal) config.goal = cfg.goal;
-  if (cfg.authToken) config.openclaw_token = cfg.authToken;
-  if (cfg.workspaceDir) config.workspace_dir = cfg.workspaceDir;
+  if (cfg.authToken) config.token = cfg.authToken;   if (cfg.workspaceDir) config.workspace_dir = cfg.workspaceDir;
   if (cfg.templateId) config.template = cfg.templateId;
   if (cfg.projectName) config.project_name = cfg.projectName;
   if (cfg.teamMode) config.team_mode = cfg.teamMode;

@@ -18,9 +18,9 @@ export interface TeamConfig {
   goal?: string;
   creativity?: number;
   memory_backend?: "lancedb" | "local_json";
-  openclaw_chat_endpoint?: string;
-  openclaw_model?: string;
-  openclaw_token?: string;
+  openclaw_chat_endpoint?: string; // legacy key name, kept for config file compat
+  openclaw_model?: string; // legacy key name, kept for config file compat
+  openclaw_token?: string; // legacy key name, kept for config file compat
   agent_models?: Record<string, string>;
   team_mode?: "manual" | "autonomous";
   webhooks?: {
@@ -106,13 +106,17 @@ export async function loadTeamConfig(): Promise<TeamConfig | null> {
       goal: typeof parsed.goal === "string" ? parsed.goal : undefined,
       creativity,
       openclaw_chat_endpoint:
-        typeof parsed.openclaw_chat_endpoint === "string"
-          ? parsed.openclaw_chat_endpoint.trim()
-          : undefined,
+        typeof parsed.chat_endpoint === "string"
+          ? parsed.chat_endpoint.trim()
+          : typeof parsed.openclaw_chat_endpoint === "string"
+            ? parsed.openclaw_chat_endpoint.trim()
+            : undefined,
       openclaw_model:
-        typeof parsed.openclaw_model === "string"
-          ? parsed.openclaw_model.trim()
-          : undefined,
+        typeof parsed.model === "string"
+          ? parsed.model.trim()
+          : typeof parsed.openclaw_model === "string"
+            ? parsed.openclaw_model.trim()
+            : undefined,
       memory_backend:
         parsed.memory_backend === "lancedb" || parsed.memory_backend === "local_json"
           ? parsed.memory_backend

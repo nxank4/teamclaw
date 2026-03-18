@@ -4,13 +4,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, rm, readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import path from "node:path";
 import { log as clackLog, note, spinner, select, text, cancel, isCancel } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
-
-const execFileAsync = promisify(execFile);
 
 export const WORKSPACE_PROTECTED = new Set([".git", "teamclaw.config.json"]);
 
@@ -89,23 +85,9 @@ export async function suggestGoalFromWorkspace(
         ].join("\n");
 
         s.message(randomPhrase("ai"));
-        // Legacy: shells out to openclaw CLI binary. Will gracefully fail if not installed.
-        const { stdout } = await execFileAsync(
-            "openclaw",
-            ["agent", "-m", prompt, "--json", "--timeout", "30"],
-            { timeout: 35_000 },
-        );
-
-        s.stop("Goal suggestion ready.");
-
-        const result = JSON.parse(stdout);
-        const payloads = result?.result?.payloads;
-        if (Array.isArray(payloads)) {
-            const texts = payloads.map((p: { text?: string }) => p.text).filter(Boolean);
-            if (texts.length) return texts.join("\n").trim();
-        }
-        // fallback: try plain text
-        if (typeof result === "string") return result.trim();
+        // Goal suggestion via external CLI is disabled — provider integration pending.
+        s.stop("AI goal suggestion is not available.");
+        void prompt; // suppress unused warning
         return null;
     } catch {
         s.stop("Could not get AI suggestion.");

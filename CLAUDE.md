@@ -49,12 +49,12 @@ Each LangGraph node receives `GraphState`, returns `Partial<GraphState>`. All no
 ### Work Session Flow (src/work-runner.ts)
 
 1. **Init** — resolve goal, validate gateway health, load team config, init vector memory
-2. **Multi-run loop** — for each run: provision OpenClaw, create `TeamOrchestration`, stream execution chunks (each has `__node__`), update dashboard, learn from failures via PostMortemAnalyst, persist success patterns
+2. **Multi-run loop** — for each run: initialize providers, create `TeamOrchestration`, stream execution chunks (each has `__node__`), update dashboard, learn from failures via PostMortemAnalyst, persist success patterns
 3. **Cleanup** — stop services, export audit trail, generate CONTEXT.md handoff, run retrospective if rework detected
 
 ### Web Server (src/web/server.ts)
 
-Fastify + SSE for real-time dashboard updates. Single active orchestration at a time. `broadcast()` sends events to all SSE clients. Key endpoints: `GET /api/events` (SSE stream), `POST /api/session/start`, `GET /api/config`, `/proxy/*` (OpenClaw SSE proxy to avoid CORS).
+Fastify + SSE for real-time dashboard updates. Single active orchestration at a time. `broadcast()` sends events to all SSE clients. Key endpoints: `GET /api/events` (SSE stream), `POST /api/session/start`, `GET /api/config`, `/proxy/*` (SSE proxy to avoid CORS).
 
 ### Superpowers Modules
 
@@ -68,7 +68,7 @@ Fastify + SSE for real-time dashboard updates. Single active orchestration at a 
 
 ### LLM & Memory
 
-- LLM requests route through OpenClaw gateway (`OPENCLAW_WORKER_URL`, `OPENCLAW_TOKEN`).
+- LLM requests route through configured providers (Anthropic, OpenAI, etc.).
 - Vector memory via embedded LanceDB. Success patterns and failure lessons persist across runs.
 
 ## Code Style
@@ -118,4 +118,4 @@ Located at `.githooks/pre-commit`, installed via `make install-hooks` (sets `cor
 
 ## Tech Stack
 
-LangGraph.js, Zod, Fastify + SSE, LanceDB, OpenClaw Gateway, tsup, Vitest. Web client: React + Tailwind CSS. No Python.
+LangGraph.js, Zod, Fastify + SSE, LanceDB, Provider Manager, tsup, Vitest. Web client: React + Tailwind CSS. No Python.

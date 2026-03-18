@@ -35,7 +35,7 @@ function uniquePorts(ports: number[]): number[] {
 function inferHttpServiceName(port: number, serverHeader: string): string {
     const h = serverHeader.toLowerCase();
     if (h.includes("ollama") || port === 11434) return "Ollama";
-    if (h.includes("openclaw")) return "OpenClaw Gateway";
+    if (h.includes("openclaw")) return "LLM Gateway";
     return "OpenAI-Compatible";
 }
 
@@ -43,7 +43,7 @@ function inferWsServiceName(port: number, htmlSignature: string): string {
     const sig = htmlSignature.toLowerCase();
     // 8001 is the legacy default; 18789 is the current default gateway port.
     if (sig.includes("openclaw") || port === 8001 || port === 18789)
-        return "OpenClaw Gateway";
+        return "LLM Gateway";
     return "WebSocket AI Gateway";
 }
 
@@ -241,7 +241,7 @@ export async function discoverOpenAIApi(
             // ignore
         }
 
-        const looksOpenClawHtml = htmlSig.toLowerCase().includes("openclaw");
+        const looksGatewayHtml = htmlSig.toLowerCase().includes("openclaw");
 
         // Probe C (fallback): WebSocket handshake only when HTTP checks did not
         // conclusively confirm a live service.
@@ -255,7 +255,7 @@ export async function discoverOpenAIApi(
             wsCapable = ws.isWebSocket;
         }
 
-        const shouldAddWs = wsOpened || wsCapable || (!httpReachable && looksOpenClawHtml);
+        const shouldAddWs = wsOpened || wsCapable || (!httpReachable && looksGatewayHtml);
         if (shouldAddWs) {
             results.push({
                 baseUrl: wsUrl,

@@ -1,5 +1,4 @@
 export type ProviderName =
-  | "openclaw" // legacy, kept for backward compat
   | "anthropic"
   | "openai"
   | "openrouter"

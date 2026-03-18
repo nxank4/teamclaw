@@ -2,7 +2,7 @@
  * Canvas Telemetry - Pushes TeamClaw state changes to the Canvas UI.
  * Uses Gateway WebSocket to emit events that the Canvas UI can display.
  *
- * Note: Gateway telemetry is currently disabled (OpenClaw gateway removed).
+ * Note: Gateway telemetry is currently disabled.
  * The class is retained so callers don't need to be rewritten; connect()
  * always returns false and events are silently dropped.
  */
@@ -27,7 +27,7 @@ export class CanvasTelemetry {
             return true;
         }
 
-        // Gateway telemetry disabled — no OpenClaw gateway to connect to
+        // Gateway telemetry disabled — no gateway configured
         logger.info("Canvas telemetry: no gateway configured, skipping");
         return false;
     }

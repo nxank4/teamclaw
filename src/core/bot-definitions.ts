@@ -163,7 +163,7 @@ export const BotDefinitionSchema = z.object({
   role_id: z.string(),
   traits: z.record(z.unknown()).default({}),
   worker_url: z.string().nullable().default(null),
-  adapter_type: z.enum(["openclaw", "openai"]).optional(),
+  adapter_type: z.enum(["openai", "provider"]).optional(),
 });
 export type BotDefinition = z.infer<typeof BotDefinitionSchema>;
 
