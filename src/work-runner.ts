@@ -27,13 +27,7 @@ import { PostMortemAnalyst } from "./agents/analyst.js";
 import { RetrospectiveAgent } from "./agents/retrospective.js";
 import {
     CONFIG,
-    setOpenClawWorkerUrl,
-    setOpenClawHttpUrl,
-    setOpenClawToken,
-    setOpenClawChatEndpoint,
-    setOpenClawModel,
 } from "./core/config.js";
-import { provisionOpenClaw } from "./core/provisioning.js";
 import { validateStartup } from "./core/startup-validation.js";
 import { appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -50,9 +44,7 @@ import type { MemoryBackend } from "./core/config.js";
 import type { GraphState } from "./core/graph-state.js";
 import { log as clackLog, note, spinner, cancel } from "@clack/prompts";
 import pc from "picocolors";
-import { cleanupManagedGateway } from "./commands/run-openclaw.js";
 import { readGlobalConfig, readGlobalConfigWithDefaults } from "./core/global-config.js";
-import { readLocalOpenClawConfig } from "./core/discovery.js";
 import { rotateAndCreateSessionLog } from "./utils/log-rotation.js";
 import { getTrafficController } from "./core/traffic-control.js";
 import { promptPath } from "./utils/path-autocomplete.js";
@@ -66,12 +58,7 @@ import {
     printSingleRunSummary,
     printWorkSummary,
 } from "./work-runner/outcome-reporter.js";
-import {
-    ensureGatewayRunning,
-    verifyGatewayHealth,
-    handleRuntimeGatewayError,
-} from "./work-runner/gateway-setup.js";
-import type { GatewaySetupConfig } from "./work-runner/gateway-setup.js";
+import { getGlobalProviderManager } from "./providers/provider-factory.js";
 import { startDashboard } from "./work-runner/dashboard-setup.js";
 import { parseWorkArgs, promptSessionConfig, promptPreLaunchConfirmation } from "./work-runner/session-config.js";
 import { workerEvents } from "./core/worker-events.js";
@@ -279,7 +266,6 @@ export async function runWork(
     const shutdown = () => {
         log("warn", "Shutting down work session...");
         sessionAbort.abort();
-        cleanupManagedGateway();
         setTimeout(() => process.exit(0), 500);
     };
     process.once("SIGINT", shutdown);
@@ -304,33 +290,19 @@ export async function runWork(
     });
 
     // ---------------------------------------------------------------------------
-    // Infrastructure config from setup
+    // Infrastructure config — verify providers are available
     // ---------------------------------------------------------------------------
     const persistedGlobalConfig = readGlobalConfig();
     const setupConfig = persistedGlobalConfig ?? readGlobalConfigWithDefaults();
     if (!persistedGlobalConfig) {
         logger.warn(
-            "No setup config found at ~/.teamclaw/config.json. Using strict defaults (ws://127.0.0.1:8001, http://127.0.0.1:8003). Run `teamclaw setup` to persist your environment.",
+            "No setup config found at ~/.teamclaw/config.json. Run `teamclaw setup` to configure providers.",
         );
     }
 
-    const gatewayPort = setupConfig.gatewayPort;
-    const gatewayUrl = setupConfig.gatewayUrl;
-    const apiUrl = setupConfig.apiUrl;
-
-    setOpenClawWorkerUrl(gatewayUrl);
-    setOpenClawHttpUrl(apiUrl);
-    setOpenClawToken(setupConfig.token);
-    setOpenClawChatEndpoint(setupConfig.chatEndpoint || "/v1/chat/completions");
-    const openclawCfg = readLocalOpenClawConfig();
-    const openclawPrimary = openclawCfg?.model?.trim() ?? "";
-    const globalModel = (setupConfig.model ?? "").trim();
-
-    if (openclawPrimary && openclawPrimary !== globalModel) {
-        setOpenClawModel(openclawPrimary);
-        logger.info(`Model synced from OpenClaw config: ${openclawPrimary}`);
-    } else if (globalModel) {
-        setOpenClawModel(globalModel);
+    const pm = getGlobalProviderManager();
+    if (pm.getProviders().length === 0) {
+        throw new Error("No LLM providers configured. Run `teamclaw setup` or set an API key env var.");
     }
 
     setDebugMode(setupConfig.debugMode ?? CONFIG.debugMode ?? false);
@@ -449,7 +421,7 @@ export async function runWork(
     // Pre-launch confirmation
     // ---------------------------------------------------------------------------
     if (canRenderSpinner && hasConfiguredSession) {
-        const model = setupConfig.model || CONFIG.openclawModel || "gateway-default";
+        const model = setupConfig.model || "";
         const confirmed = await promptPreLaunchConfirmation(
             canRenderSpinner, effectiveGoal!, workspacePath,
             sessionMode!, maxRuns, timeoutMinutes, model,
@@ -718,18 +690,21 @@ export async function runWork(
     const stopGatewayTailer = startGatewayLogTailer();
 
     // ---------------------------------------------------------------------------
-    // Gateway setup & health
+    // Provider health check
     // ---------------------------------------------------------------------------
-    const gwConfig: GatewaySetupConfig = {
-        gatewayPort,
-        gatewayUrl,
-        apiUrl,
-        token: setupConfig.token,
-        managedGateway: setupConfig.managedGateway,
-    };
-
-    await ensureGatewayRunning(gwConfig, canRenderSpinner, log);
-    await verifyGatewayHealth(gwConfig, canRenderSpinner, log);
+    {
+        const providers = pm.getProviders();
+        let healthyCount = 0;
+        for (const p of providers) {
+            try {
+                const ok = await p.healthCheck();
+                if (ok) healthyCount++;
+            } catch { /* non-critical */ }
+        }
+        if (healthyCount === 0 && providers.length > 0) {
+            log("warn", "No providers passed health check — requests may fail.");
+        }
+    }
 
     if (maxRuns > CONFIG.maxRuns) {
         maxRuns = CONFIG.maxRuns;
@@ -938,37 +913,6 @@ export async function runWork(
                 team.map((b) => b.id),
                 { workers: teamConfig?.workers },
             );
-            const openclawUrl =
-                CONFIG.openclawWorkerUrl?.trim() ||
-                (Object.values(workerUrls)[0] as string | undefined);
-            if (!openclawUrl) {
-                throw new Error(
-                    "❌ OpenClaw Gateway not found. TeamClaw requires OpenClaw to function.",
-                );
-            }
-            if (runId === 1) {
-                let provisioned = false;
-                let lastError: string | undefined;
-                for (let attempt = 1; attempt <= 2; attempt++) {
-                    const r = await provisionOpenClaw({ workerUrl: openclawUrl });
-                    if (r.ok) {
-                        provisioned = true;
-                        log("info", "OpenClaw provisioned");
-                        break;
-                    }
-                    lastError = r.error;
-                    log("warn", `OpenClaw provisioning attempt ${attempt} failed: ${r.error ?? "unknown error"}`);
-                    if (attempt < 2)
-                        await new Promise((res) => setTimeout(res, 2000));
-                }
-                if (!provisioned) {
-                    throw new Error(
-                        `❌ OpenClaw Gateway not found. TeamClaw requires OpenClaw to function.${
-                            lastError ? ` Details: ${lastError}` : ""
-                        }`,
-                    );
-                }
-            }
             // Wire webhook approval provider if --async mode with configured webhook
             let webhookProvider: ReturnType<typeof createWebhookApprovalProvider> | undefined;
             if (asyncMode && CONFIG.webhookApprovalUrl && CONFIG.webhookApprovalSecret) {
@@ -1133,8 +1077,7 @@ export async function runWork(
                     if (isFatal) {
                         cancel(
                             `Fatal Error: Coordinator failed — ${message.split("\n")[0]}.\n` +
-                            `  • Gateway: ${gatewayUrl}\n` +
-                            `  • Run \`teamclaw setup\` to reconfigure, or \`teamclaw run openclaw\` to restart.`,
+                            `  • Run \`teamclaw setup\` to reconfigure providers or \`teamclaw check\` to diagnose.`,
                         );
                         clearSessionConfig();
                         process.exit(1);
@@ -1455,7 +1398,8 @@ export async function runWork(
                 /HTTP [45]\d\d|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|WebSocket closed|fetch failed/i.test(errMsg);
 
             if (isFatal) {
-                await handleRuntimeGatewayError(errMsg, gatewayUrl, canRenderSpinner);
+                log("error", `Fatal provider error: ${errMsg}`);
+                log("error", "Run `teamclaw setup` to reconfigure providers or `teamclaw check` to diagnose.");
                 clearSessionConfig();
                 process.exit(1);
             }
@@ -1595,8 +1539,6 @@ export async function runWork(
             }
         }
     }
-
-    cleanupManagedGateway();
 
     try {
         const { getDashboardBridge } = await import("./core/dashboard-bridge.js");

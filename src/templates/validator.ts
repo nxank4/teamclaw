@@ -80,5 +80,5 @@ export function validateTemplate(data: unknown): TemplateValidationResult {
     return { valid: false, errors };
   }
 
-  return { valid: true, data: obj as TeamClawTemplate, errors: [] };
+  return { valid: true, data: obj as unknown as TeamClawTemplate, errors: [] };
 }
