@@ -244,13 +244,15 @@ function renderCachePerformance(audit: AuditTrail): string {
 
 function renderProviderUsage(audit: AuditTrail): string {
   const p = audit.providerStats!;
-  const lines = [
-    "## Provider Usage",
-    "",
-    `- OpenClaw: ${p.openclaw.requests} requests, ${p.openclaw.failures} failures`,
-    `- Anthropic: ${p.anthropic.requests} requests (fallback), ${p.anthropic.failures} failures`,
-    `- Fallbacks triggered: ${p.fallbacksTriggered}`,
-  ];
+  const lines = ["## Provider Usage", ""];
+  for (const [key, val] of Object.entries(p)) {
+    if (key === "fallbacksTriggered") continue;
+    if (typeof val === "object" && val) {
+      const entry = val as { requests: number; failures: number };
+      lines.push(`- ${key}: ${entry.requests} requests, ${entry.failures} failures`);
+    }
+  }
+  lines.push(`- Fallbacks triggered: ${p.fallbacksTriggered}`);
   return lines.join("\n");
 }
 

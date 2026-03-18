@@ -1,6 +1,6 @@
 import type { StreamChunk, StreamOptions } from "./stream-types.js";
 import type { StreamProvider } from "./provider.js";
-import { ProviderError, type ProviderName, type ProviderStats, emptyStats } from "./types.js";
+import { ProviderError, type ProviderStatEntry, type ProviderStats, emptyStats } from "./types.js";
 import { logger } from "../core/logger.js";
 
 export class ProviderManager {
@@ -11,6 +11,15 @@ export class ProviderManager {
     this.providers = providers;
   }
 
+  private getStatEntry(name: string): ProviderStatEntry {
+    let entry = this.stats[name] as ProviderStatEntry | undefined;
+    if (!entry || typeof entry === "number") {
+      entry = { requests: 0, failures: 0 };
+      this.stats[name] = entry;
+    }
+    return entry;
+  }
+
   async *stream(
     prompt: string,
     options?: StreamOptions,
@@ -19,26 +28,25 @@ export class ProviderManager {
 
     for (let i = 0; i < this.providers.length; i++) {
       const provider = this.providers[i]!;
-      const providerKey = provider.name as ProviderName;
 
       if (!provider.isAvailable()) {
         logger.debug(`[providers] skipping ${provider.name} (unavailable)`);
         continue;
       }
 
-      const statEntry = this.stats[providerKey];
-      if (statEntry) statEntry.requests++;
+      const statEntry = this.getStatEntry(provider.name);
+      statEntry.requests++;
 
       try {
         yield* provider.stream(prompt, options);
         return;
       } catch (err) {
-        if (statEntry) statEntry.failures++;
+        statEntry.failures++;
 
         const providerErr = err instanceof ProviderError
           ? err
           : new ProviderError({
-              provider: providerKey,
+              provider: provider.name,
               code: "UNKNOWN",
               message: String(err),
               isFallbackTrigger: false,
@@ -53,18 +61,36 @@ export class ProviderManager {
 
         const next = this.providers[i + 1];
         if (next) {
-          this.stats.fallbacksTriggered++;
+          (this.stats.fallbacksTriggered as number)++;
           logger.warn(`${provider.name} unavailable — switching to ${next.name}`);
         }
       }
     }
 
     throw new ProviderError({
-      provider: (this.providers[this.providers.length - 1]?.name ?? "unknown") as ProviderName,
+      provider: this.providers[this.providers.length - 1]?.name ?? "unknown",
       code: "ALL_PROVIDERS_FAILED",
       message: `ALL_PROVIDERS_FAILED: ${errors.map((e) => `${e.provider}: ${e.message}`).join("; ")}`,
       isFallbackTrigger: false,
     });
+  }
+
+  /** Consume stream and return full text + usage. */
+  async generate(
+    prompt: string,
+    options?: StreamOptions,
+  ): Promise<{ text: string; usage?: { promptTokens: number; completionTokens: number } }> {
+    const chunks: string[] = [];
+    let usage: { promptTokens: number; completionTokens: number } | undefined;
+
+    for await (const chunk of this.stream(prompt, options)) {
+      chunks.push(chunk.content);
+      if (chunk.done && chunk.usage) {
+        usage = chunk.usage;
+      }
+    }
+
+    return { text: chunks.join(""), usage };
   }
 
   getStats(): ProviderStats {

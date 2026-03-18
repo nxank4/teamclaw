@@ -107,7 +107,12 @@ export async function buildAuditTrail(
     const mgr = getProviderManager();
     if (mgr) {
       const stats = mgr.getStats();
-      const total = stats.openclaw.requests + stats.anthropic.requests;
+      let total = 0;
+      for (const [key, val] of Object.entries(stats)) {
+        if (key !== "fallbacksTriggered" && typeof val === "object" && val) {
+          total += (val as { requests: number }).requests;
+        }
+      }
       if (total > 0) {
         providerStats = stats;
       }

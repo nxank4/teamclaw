@@ -41,8 +41,7 @@ export interface AuditTrail {
     timeSavedMs: number;
   };
   providerStats?: {
-    openclaw: { requests: number; failures: number };
-    anthropic: { requests: number; failures: number };
+    [key: string]: { requests: number; failures: number } | number;
     fallbacksTriggered: number;
   };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { StreamChunk, StreamOptions } from "../src/providers/stream-types.js";
 import type { StreamProvider } from "../src/providers/provider.js";
 import { ProviderError } from "../src/providers/types.js";
+import type { ProviderStatEntry } from "../src/providers/types.js";
 
 vi.mock("../src/core/logger.js", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), plain: vi.fn(), success: vi.fn() },
@@ -32,6 +33,10 @@ async function collectChunks(gen: AsyncGenerator<StreamChunk>): Promise<StreamCh
   return result;
 }
 
+function stat(stats: Record<string, unknown>, key: string): ProviderStatEntry {
+  return stats[key] as ProviderStatEntry;
+}
+
 // Lazy import to avoid hoisting issues with mocks
 async function createManager(providers: StreamProvider[]) {
   const { ProviderManager } = await import("../src/providers/provider-manager.js");
@@ -43,7 +48,7 @@ describe("ProviderManager", () => {
     const mgr = await createManager([makeProvider("openclaw"), makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
     expect(chunks[0]!.content).toBe("from-openclaw");
-    expect(mgr.getStats().openclaw.requests).toBe(1);
+    expect(stat(mgr.getStats(), "openclaw").requests).toBe(1);
   });
 
   it("switches to next provider on ECONNREFUSED", async () => {
@@ -74,7 +79,7 @@ describe("ProviderManager", () => {
     });
     const mgr = await createManager([failingProvider("openclaw", err), makeProvider("anthropic")]);
     await expect(collectChunks(mgr.stream("test"))).rejects.toThrow("HTTP 401");
-    expect(mgr.getStats().anthropic.requests).toBe(0);
+    expect(stat(mgr.getStats(), "anthropic")).toBeUndefined();
   });
 
   it("switches on 429", async () => {
@@ -105,7 +110,7 @@ describe("ProviderManager", () => {
     const mgr = await createManager([unavailable, makeProvider("anthropic")]);
     const chunks = await collectChunks(mgr.stream("test"));
     expect(chunks[0]!.content).toBe("from-anthropic");
-    expect(mgr.getStats().openclaw.requests).toBe(0);
+    expect(stat(mgr.getStats(), "openclaw")).toBeUndefined();
   });
 
   it("stats track requests, failures, and fallbacks", async () => {
@@ -118,10 +123,24 @@ describe("ProviderManager", () => {
     await collectChunks(mgr.stream("test2"));
 
     const stats = mgr.getStats();
-    expect(stats.openclaw.requests).toBe(2);
-    expect(stats.openclaw.failures).toBe(2);
-    expect(stats.anthropic.requests).toBe(2);
-    expect(stats.anthropic.failures).toBe(0);
+    expect(stat(stats, "openclaw").requests).toBe(2);
+    expect(stat(stats, "openclaw").failures).toBe(2);
+    expect(stat(stats, "anthropic").requests).toBe(2);
+    expect(stat(stats, "anthropic").failures).toBe(0);
     expect(stats.fallbacksTriggered).toBe(2);
+  });
+
+  it("generate() returns full text and usage", async () => {
+    const provider = makeProvider("test", {
+      stream: async function* () {
+        yield { content: "Hello ", done: false };
+        yield { content: "World", done: false };
+        yield { content: "", done: true, usage: { promptTokens: 10, completionTokens: 5 } };
+      },
+    });
+    const mgr = await createManager([provider]);
+    const result = await mgr.generate("test");
+    expect(result.text).toBe("Hello World");
+    expect(result.usage).toEqual({ promptTokens: 10, completionTokens: 5 });
   });
 });

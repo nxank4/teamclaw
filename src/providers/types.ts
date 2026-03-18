@@ -1,16 +1,24 @@
 import type { StreamChunk, StreamOptions } from "./stream-types.js";
 
-export type ProviderName = "openclaw" | "anthropic";
+export type ProviderName =
+  | "openclaw"
+  | "anthropic"
+  | "openai"
+  | "openrouter"
+  | "ollama"
+  | "deepseek"
+  | "groq"
+  | "custom";
 
 export class ProviderError extends Error {
-  readonly provider: ProviderName;
+  readonly provider: string;
   readonly code: string;
   readonly statusCode?: number;
   readonly isFallbackTrigger: boolean;
   readonly cause?: unknown;
 
   constructor(opts: {
-    provider: ProviderName;
+    provider: string;
     code: string;
     message: string;
     statusCode?: number;
@@ -27,16 +35,13 @@ export class ProviderError extends Error {
   }
 }
 
+export type ProviderStatEntry = { requests: number; failures: number };
+
 export type ProviderStats = {
-  openclaw: { requests: number; failures: number };
-  anthropic: { requests: number; failures: number };
+  [key: string]: ProviderStatEntry | number;
   fallbacksTriggered: number;
 };
 
 export function emptyStats(): ProviderStats {
-  return {
-    openclaw: { requests: 0, failures: 0 },
-    anthropic: { requests: 0, failures: 0 },
-    fallbacksTriggered: 0,
-  };
+  return { fallbacksTriggered: 0 };
 }
