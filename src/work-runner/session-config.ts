@@ -17,7 +17,8 @@ export type ParsedWorkArgs = {
     noPreview: boolean;
     asyncMode: boolean;
     asyncTimeout: number;
-    teamMode: "manual" | "autonomous" | undefined;
+    teamMode: "manual" | "autonomous" | "template" | undefined;
+    templateId: string | undefined;
     noBriefing: boolean;
 };
 
@@ -31,7 +32,8 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
     let noPreview = false;
     let asyncMode = false;
     let asyncTimeout = 0;
-    let teamMode: "manual" | "autonomous" | undefined = undefined;
+    let teamMode: "manual" | "autonomous" | "template" | undefined = undefined;
+    let templateId: string | undefined = undefined;
     let noBriefing = false;
     let warnedInfraFlag = false;
 
@@ -64,9 +66,13 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
             noBriefing = true;
         } else if (args[i] === "--async") {
             asyncMode = true;
+        } else if (args[i] === "--template" && args[i + 1]) {
+            templateId = args[i + 1];
+            teamMode = "template";
+            i++;
         } else if (args[i] === "--team" && args[i + 1]) {
             const val = args[i + 1];
-            if (val === "manual" || val === "autonomous") {
+            if (val === "manual" || val === "autonomous" || val === "template") {
                 teamMode = val;
             }
             i++;
@@ -90,7 +96,7 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
         }
     }
 
-    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview, asyncMode, asyncTimeout, teamMode, noBriefing };
+    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview, asyncMode, asyncTimeout, teamMode, templateId, noBriefing };
 }
 
 export async function promptSessionConfig(

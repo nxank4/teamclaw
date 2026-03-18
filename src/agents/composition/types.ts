@@ -2,7 +2,7 @@
  * Types for autonomous team composition.
  */
 
-export type TeamMode = "manual" | "autonomous";
+export type TeamMode = "manual" | "autonomous" | "template";
 
 export type AgentRole =
   | "sprint_planning"
