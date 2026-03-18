@@ -184,7 +184,7 @@ describe("proxyPlugin", () => {
   // -- Reconnect ------------------------------------------------------------
 
   describe("POST /proxy/reconnect", () => {
-    it("calls disconnect then connect and returns success", async () => {
+    it("resets provider health state and returns success", async () => {
       const res = await fastify.inject({
         method: "POST",
         url: "/proxy/reconnect",
@@ -192,23 +192,7 @@ describe("proxyPlugin", () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body).toEqual({ success: true, message: "Reconnected successfully" });
-      expect(mockClient.disconnect).toHaveBeenCalledOnce();
-      expect(mockClient.connect).toHaveBeenCalledOnce();
-    });
-
-    it("returns error on reconnect failure", async () => {
-      mockClient.connect.mockRejectedValueOnce(new Error("connection refused"));
-
-      const res = await fastify.inject({
-        method: "POST",
-        url: "/proxy/reconnect",
-      });
-
-      expect(res.statusCode).toBe(500);
-      const body = res.json();
-      expect(body.success).toBe(false);
-      expect(body.message).toContain("connection refused");
+      expect(body).toEqual({ success: true, message: "Provider health state reset" });
     });
   });
 });

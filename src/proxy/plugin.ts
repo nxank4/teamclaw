@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 import { OpenClawError } from "../client/errors.js";
 import { OpenClawClientConfigSchema, type StreamOptions } from "../client/types.js";
+import { ProviderError } from "../providers/types.js";
 import { readGlobalConfigWithDefaults } from "../core/global-config.js";
 import { createProxyService } from "./ProxyService.js";
 import type { ProxyPluginOptions, ProxyStreamQuery } from "./types.js";
@@ -82,7 +83,11 @@ async function proxyPluginImpl(
         }
       } catch (err) {
         if (!abortController.signal.aborted) {
-          const code = err instanceof OpenClawError ? err.code : "UNKNOWN";
+          const code = err instanceof OpenClawError
+            ? err.code
+            : err instanceof ProviderError
+              ? err.code
+              : "UNKNOWN";
           const message = err instanceof Error ? err.message : String(err);
           const errorEvent = JSON.stringify({
             event: "error",
