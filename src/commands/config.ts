@@ -25,12 +25,6 @@ import {
     type TeamClawGlobalConfig,
 } from "../core/global-config.js";
 import { clearTeamConfigCache, loadTeamConfig } from "../core/team-config.js";
-import {
-    setOpenClawWorkerUrl,
-    setOpenClawToken,
-    setOpenClawChatEndpoint,
-    setOpenClawModel,
-} from "../core/config.js";
 import { modelManagementMenu } from "./config/model-menu.js";
 import { advancedSettingsMenu, type AdvancedState } from "./config/advanced-menu.js";
 import { randomPhrase } from "../utils/spinner-phrases.js";
@@ -642,11 +636,9 @@ async function systemMenu(state: DashboardState): Promise<void> {
     }
 }
 
-function applyRuntime(state: DashboardState): void {
-    setOpenClawWorkerUrl(state.openclawWorkerUrl);
-    setOpenClawToken(state.openclawToken);
-    setOpenClawChatEndpoint(state.openclawChatEndpoint);
-    setOpenClawModel(state.openclawModel);
+function applyRuntime(_state: DashboardState): void {
+    // OpenClaw runtime setters removed; config is now persisted to global config
+    // and providers are configured via the provider system.
 }
 
 function saveState(state: DashboardState): void {

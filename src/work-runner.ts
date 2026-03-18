@@ -16,7 +16,6 @@ import {
     buildTeamFromTemplate,
 } from "./core/team-templates.js";
 import {
-    getWorkerUrlsForTeam,
     setSessionConfig,
     clearSessionConfig,
 } from "./core/config.js";
@@ -909,10 +908,6 @@ export async function runWork(
                     ? buildTeamFromRoster(teamConfig.roster)
                     : buildTeamFromTemplate(template);
 
-            const workerUrls = getWorkerUrlsForTeam(
-                team.map((b) => b.id),
-                { workers: teamConfig?.workers },
-            );
             // Wire webhook approval provider if --async mode with configured webhook
             let webhookProvider: ReturnType<typeof createWebhookApprovalProvider> | undefined;
             if (asyncMode && CONFIG.webhookApprovalUrl && CONFIG.webhookApprovalSecret) {
@@ -982,7 +977,7 @@ export async function runWork(
             }
 
             const orchestration = createTeamOrchestration({
-                team, workerUrls, workspacePath, autoApprove, signal: sessionAbort.signal,
+                team, workspacePath, autoApprove, signal: sessionAbort.signal,
                 ...(webhookProvider ? { partialApprovalProvider: webhookProvider } : {}),
                 teamComposition,
             });

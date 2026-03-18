@@ -76,7 +76,7 @@ describe("WorkerBot", () => {
     );
 
     expect(out.success).toBe(false);
-    expect(out.output).toContain("OpenClaw required but service unavailable");
+    expect(out.output).toContain("LLM service required but unavailable");
     expect(out.quality_score).toBe(0);
     expect(heavyAdapter.executeTask).not.toHaveBeenCalled();
     expect(lightAdapter.executeTask).not.toHaveBeenCalled();

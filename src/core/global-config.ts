@@ -12,15 +12,15 @@ export interface ProviderConfigEntry {
 
 export interface TeamClawGlobalConfig {
   version: 1;
-  managedGateway: boolean;
-  gatewayHost: string;
-  gatewayPort: number;
-  apiPort: number;
-  gatewayUrl: string;
-  apiUrl: string;
-  token: string;
-  model: string;
-  chatEndpoint: string;
+  managedGateway?: boolean;
+  gatewayHost?: string;
+  gatewayPort?: number;
+  apiPort?: number;
+  gatewayUrl?: string;
+  apiUrl?: string;
+  token?: string;
+  model?: string;
+  chatEndpoint?: string;
   dashboardPort: number;
   debugMode: boolean;
   agentModels?: Record<string, string>;
@@ -62,8 +62,6 @@ const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 18789;
 const DEFAULT_CHAT_ENDPOINT = "/v1/chat/completions";
 const DEFAULT_DASHBOARD_PORT = 9001;
-const DEFAULT_OPENCLAW_MODEL = "";
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -118,28 +116,14 @@ function ensureGlobalConfigDir(): void {
 }
 
 export function buildDefaultGlobalConfig(): TeamClawGlobalConfig {
-  const gatewayHost = DEFAULT_GATEWAY_HOST;
-  const gatewayPort = DEFAULT_GATEWAY_PORT;
-  const apiPort = gatewayPort + 2;
   return {
     version: 1,
-    managedGateway: true,
-    gatewayHost,
-    gatewayPort,
-    apiPort,
-    gatewayUrl: `ws://${gatewayHost}:${gatewayPort}`,
-    apiUrl: `http://${gatewayHost}:${apiPort}`,
-    token: "",
-    model: DEFAULT_OPENCLAW_MODEL,
-    chatEndpoint: DEFAULT_CHAT_ENDPOINT,
     dashboardPort: DEFAULT_DASHBOARD_PORT,
     debugMode: false,
   };
 }
 
 export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): TeamClawGlobalConfig {
-  const defaults = buildDefaultGlobalConfig();
-
   const fromGatewayUrl =
     typeof input.gatewayUrl === "string" && input.gatewayUrl.trim()
       ? parseHostAndPortFromUrl(input.gatewayUrl)
@@ -148,12 +132,12 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
   const gatewayHost = normalizeHost(
     (typeof input.gatewayHost === "string" && input.gatewayHost.trim()) ||
       fromGatewayUrl.host ||
-      defaults.gatewayHost,
+      DEFAULT_GATEWAY_HOST,
   );
 
   const gatewayPort = toPositiveInt(
     input.gatewayPort ?? fromGatewayUrl.port,
-    defaults.gatewayPort,
+    DEFAULT_GATEWAY_PORT,
   );
 
   const apiPort = toPositiveInt(input.apiPort, gatewayPort + 2);
@@ -282,17 +266,25 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
         }))
     : undefined;
 
+  // Gateway fields are optional — include only when present in input
+  const gatewayFields: Partial<TeamClawGlobalConfig> = {};
+  if (typeof input.managedGateway === "boolean") gatewayFields.managedGateway = input.managedGateway;
+  if (gatewayHost !== DEFAULT_GATEWAY_HOST || input.gatewayHost) gatewayFields.gatewayHost = gatewayHost;
+  if (gatewayPort !== DEFAULT_GATEWAY_PORT || input.gatewayPort) {
+    gatewayFields.gatewayPort = gatewayPort;
+    gatewayFields.gatewayUrl = `ws://${gatewayHost}:${gatewayPort}`;
+  }
+  if (input.apiPort) {
+    gatewayFields.apiPort = apiPort;
+    gatewayFields.apiUrl = `http://${gatewayHost}:${apiPort}`;
+  }
+  if (token) gatewayFields.token = token;
+  if (model) gatewayFields.model = model;
+  if (chatEndpoint !== DEFAULT_CHAT_ENDPOINT || input.chatEndpoint) gatewayFields.chatEndpoint = chatEndpoint;
+
   return {
     version: 1,
-    managedGateway: typeof input.managedGateway === "boolean" ? input.managedGateway : true,
-    gatewayHost,
-    gatewayPort,
-    apiPort,
-    gatewayUrl: `ws://${gatewayHost}:${gatewayPort}`,
-    apiUrl: `http://${gatewayHost}:${apiPort}`,
-    token,
-    model: model || DEFAULT_OPENCLAW_MODEL,
-    chatEndpoint,
+    ...gatewayFields,
     dashboardPort,
     debugMode,
     ...(agentModels && Object.keys(agentModels).length > 0 ? { agentModels } : {}),

@@ -30,14 +30,7 @@ vi.mock("@/core/global-config.js", () => ({
 
 // Mock config.js to prevent filesystem side effects
 vi.mock("@/core/config.js", () => ({
-  CONFIG: {
-    openclawModel: "",
-    openclawWorkerUrl: "",
-    openclawHttpUrl: "",
-    openclawToken: "",
-    openclawChatEndpoint: "/v1/chat/completions",
-  },
-  setOpenClawModel: vi.fn(),
+  CONFIG: {},
 }));
 
 // Mock discovery to avoid filesystem reads

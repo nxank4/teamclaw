@@ -133,8 +133,6 @@ vi.mock("@/agents/memory-retrieval.js", () => ({
 
 vi.mock("@/core/config.js", () => ({
   CONFIG: {
-    openclawWorkerUrl: "http://localhost:18789",
-    openclawToken: "test-token",
     maxCycles: 10,
   },
   getApprovalKeywords: vi.fn().mockReturnValue([]),

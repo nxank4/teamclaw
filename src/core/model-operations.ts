@@ -22,7 +22,6 @@ import {
   listAvailableModels,
   resolveModelForAgent,
 } from "./model-config.js";
-import { setOpenClawModel } from "./config.js";
 
 export interface ModelSummary {
   defaultModel: string;
@@ -39,7 +38,6 @@ function readOrDefault(): TeamClawGlobalConfig {
 
 export function persistDefaultModel(model: string): void {
   setDefaultModel(model);
-  setOpenClawModel(model);
 
   const existing = readOrDefault();
   writeGlobalConfig({ ...existing, model });

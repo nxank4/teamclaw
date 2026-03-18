@@ -58,13 +58,6 @@ export const CONFIG = {
     verboseLogging: getGlobalBoolean("verboseLogging", false),
     debugMode: getGlobalBoolean("debugMode", false),
 
-    openclawWorkerUrl: String(globalCfg.gatewayUrl || ""),
-    openclawHttpUrl: String(globalCfg.apiUrl || ""),
-    openclawWorkers: {} as Record<string, string>,
-    openclawToken: String(globalCfg.token || ""),
-    openclawChatEndpoint: String(globalCfg.chatEndpoint || "/v1/chat/completions"),
-    openclawModel: String(globalCfg.model || ""),
-    openclawProvisionTimeout: getGlobalNumber("openclawProvisionTimeout", 30_000),
     thinkingLevel: getGlobalString("thinkingLevel", "adaptive"),
 
     webhookOnTaskComplete: getGlobalString("webhookOnTaskComplete", ""),
@@ -169,35 +162,6 @@ export const CONFIG = {
     })(),
 } as const;
 
-type MutableOpenClawRuntimeConfig = {
-    openclawWorkerUrl: string;
-    openclawHttpUrl: string;
-    openclawToken: string;
-    openclawChatEndpoint: string;
-    openclawModel: string;
-};
-
-function applyRuntimeOpenClawConfig(
-    update: Partial<MutableOpenClawRuntimeConfig>,
-): void {
-    const cfg = CONFIG as unknown as MutableOpenClawRuntimeConfig;
-    if (typeof update.openclawWorkerUrl === "string") {
-        cfg.openclawWorkerUrl = update.openclawWorkerUrl;
-    }
-    if (typeof update.openclawHttpUrl === "string") {
-        cfg.openclawHttpUrl = update.openclawHttpUrl;
-    }
-    if (typeof update.openclawToken === "string") {
-        cfg.openclawToken = update.openclawToken;
-    }
-    if (typeof update.openclawChatEndpoint === "string") {
-        cfg.openclawChatEndpoint = update.openclawChatEndpoint;
-    }
-    if (typeof update.openclawModel === "string") {
-        cfg.openclawModel = update.openclawModel;
-    }
-}
-
 export interface SessionConfig {
     creativity?: number;
     max_cycles?: number;
@@ -239,31 +203,6 @@ export function clearSessionConfig(): void {
     sessionOverrides = {};
 }
 
-/** Directly update the runtime HTTP API URL used by the LLM adapter. */
-export function setOpenClawHttpUrl(url: string): void {
-    applyRuntimeOpenClawConfig({ openclawHttpUrl: url });
-}
-
-/** Directly update the runtime model used by the LLM adapter. */
-export function setOpenClawModel(model: string): void {
-    applyRuntimeOpenClawConfig({ openclawModel: model });
-}
-
-/** Directly update the runtime token used by the LLM adapter. */
-export function setOpenClawToken(token: string): void {
-    applyRuntimeOpenClawConfig({ openclawToken: token });
-}
-
-/** Directly update the runtime chat endpoint used by the LLM adapter. */
-export function setOpenClawChatEndpoint(endpoint: string): void {
-    applyRuntimeOpenClawConfig({ openclawChatEndpoint: endpoint });
-}
-
-/** Update the runtime WebSocket gateway URL (e.g. after the user selects a port interactively). */
-export function setOpenClawWorkerUrl(url: string): void {
-    applyRuntimeOpenClawConfig({ openclawWorkerUrl: url });
-}
-
 function creativityToTemperature(creativity: number): number {
     return Math.max(0.2, Math.min(1.5, 0.3 + creativity * 0.9));
 }
@@ -282,25 +221,6 @@ export function getTeamModel(): string {
 
 export function getWorkspaceDir(): string {
     return CONFIG.workspaceDir;
-}
-
-export function getWorkerUrlsForTeam(
-    botIds: string[],
-    overrides?: { singleUrl?: string; workers?: Record<string, string> },
-): Record<string, string> {
-    if (overrides?.workers && Object.keys(overrides.workers).length > 0) {
-        return overrides.workers;
-    }
-    const single =
-        overrides?.singleUrl?.trim() ?? CONFIG.openclawWorkerUrl?.trim();
-    if (single) {
-        const out: Record<string, string> = {};
-        for (const id of botIds) out[id] = single;
-        return out;
-    }
-    if (Object.keys(CONFIG.openclawWorkers).length > 0)
-        return CONFIG.openclawWorkers;
-    return {};
 }
 
 export function isPersonalityEnabled(role?: string): boolean {

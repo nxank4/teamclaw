@@ -104,14 +104,10 @@ export class VectorMemory {
     }
 
     try {
-      const embeddingBase =
-        CONFIG.openclawHttpUrl ||
-        CONFIG.openclawWorkerUrl ||
-        DEFAULT_EMBEDDING_BASE;
       this.embedder = new HttpEmbeddingFunction(
-        embeddingBase,
+        DEFAULT_EMBEDDING_BASE,
         EMBEDDING_MODEL,
-        CONFIG.openclawToken ?? "",
+        "",
       );
       const lanceUri = process.env["LANCEDB_URI"]?.trim() || path.join(this.persistDirectory, "lancedb");
       await mkdir(lanceUri, { recursive: true });

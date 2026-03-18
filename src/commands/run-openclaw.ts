@@ -2,7 +2,6 @@ import { exec, spawn, ChildProcess } from "child_process";
 import { text, spinner } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
 import { logger } from "../core/logger.js";
-import { CONFIG } from "../core/config.js";
 import net from "node:net";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,26 +17,10 @@ function commandExists(cmd: string): Promise<boolean> {
 }
 
 export function detectPortFromConfig(): string {
-    // First try to read from local OpenClaw config file
+    // Try to read from local OpenClaw config file
     const localCfg = readLocalOpenClawConfig();
     if (localCfg) {
         return String(localCfg.port);
-    }
-    
-    // Then try from CONFIG
-    const configuredUrl = CONFIG.openclawWorkerUrl ?? "";
-    if (configuredUrl) {
-        try {
-            const urlStr = configuredUrl.includes("://")
-                ? configuredUrl
-                : `http://${configuredUrl}`;
-            const url = new URL(urlStr);
-            if (url.port) {
-                return url.port;
-            }
-        } catch {
-            // use default
-        }
     }
     return "18789";
 }
@@ -48,18 +31,7 @@ export function detectPortFromConfig(): string {
  * and finally defaulting to 18789.
  */
 export function detectHttpPortFromConfig(): string {
-    // 1. Try the runtime config HTTP URL (set during setup/config)
-    const envHttpUrl = (CONFIG.openclawHttpUrl ?? "").trim();
-    if (envHttpUrl) {
-        try {
-            const url = new URL(envHttpUrl);
-            if (url.port) return url.port;
-        } catch {
-            // fall through
-        }
-    }
-
-    // 2. Try reading ~/.openclaw/openclaw.json directly
+    // Try reading ~/.openclaw/openclaw.json directly
     try {
         const localCfg = readLocalOpenClawConfig();
         if (localCfg && localCfg.httpPort > 0) {
@@ -69,7 +41,6 @@ export function detectHttpPortFromConfig(): string {
         // ignore
     }
 
-    // 3. Default
     return "18789";
 }
 

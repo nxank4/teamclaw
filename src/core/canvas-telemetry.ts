@@ -1,10 +1,13 @@
 /**
- * OpenClaw Canvas Telemetry - Pushes TeamClaw state changes to OpenClaw Canvas.
+ * Canvas Telemetry - Pushes TeamClaw state changes to the Canvas UI.
  * Uses Gateway WebSocket to emit events that the Canvas UI can display.
+ *
+ * Note: Gateway telemetry is currently disabled (OpenClaw gateway removed).
+ * The class is retained so callers don't need to be rewritten; connect()
+ * always returns false and events are silently dropped.
  */
 
-import { CONFIG } from "../core/config.js";
-import { logger, isDebugMode } from "../core/logger.js";
+import { logger } from "../core/logger.js";
 import { wsManager } from "./ws-manager.js";
 interface WsEvent { type: string; payload: unknown; }
 
@@ -18,46 +21,15 @@ export interface TaskEvent {
 
 export class CanvasTelemetry {
     private connected = false;
-    private readonly gatewayUrl: string;
-
-    constructor() {
-        const rawUrl = CONFIG.openclawWorkerUrl ?? "http://localhost:18789";
-        const baseUrl = rawUrl
-            .replace(/^https:\/\//i, "wss://")
-            .replace(/^http:\/\//i, "ws://")
-            .replace(/^(?!wss?:\/\/)/, "ws://");
-        
-        const token = CONFIG.openclawToken ?? "";
-        const url = new URL(baseUrl);
-        if (token) {
-            url.searchParams.set("token", token);
-        }
-
-        this.gatewayUrl = url.href;
-    }
 
     async connect(): Promise<boolean> {
         if (this.connected) {
             return true;
         }
 
-        const token = CONFIG.openclawToken ?? "";
-
-        const ok = await wsManager.connect(this.gatewayUrl, {
-            token,
-            role: "operator",
-            scopes: ["telemetry"],
-            clientId: "gateway-client",
-            clientMode: "backend",
-        });
-        this.connected = ok;
-        if (ok && isDebugMode()) {
-            logger.agent("📡 Connected to OpenClaw Gateway for Canvas telemetry");
-        }
-        if (!ok) {
-            wsManager.close();
-        }
-        return ok;
+        // Gateway telemetry disabled — no OpenClaw gateway to connect to
+        logger.info("Canvas telemetry: no gateway configured, skipping");
+        return false;
     }
 
     private emitTelemetry(payload: Record<string, unknown>): void {

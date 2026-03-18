@@ -14,7 +14,6 @@ import { createTeamOrchestration } from "../core/simulation.js";
 import { buildTeamFromRoster, buildTeamFromTemplate } from "../core/team-templates.js";
 import type { ApprovalResponse } from "../agents/approval.js";
 import {
-  getWorkerUrlsForTeam,
   setSessionConfig,
   clearSessionConfig,
   updateSessionCreativity,
@@ -29,7 +28,7 @@ import {
   fireTaskCompleteWebhook,
   fireCycleEndWebhook,
 } from "./webhooks.js";
-import { provisionOpenClaw } from "../core/provisioning.js";
+import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { validateStartup } from "../core/startup-validation.js";
 import { getTeamTemplate } from "../core/team-templates.js";
 import { logger } from "../core/logger.js";
@@ -155,7 +154,7 @@ export async function runWeb(args: string[]): Promise<void> {
   });
 
   llmEvents.on("log", (entry: LlmLogEntry) => {
-    broadcast({ type: "openclaw_log", entry });
+    broadcast({ type: "llm_log", entry });
   });
 
   startGatewayLogTailer();
@@ -211,7 +210,7 @@ export async function runWeb(args: string[]): Promise<void> {
   }
 
   // ---------------------------------------------------------------------------
-  // Proxy plugin — local SSE proxy for OpenClawClient
+  // Proxy plugin — local SSE proxy for LLM requests
   // ---------------------------------------------------------------------------
   const proxyCfg = globalCfg.proxy ?? {};
   await fastify.register(proxyPlugin, {
@@ -412,8 +411,6 @@ export async function runWeb(args: string[]): Promise<void> {
       getDefaultGoal();
     const teamTemplate =
       (msg.team_template as string) ?? teamConfig?.template ?? "game_dev";
-    const workerUrlOverride = (msg.worker_url as string)?.trim() || undefined;
-
     broadcast({ type: "config_updated", config: getFullConfig() });
 
     if (getTeamTemplate(teamTemplate) === null) {
@@ -429,24 +426,11 @@ export async function runWeb(args: string[]): Promise<void> {
 
     // Fire orchestration in background
     (async () => {
-      const openclawUrl =
-        workerUrlOverride?.trim() ||
-        (teamConfig?.worker_url as string | undefined)?.trim() ||
-        CONFIG.openclawWorkerUrl?.trim();
-      if (!openclawUrl) {
+      const pm = getGlobalProviderManager();
+      if (pm.getProviders().length === 0) {
         broadcast({
           type: "provision_error",
-          error: "OpenClaw Gateway not found. TeamClaw requires OpenClaw to function.",
-        });
-        return;
-      }
-      const provisionResult = await provisionOpenClaw({ workerUrl: openclawUrl });
-      if (!provisionResult.ok) {
-        const detail = provisionResult.error ?? "unknown error";
-        logger.warn(`OpenClaw provisioning failed: ${detail}`);
-        broadcast({
-          type: "provision_error",
-          error: `OpenClaw Gateway not found. TeamClaw requires OpenClaw to function. Details: ${detail}`,
+          error: "No LLM providers configured. Run `teamclaw setup` or set an API key env var.",
         });
         return;
       }
@@ -488,10 +472,6 @@ export async function runWeb(args: string[]): Promise<void> {
           teamConfig?.roster && teamConfig.roster.length > 0
             ? buildTeamFromRoster(teamConfig.roster)
             : buildTeamFromTemplate(teamTemplate);
-        const workerUrls = getWorkerUrlsForTeam(team.map((b) => b.id), {
-          singleUrl: workerUrlOverride || teamConfig?.worker_url,
-          workers: workerUrlOverride || teamConfig?.worker_url ? undefined : teamConfig?.workers,
-        });
         runThreadId = randomUUID();
 
         // Wire webhook approval provider if configured
@@ -512,7 +492,6 @@ export async function runWeb(args: string[]): Promise<void> {
 
         const orch = createTeamOrchestration({
           team,
-          workerUrls,
           approvalProvider,
           partialApprovalProvider: effectivePartialProvider,
         });

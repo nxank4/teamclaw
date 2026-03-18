@@ -260,8 +260,7 @@ export function getFullConfig(): Record<string, unknown> {
     max_generations: cliGenerations,
     session_mode: cliSessionMode,
     session_duration: cliSessionDuration,
-    worker_url: CONFIG.openclawWorkerUrl || "",
-    model: CONFIG.openclawModel || modelCfg.defaultModel,
+    model: modelCfg.defaultModel,
     agent_models: modelCfg.agentModels,
     fallback_chain: modelCfg.fallbackChain,
   };

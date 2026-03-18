@@ -4,7 +4,7 @@ import { KNOWN_FLAGS } from "@/graph/confidence/types.js";
 
 // Mock the adapter to avoid needing OpenClaw
 vi.mock("@/adapters/worker-adapter.js", () => ({
-  UniversalOpenClawAdapter: class {
+  UniversalWorkerAdapter: class {
     constructor(public options: Record<string, unknown>) {}
     executeTask = vi.fn().mockResolvedValue({
       task_id: "test",
@@ -21,10 +21,7 @@ vi.mock("@/adapters/worker-adapter.js", () => ({
 }));
 
 vi.mock("@/core/config.js", () => ({
-  CONFIG: {
-    openclawWorkerUrl: "http://localhost:8001",
-    openclawToken: "test",
-  },
+  CONFIG: {},
 }));
 
 describe("createCustomWorkerBots", () => {

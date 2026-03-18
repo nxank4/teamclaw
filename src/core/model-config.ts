@@ -4,15 +4,10 @@
  * Resolution priority (highest → lowest):
  *   1. Per-agent runtime override (setAgentModel)
  *   2. Per-agent config from teamclaw.config.json → agent_models
- *   3. Global runtime model (CONFIG.openclawModel)
- *   4. Global config from ~/.teamclaw/config.json → model
- *   5. OpenClaw primary from ~/.openclaw/openclaw.json → agents.defaults.model.primary
- *   6. Auto-discovery via /v1/models
- *   7. Fallback: empty string (let gateway decide)
+ *   3. Global config from ~/.teamclaw/config.json → model
+ *   4. Fallback: empty string (let provider decide)
  */
 
-import { CONFIG } from "./config.js";
-import { readLocalOpenClawConfig } from "./discovery.js";
 import {
   readGlobalConfig,
   buildDefaultGlobalConfig,
@@ -33,15 +28,7 @@ const runtimeAgentModels: Record<string, string> = {};
 // Cached config-level agent models (loaded lazily from team + global config)
 let configAgentModels: Record<string, string> | null = null;
 
-// Cached OpenClaw config values
-let openclawConfigCache: {
-  primaryModel: string;
-  fallbackChain: string[];
-  availableModels: string[];
-  aliases: Record<string, string>;
-} | null = null;
-
-// Runtime aliases (user-defined + OpenClaw config)
+// Runtime aliases (user-defined)
 let runtimeAliases: Record<string, string> = {};
 
 // Runtime allowlist (empty = allow all)
@@ -87,41 +74,12 @@ function loadConfigAgentModels(): Record<string, string> {
   return configAgentModels;
 }
 
-function loadOpenClawConfig(): typeof openclawConfigCache {
-  if (openclawConfigCache !== null) return openclawConfigCache;
-
-  const localCfg = readLocalOpenClawConfig();
-  if (localCfg) {
-    openclawConfigCache = {
-      primaryModel: localCfg.model,
-      fallbackChain: localCfg.fallbackModels,
-      availableModels: localCfg.availableModels,
-      aliases: localCfg.aliases ?? {},
-    };
-  } else {
-    openclawConfigCache = {
-      primaryModel: "",
-      fallbackChain: [],
-      availableModels: [],
-      aliases: {},
-    };
-  }
-
-  // Merge OpenClaw aliases into runtime aliases (user-defined take precedence)
-  const merged = { ...(openclawConfigCache.aliases ?? {}), ...runtimeAliases };
-  runtimeAliases = merged;
-
-  return openclawConfigCache;
-}
-
 /**
  * Resolve alias: if modelOrAlias matches a known alias, return the target model.
  */
 export function resolveAlias(modelOrAlias: string): string {
   const trimmed = modelOrAlias.trim();
   if (!trimmed) return trimmed;
-  // Load to ensure OpenClaw aliases are populated
-  loadOpenClawConfig();
   return runtimeAliases[trimmed] ?? trimmed;
 }
 
@@ -157,16 +115,11 @@ export function resolveModelForAgent(agentRole: string): string {
     }
   }
 
-  // Priority 3: Global runtime model (CONFIG.openclawModel)
+  // Priority 3: Global config model
   if (!resolved) {
-    const globalModel = CONFIG.openclawModel?.trim();
+    const globalCfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
+    const globalModel = globalCfg.model?.trim();
     if (globalModel) resolved = globalModel;
-  }
-
-  // Priority 5: OpenClaw primary model
-  if (!resolved) {
-    const ocCfg = loadOpenClawConfig();
-    if (ocCfg?.primaryModel) resolved = ocCfg.primaryModel;
   }
 
   // Resolve aliases
@@ -243,10 +196,9 @@ export function removeAlias(alias: string): void {
 }
 
 /**
- * Get all known aliases (OpenClaw + user-defined).
+ * Get all known aliases (config + user-defined).
  */
 export function getAliases(): Record<string, string> {
-  loadOpenClawConfig();
   return { ...runtimeAliases };
 }
 
@@ -275,16 +227,15 @@ export function setFallbackChain(models: string[]): void {
  * Get the full model configuration snapshot.
  */
 export function getModelConfig(): ModelConfig {
-  const ocCfg = loadOpenClawConfig();
   const cfgModels = loadConfigAgentModels();
   const globalCfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
 
   return {
     defaultModel: resolveModelForAgent("default"),
     agentModels: { ...cfgModels, ...runtimeAgentModels },
-    fallbackChain: runtimeFallbackChain ?? globalCfg.fallbackChain ?? ocCfg?.fallbackChain ?? [],
-    availableModels: ocCfg?.availableModels ?? [],
-    aliases: { ...(ocCfg?.aliases ?? {}), ...(globalCfg.modelAliases ?? {}), ...runtimeAliases },
+    fallbackChain: runtimeFallbackChain ?? globalCfg.fallbackChain ?? [],
+    availableModels: [],
+    aliases: { ...(globalCfg.modelAliases ?? {}), ...runtimeAliases },
     allowlist: runtimeAllowlist.length > 0 ? [...runtimeAllowlist] : [...(globalCfg.modelAllowlist ?? [])],
   };
 }
@@ -300,87 +251,16 @@ export function getFallbackChain(): string[] {
   if (globalCfg?.fallbackChain && globalCfg.fallbackChain.length > 0) {
     return globalCfg.fallbackChain;
   }
-  const ocCfg = loadOpenClawConfig();
-  return ocCfg?.fallbackChain ?? [];
+  return [];
 }
 
 /**
- * List available models from OpenClaw config + discovery.
+ * List available models from config + discovery.
  */
 export async function listAvailableModels(): Promise<string[]> {
-  const ocCfg = loadOpenClawConfig();
-  const fromConfig = ocCfg?.availableModels ?? [];
-
-  // Also try /v1/models endpoint
-  const fromApi = await discoverModelsFromApi();
-
-  // Merge and deduplicate
-  const all = [...fromConfig, ...fromApi];
-  return [...new Set(all)].filter(Boolean);
-}
-
-async function discoverModelsFromApi(): Promise<string[]> {
-  const workerUrl = CONFIG.openclawWorkerUrl?.trim();
-  if (!workerUrl) return [];
-
-  try {
-    // Derive HTTP API URL (same logic as llm-client)
-    let apiBase = CONFIG.openclawHttpUrl?.trim();
-    if (!apiBase) {
-      const raw = workerUrl.replace(/\/$/, "");
-      const httpRaw = raw.startsWith("wss://")
-        ? raw.replace(/^wss:\/\//i, "https://")
-        : raw.startsWith("ws://")
-          ? raw.replace(/^ws:\/\//i, "http://")
-          : raw;
-      try {
-        const parsed = new URL(httpRaw);
-        if (parsed.port) {
-          parsed.port = String(parseInt(parsed.port, 10) + 2);
-          apiBase = parsed.origin;
-        } else {
-          apiBase = httpRaw;
-        }
-      } catch {
-        apiBase = httpRaw;
-      }
-    }
-
-    const modelsUrl = new URL("/v1/models", `${apiBase.replace(/\/$/, "")}/`).href;
-    const headers: Record<string, string> = {};
-    if (CONFIG.openclawToken) {
-      headers.Authorization = `Bearer ${CONFIG.openclawToken}`;
-    }
-    const res = await fetch(modelsUrl, {
-      method: "GET",
-      headers,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return [];
-
-    const data = (await res.json()) as {
-      data?: Array<{ id?: string }>;
-      models?: Array<{ id?: string; name?: string }>;
-    };
-
-    const models: string[] = [];
-    if (data.data) {
-      for (const m of data.data) {
-        if (typeof m.id === "string" && m.id.trim()) models.push(m.id.trim());
-      }
-    }
-    if (data.models) {
-      for (const m of data.models) {
-        const id = typeof m.id === "string" ? m.id.trim() : "";
-        const name = typeof m.name === "string" ? m.name.trim() : "";
-        if (id) models.push(id);
-        else if (name) models.push(name);
-      }
-    }
-    return [...new Set(models)];
-  } catch {
-    return [];
-  }
+  // Models are now managed per-provider; return empty for now.
+  // Provider-specific model listing can be added later.
+  return [];
 }
 
 /**
@@ -388,7 +268,6 @@ async function discoverModelsFromApi(): Promise<string[]> {
  */
 export function clearModelConfigCache(): void {
   configAgentModels = null;
-  openclawConfigCache = null;
 
   // Reload aliases/allowlist/fallback from global config
   const globalCfg = readGlobalConfig();

@@ -4,8 +4,7 @@
  * Pings providers periodically. After 2 consecutive failures, marks a provider
  * as unavailable. 1 successful ping restores availability.
  *
- * Only pings providers that need active health checking (OpenClaw).
- * Anthropic uses key-presence check only — no API calls.
+ * Each provider handles its own health check logic internally.
  */
 
 import type { StreamProvider } from "./provider.js";
@@ -52,9 +51,6 @@ export class HealthMonitor {
 
   private async checkAll(): Promise<void> {
     for (const provider of this.providers) {
-      // Skip providers that don't need active pinging (Anthropic — key-presence only)
-      if (provider.name === "anthropic") continue;
-
       try {
         const healthy = await provider.healthCheck();
         if (healthy) {
