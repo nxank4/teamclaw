@@ -24,7 +24,7 @@ import {
 import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import {
     readTeamclawConfig,
 } from "../core/jsonConfigManager.js";
@@ -401,6 +401,19 @@ function persistAllConfig(state: WizardState): string {
     };
     const globalConfigPath = writeGlobalConfig(globalConfig);
 
+    if (state.anthropicApiKey) {
+        const raw = JSON.parse(readFileSync(globalConfigPath, "utf-8")) as Record<string, unknown>;
+        raw.providers = {
+            chain: ["openclaw", "anthropic"],
+            firstChunkTimeoutMs: 15000,
+            anthropic: {
+                apiKey: state.anthropicApiKey,
+                model: "claude-sonnet-4-6",
+            },
+        };
+        writeFileSync(globalConfigPath, JSON.stringify(raw, null, 2), "utf-8");
+    }
+
     writeConfig({
         workerUrl: wsUrl,
         authToken: state.token,
@@ -467,6 +480,35 @@ export async function runSetup(): Promise<void> {
     note("Step 4/7", pc.bold("Model Selection"));
     await stepModel(state);
 
+    // Fallback Provider (optional)
+    note("Fallback Provider (optional)", pc.bold("Anthropic API Key"));
+    const wantsFallback = handleCancel(
+        await confirm({
+            message: "Add Anthropic API key for fallback? (recommended)",
+            initialValue: false,
+        }),
+    ) as boolean;
+
+    if (wantsFallback) {
+        const keyInput = handleCancel(
+            await text({
+                message: "Enter Anthropic API key (starts with sk-ant-):",
+                placeholder: "sk-ant-...",
+                validate: (val) => {
+                    if (val && !val.startsWith("sk-ant-") && !val.startsWith("sk-")) {
+                        return "API key should start with sk-ant- or sk-";
+                    }
+                },
+            }),
+        ) as string;
+
+        if (keyInput?.trim()) {
+            state.anthropicApiKey = keyInput.trim();
+            const masked = "..." + state.anthropicApiKey.slice(-4);
+            logger.success(`Anthropic API key: ${masked}`);
+        }
+    }
+
     // Step 5/7: Goal
     note("Step 5/7", pc.bold("Goal"));
     await stepGoal(state);
@@ -502,6 +544,7 @@ export async function runSetup(): Promise<void> {
             `Team      : ${trunc(rosterSummary)}`,
             `Template  : ${state.templateId || "custom"}`,
             `Team Mode : ${state.teamMode || "manual"}`,
+            `Fallback  : ${state.anthropicApiKey ? "Anthropic API (configured)" : "none"}`,
         ].join("\n"),
         "Configuration Summary",
     );

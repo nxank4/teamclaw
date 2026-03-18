@@ -30,6 +30,7 @@ export interface WizardState {
     templateId: string;
     managed: boolean;
     teamMode?: string;
+    anthropicApiKey?: string;
 }
 
 export function handleCancel<T>(v: T): T {
