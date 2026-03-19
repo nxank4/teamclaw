@@ -10,7 +10,6 @@ import { ProviderError } from "./types.js";
 import { logger } from "../core/logger.js";
 
 const DEFAULT_MODEL = "gpt-5.3-codex";
-const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 export interface ChatGPTOAuthConfig {
   oauthToken?: string;
