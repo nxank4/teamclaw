@@ -4,6 +4,7 @@ import type { StreamProvider } from "./provider.js";
 import { ProviderError } from "./types.js";
 import { logger } from "../core/logger.js";
 import { recordPromptCacheHit, recordPromptCacheCreation } from "../token-opt/stats.js";
+import { readGlobalConfig } from "../core/global-config.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const HEALTH_WINDOW_MS = 5 * 60 * 1000;
@@ -20,10 +21,12 @@ export class AnthropicProvider implements StreamProvider {
   private readonly apiKey: string | null;
   private available = true;
   private lastSuccessAt = 0;
+  private readonly promptCachingEnabled: boolean;
 
   constructor(config: AnthropicProviderConfig) {
     this.apiKey = process.env.ANTHROPIC_API_KEY ?? config.apiKey ?? null;
     this.model = config.model ?? DEFAULT_MODEL;
+    this.promptCachingEnabled = readGlobalConfig()?.tokenOptimization?.promptCaching ?? true;
   }
 
   private getClient(): Anthropic {
@@ -49,13 +52,22 @@ export class AnthropicProvider implements StreamProvider {
       messages: [{ role: "user", content: prompt }],
     };
     if (options?.systemPrompt) {
-      params.system = [
-        {
-          type: "text" as const,
-          text: options.systemPrompt,
-          cache_control: { type: "ephemeral" as const },
-        },
-      ];
+      if (this.promptCachingEnabled) {
+        params.system = [
+          {
+            type: "text" as const,
+            text: options.systemPrompt,
+            cache_control: { type: "ephemeral" as const },
+          },
+        ];
+      } else {
+        params.system = [
+          {
+            type: "text" as const,
+            text: options.systemPrompt,
+          },
+        ];
+      }
     }
 
     logger.debug(`[anthropic] streaming with model=${params.model}`);

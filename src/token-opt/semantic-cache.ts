@@ -17,10 +17,11 @@ import { HttpEmbeddingFunction } from "../core/knowledge-base.js";
 import { hasSessionSpecificContent } from "../cache/cache-store.js";
 import { recordSemanticCacheHit, recordSemanticCacheMiss } from "./stats.js";
 import { logger } from "../core/logger.js";
+import { readGlobalConfig } from "../core/global-config.js";
 
 const TABLE_NAME = "semantic_cache";
-const SIMILARITY_THRESHOLD = 0.92;
-const TTL_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_SIMILARITY_THRESHOLD = 0.92;
+const DEFAULT_TTL_MINUTES = 30;
 const EMBEDDING_MODEL = "nomic-embed-text";
 const DEFAULT_EMBEDDING_BASE = "http://localhost:11434";
 
@@ -40,10 +41,21 @@ export class SemanticCache {
   private embedder: HttpEmbeddingFunction | null = null;
   private enabled = true;
   private initialized = false;
+  private similarityThreshold = DEFAULT_SIMILARITY_THRESHOLD;
+  private ttlMs = DEFAULT_TTL_MINUTES * 60 * 1000;
 
   async init(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
+
+    // Read config once at init
+    const cacheConfig = readGlobalConfig()?.tokenOptimization?.semanticCache;
+    if (cacheConfig?.enabled === false) {
+      this.enabled = false;
+      return;
+    }
+    this.similarityThreshold = cacheConfig?.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
+    this.ttlMs = (cacheConfig?.ttlMinutes ?? DEFAULT_TTL_MINUTES) * 60 * 1000;
 
     try {
       const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
@@ -94,7 +106,7 @@ export class SemanticCache {
         const similarity = 1 - distance;
 
         if (
-          similarity >= SIMILARITY_THRESHOLD &&
+          similarity >= this.similarityThreshold &&
           record.role === agentRole &&
           record.model === model &&
           record.expires_at > now
@@ -126,7 +138,7 @@ export class SemanticCache {
         model,
         response,
         created_at: now,
-        expires_at: now + TTL_MS,
+        expires_at: now + this.ttlMs,
         vector,
       };
 

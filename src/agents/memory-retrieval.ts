@@ -9,6 +9,7 @@ import type { SuccessPatternStore } from "../memory/success/store.js";
 import type { GlobalMemoryManager } from "../memory/global/store.js";
 import { retrieveSuccessPatterns } from "../memory/success/retriever.js";
 import { logger, isDebugMode } from "../core/logger.js";
+import { readGlobalConfig } from "../core/global-config.js";
 
 function log(msg: string): void {
   if (isDebugMode()) {
@@ -23,6 +24,7 @@ export class MemoryRetrievalNode {
   private readonly successStore: SuccessPatternStore | null;
   private readonly embedder: HttpEmbeddingFunction | null;
   private readonly globalManager: GlobalMemoryManager | null;
+  private readonly memoryTopK: number;
 
   constructor(
     vectorMemory: VectorMemory,
@@ -38,6 +40,7 @@ export class MemoryRetrievalNode {
     this.successStore = successStore;
     this.embedder = embedder;
     this.globalManager = globalManager;
+    this.memoryTopK = readGlobalConfig()?.tokenOptimization?.memoryTopK ?? 3;
     log(`MemoryRetrievalNode initialized (maxActions: ${maxRetroActions}, maxProjects: ${maxProjectMemories}, successStore: ${!!successStore}, globalManager: ${!!globalManager})`);
   }
 
@@ -102,9 +105,9 @@ export class MemoryRetrievalNode {
           const globalStore = this.globalManager.getPatternStore();
           const queryVector = (await this.embedder.generate([userGoal]))[0] ?? [];
           if (globalStore && queryVector.length > 0) {
-            globalPatterns = await globalStore.search(queryVector, 3);
+            globalPatterns = await globalStore.search(queryVector, this.memoryTopK);
           }
-          const rawLessons = await this.globalManager.searchLessons(queryVector, 3);
+          const rawLessons = await this.globalManager.searchLessons(queryVector, this.memoryTopK);
           globalLessons = rawLessons.map((l) => ({ text: l.text }));
         } catch (err) {
           log(`Global memory query failed: ${err}`);
@@ -114,12 +117,12 @@ export class MemoryRetrievalNode {
         const sessionIds = new Set(successPatterns.map((p) => p.id));
         globalPatterns = globalPatterns.filter((p) => !sessionIds.has(p.id));
 
-        // Cap total: 3 patterns + 3 lessons
-        const allLessons = globalLessons.map((l) => l.text).slice(0, 3);
+        // Cap total: topK patterns + topK lessons
+        const allLessons = globalLessons.map((l) => l.text).slice(0, this.memoryTopK);
 
         if (globalPatterns.length > 0 || globalLessons.length > 0) {
           memoriesLines.push("\n## Global Knowledge (Cross-Session):");
-          for (const pattern of globalPatterns.slice(0, 3 - successPatterns.length)) {
+          for (const pattern of globalPatterns.slice(0, this.memoryTopK - successPatterns.length)) {
             const conf = Math.round(pattern.confidence * 100);
             memoriesLines.push(`pattern=${pattern.taskDescription.slice(0, 40)} approach=${pattern.approach.slice(0, 70)} conf=${conf}%`);
           }

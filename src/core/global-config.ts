@@ -77,6 +77,10 @@ export interface TeamClawGlobalConfig {
       enabled?: boolean;
       thresholdChars?: number;
     };
+    payloadCompression?: {
+      enabled?: boolean;
+      thresholdChars?: number;
+    };
     semanticCache?: {
       enabled?: boolean;
       similarityThreshold?: number;
@@ -86,6 +90,7 @@ export interface TeamClawGlobalConfig {
       enabled?: boolean;
       allowTierDowngrade?: boolean;
     };
+    memoryTopK?: number;
   };
   providers?: ProviderConfigEntry[];
   workspaceDir?: string;

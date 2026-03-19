@@ -168,7 +168,10 @@ export function resolveModelForAgent(agentRole: string): string {
   }
 
   // Priority 3.5: Tier-based default (cheaper model for utility agents)
-  if (!resolved) {
+  // Skip if model routing is disabled in config
+  const modelRoutingEnabled =
+    (readGlobalConfig() ?? buildDefaultGlobalConfig()).tokenOptimization?.modelRouting?.enabled ?? true;
+  if (!resolved && modelRoutingEnabled) {
     const tierModel = resolveTierDefault(agentRole);
     if (tierModel) {
       resolved = tierModel;

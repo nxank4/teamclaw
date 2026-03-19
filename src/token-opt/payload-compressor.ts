@@ -5,9 +5,14 @@
  * GraphState fields from bloating agent prompts beyond useful context.
  */
 
+import { readGlobalConfig } from "../core/global-config.js";
 import { recordPayloadTruncation } from "./stats.js";
 
 const DEFAULT_THRESHOLD = 2000;
+
+// Read config once at module load
+const configThreshold =
+  readGlobalConfig()?.tokenOptimization?.payloadCompression?.thresholdChars ?? DEFAULT_THRESHOLD;
 
 /**
  * Truncate text exceeding `thresholdChars` and append a marker.
@@ -15,7 +20,7 @@ const DEFAULT_THRESHOLD = 2000;
  */
 export function compressIfLarge(
   text: string,
-  thresholdChars = DEFAULT_THRESHOLD,
+  thresholdChars = configThreshold,
 ): { text: string; truncatedBy: number } {
   if (!text || text.length <= thresholdChars) {
     return { text, truncatedBy: 0 };

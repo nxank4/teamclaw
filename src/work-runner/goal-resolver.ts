@@ -7,6 +7,7 @@ import { readdir, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 import { log as clackLog, note, spinner, select, text, cancel, isCancel } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
+import { logger } from "../core/logger.js";
 
 export const WORKSPACE_PROTECTED = new Set([".git", "teamclaw.config.json"]);
 
@@ -257,7 +258,7 @@ export async function promptGoalChoice(): Promise<{ mode: "file" | "manual"; val
         return { mode: "file", value: String(filePath).trim() };
     }
 
-    console.log([
+    logger.plain([
         "",
         "  Examples:",
         '  · "Add rate limiting to the auth API"',
