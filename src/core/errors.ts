@@ -1,4 +1,5 @@
 import pc from 'picocolors';
+import type { ProviderErrorType } from './result-types.js';
 
 export const PROVIDER_URLS: Record<string, { keyUrl: string | null; statusUrl: string }> = {
   anthropic:  { keyUrl: 'https://console.anthropic.com/settings/keys', statusUrl: 'https://status.anthropic.com' },
@@ -290,4 +291,32 @@ export function formatFirstRunMessage(): string {
   ];
 
   return lines.join('\n');
+}
+
+export function formatProviderErrorType(error: ProviderErrorType): string {
+  switch (error.type) {
+    case "rate_limit":
+      return `Rate limit hit on ${error.provider}. ` +
+        (error.retryAfterMs
+          ? `Retry in ${Math.ceil(error.retryAfterMs / 1000)}s.`
+          : "TeamClaw will try the next provider in your chain.");
+    case "timeout":
+      return `${error.provider} timed out after ${error.timeoutMs}ms. ` +
+        "Try a faster model or check your connection.";
+    case "auth_failed":
+      return `Authentication failed for ${error.provider}. ` +
+        "Run: teamclaw providers add " + error.provider;
+    case "model_not_found":
+      return `Model "${error.model}" not found on ${error.provider}. ` +
+        "Run: teamclaw providers list to see available models.";
+    case "context_too_long":
+      return `Context too long for ${error.provider}. ` +
+        "Enable context compression or use a model with larger context window.";
+    case "invalid_response":
+      return `Invalid response from ${error.provider}. Raw: ${error.raw.slice(0, 100)}`;
+    case "network":
+      return `Network error from ${error.provider}: ${error.message}`;
+    case "unknown":
+      return `Unexpected error from ${error.provider}: ${String(error.cause)}`;
+  }
 }
