@@ -2,12 +2,29 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import type { ProviderName } from "../providers/types.js";
+
 export interface ProviderConfigEntry {
-  type: "anthropic" | "openai" | "openrouter" | "ollama" | "deepseek" | "groq" | "custom";
+  type: ProviderName;
   apiKey?: string;
   baseURL?: string;
   model?: string;
   name?: string;
+  authMethod?: "apikey" | "oauth" | "device-oauth" | "setup-token" | "local" | "credentials";
+  oauthToken?: string;
+  refreshToken?: string;
+  tokenExpiry?: number;
+  githubToken?: string;
+  copilotToken?: string;
+  copilotTokenExpiry?: number;
+  setupToken?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  region?: string;
+  serviceAccountPath?: string;
+  projectId?: string;
+  apiVersion?: string;
 }
 
 export interface TeamClawGlobalConfig {
@@ -251,7 +268,14 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
     : undefined;
 
   // Parse providers: ProviderConfigEntry[]
-  const validProviderTypes = ["anthropic", "openai", "openrouter", "ollama", "deepseek", "groq", "custom"] as const;
+  const validProviderTypes = [
+    "anthropic", "openai", "openrouter", "ollama", "deepseek", "groq", "custom",
+    "chatgpt", "copilot", "anthropic-sub", "gemini-oauth",
+    "gemini", "grok", "mistral", "cerebras", "together", "fireworks",
+    "perplexity", "moonshot", "zai", "minimax", "cohere",
+    "opencode-zen", "opencode-go",
+    "bedrock", "vertex", "azure", "lmstudio",
+  ] as const;
   const rawProviders = (input as Record<string, unknown>).providers;
   const providers: ProviderConfigEntry[] | undefined = Array.isArray(rawProviders)
     ? (rawProviders as unknown[])
@@ -263,6 +287,21 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
           ...(typeof v.baseURL === "string" && v.baseURL.trim() ? { baseURL: v.baseURL.trim() } : {}),
           ...(typeof v.model === "string" && v.model.trim() ? { model: v.model.trim() } : {}),
           ...(typeof v.name === "string" && v.name.trim() ? { name: v.name.trim() } : {}),
+          ...(typeof v.authMethod === "string" ? { authMethod: v.authMethod } : {}),
+          ...(typeof v.oauthToken === "string" && v.oauthToken.trim() ? { oauthToken: v.oauthToken.trim() } : {}),
+          ...(typeof v.refreshToken === "string" && v.refreshToken.trim() ? { refreshToken: v.refreshToken.trim() } : {}),
+          ...(typeof v.tokenExpiry === "number" ? { tokenExpiry: v.tokenExpiry } : {}),
+          ...(typeof v.githubToken === "string" && v.githubToken.trim() ? { githubToken: v.githubToken.trim() } : {}),
+          ...(typeof v.copilotToken === "string" && v.copilotToken.trim() ? { copilotToken: v.copilotToken.trim() } : {}),
+          ...(typeof v.copilotTokenExpiry === "number" ? { copilotTokenExpiry: v.copilotTokenExpiry } : {}),
+          ...(typeof v.setupToken === "string" && v.setupToken.trim() ? { setupToken: v.setupToken.trim() } : {}),
+          ...(typeof v.accessKeyId === "string" && v.accessKeyId.trim() ? { accessKeyId: v.accessKeyId.trim() } : {}),
+          ...(typeof v.secretAccessKey === "string" && v.secretAccessKey.trim() ? { secretAccessKey: v.secretAccessKey.trim() } : {}),
+          ...(typeof v.sessionToken === "string" && v.sessionToken.trim() ? { sessionToken: v.sessionToken.trim() } : {}),
+          ...(typeof v.region === "string" && v.region.trim() ? { region: v.region.trim() } : {}),
+          ...(typeof v.serviceAccountPath === "string" && v.serviceAccountPath.trim() ? { serviceAccountPath: v.serviceAccountPath.trim() } : {}),
+          ...(typeof v.projectId === "string" && v.projectId.trim() ? { projectId: v.projectId.trim() } : {}),
+          ...(typeof v.apiVersion === "string" && v.apiVersion.trim() ? { apiVersion: v.apiVersion.trim() } : {}),
         }))
     : undefined;
 

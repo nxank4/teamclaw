@@ -5,7 +5,33 @@ export type ProviderName =
   | "ollama"
   | "deepseek"
   | "groq"
-  | "custom";
+  | "custom"
+  // Subscription providers
+  | "chatgpt"
+  | "copilot"
+  | "anthropic-sub"
+  | "gemini-oauth"
+  // API key providers
+  | "gemini"
+  | "grok"
+  | "mistral"
+  | "cerebras"
+  | "together"
+  | "fireworks"
+  | "perplexity"
+  | "moonshot"
+  | "zai"
+  | "minimax"
+  | "cohere"
+  // OpenCode
+  | "opencode-zen"
+  | "opencode-go"
+  // Cloud/Enterprise
+  | "bedrock"
+  | "vertex"
+  | "azure"
+  // Local
+  | "lmstudio";
 
 export class ProviderError extends Error {
   readonly provider: string;
