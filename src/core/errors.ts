@@ -207,6 +207,36 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
     body: 'Anthropic OAuth tokens (from claude.ai) are not supported for third-party tools.',
     fix: ['Use an API key: teamclaw providers add anthropic', 'Or setup-token (gray area): teamclaw providers add anthropic-sub'],
   },
+  SANDBOX_TIMEOUT: {
+    title: 'Code execution timed out',
+    body: 'Code execution timed out (>15s, exit 124). Optimize the code or break into smaller functions.',
+    fix: ['Break code into smaller chunks', 'Avoid infinite loops or expensive operations', 'Consider streaming results instead of batch processing'],
+  },
+  SANDBOX_MEMORY_EXCEEDED: {
+    title: 'Sandbox memory limit exceeded',
+    body: 'Code execution exceeded memory limit (128MB). Process data in chunks or reduce memory usage.',
+    fix: ['Process data in smaller batches', 'Avoid loading entire files into memory', 'Stream large datasets instead of buffering'],
+  },
+  SANDBOX_PERMISSION_DENIED: {
+    title: 'Sandbox permission denied',
+    body: 'Sandbox blocked access to: {resource}. Agents can only access the current project workspace.',
+    fix: ['Ensure file paths are within the project workspace', 'Network access is not available inside the sandbox', 'Environment variables are restricted to PATH, HOME, NODE_PATH, NODE_ENV, TMPDIR'],
+  },
+  SANDBOX_PAYLOAD_TOO_LARGE: {
+    title: 'Sandbox payload too large',
+    body: 'Data transfer to/from sandbox exceeded size limit. Write large data to disk instead of returning it directly.',
+    fix: ['Write results to a file in the workspace', 'Return only a summary or reference, not the full data', 'Limit base64 payloads to 10MB and JSON to 5MB'],
+  },
+  SANDBOX_INIT_FAILED: {
+    title: 'Sandbox initialization failed',
+    body: 'Failed to initialize code execution sandbox. Requires Node.js >= 20.',
+    fix: ['Run: teamclaw check', 'Ensure Node.js >= 20 is installed', 'Run: pnpm install (secure-exec may need rebuilding)'],
+  },
+  CUSTOM_AGENT_SANDBOX_FAILED: {
+    title: 'Custom agent sandbox failure',
+    body: 'Custom agent "{name}" failed in sandbox (exit {code}). Handlers cannot access network, processes, or env vars.',
+    fix: ['Ensure handler is self-contained with no external closures', 'Check handler logic for runtime errors', 'Run: teamclaw check to verify sandbox health'],
+  },
 };
 
 function replacePlaceholders(text: string, vars: Record<string, string>): string {

@@ -65,6 +65,13 @@ export interface AgentDefinition {
     pushbackTriggers?: Array<{ pattern: string; response: string; severity: "block" | "warn" | "note" }>;
     catchphrases?: string[];
   };
+  /**
+   * Source code of the handler function (as a string).
+   * When provided, the handler is serialized and run in a V8 isolate.
+   * Cannot close over external scope, access network, spawn processes,
+   * or read env vars.
+   */
+  handlerSource?: string;
   /** Arbitrary metadata. */
   metadata?: Record<string, unknown>;
 }

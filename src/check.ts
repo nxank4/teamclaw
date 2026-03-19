@@ -87,6 +87,40 @@ export async function runCheck(_args: string[]): Promise<void> {
     if (s) s.stop("Provider check complete.");
   }
 
+  // Sandbox check
+  lines.push("");
+  lines.push("  Sandbox:");
+  try {
+    const {
+      NodeRuntime,
+      createNodeDriver,
+      createNodeRuntimeDriverFactory,
+    } = await import("secure-exec");
+
+    const runtime = new NodeRuntime({
+      systemDriver: createNodeDriver(),
+      runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+      memoryLimit: 32,
+      cpuTimeLimitMs: 1000,
+    });
+
+    const result = await runtime.run<number>("module.exports = 21 * 2;");
+    runtime.dispose();
+
+    if (result.exports === 42) {
+      lines.push(`    ${pc.green("✓")}  V8 isolate   ${pc.dim("secure-exec ready")}`);
+    } else {
+      lines.push(`    ${pc.yellow("⚠")}  V8 isolate   ${pc.dim("unexpected result")}`);
+      issues.push("Sandbox V8 isolate returned unexpected result");
+    }
+  } catch (err) {
+    lines.push(`    ${pc.red("✗")}  V8 isolate   ${pc.red("unavailable")}`);
+    issues.push("Sandbox V8 isolate unavailable. Run: pnpm install secure-exec");
+    if (err instanceof Error) {
+      lines.push(`    ${pc.dim("              " + err.message)}`);
+    }
+  }
+
   // Summary
   lines.push("");
   lines.push("  " + pc.dim("─".repeat(40)));
