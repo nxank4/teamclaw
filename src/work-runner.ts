@@ -1431,6 +1431,10 @@ export async function runWork(
     // ---------------------------------------------------------------------------
     // Session cleanup
     // ---------------------------------------------------------------------------
+    // Dispose any remaining sandbox runtimes from parallel branches
+    const { disposeAllRuntimes } = await import("./tools/sandbox-registry.js");
+    disposeAllRuntimes();
+
     workerEvents.off("reasoning", reasoningListener);
     stopGatewayTailer();
     clearSessionConfig();

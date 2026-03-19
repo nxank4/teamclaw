@@ -24,6 +24,7 @@ import { withConfidenceScoring } from "../graph/confidence/prompt.js";
 import { extractDecisions } from "../journal/extractor.js";
 import type { AgentProfile, RoutingDecision } from "./profiles/types.js";
 import { ProfileRouter } from "./profiles/router.js";
+import { isSandboxEligible, initAgentBranch, cleanupAgentBranch } from "../tools/sandbox-registry.js";
 
 const LLM_UNAVAILABLE_MSG = "LLM service required but unavailable";
 
@@ -342,6 +343,13 @@ export function createWorkerTaskNode(
         };
       }
 
+      // Initialize sandbox for eligible roles
+      const workerRoleId = worker.bot.role_id ?? "";
+      const sandboxActive = isSandboxEligible(workerRoleId);
+      if (sandboxActive) {
+        initAgentBranch(taskId, assignedTo, CONFIG.workspaceDir ?? process.cwd());
+      }
+
       const uiMessages: string[] = [];
       const standupMessages: Record<string, unknown>[] = [];
 
@@ -478,6 +486,11 @@ export function createWorkerTaskNode(
         timestamp: ts,
       };
 
+      // Cleanup sandbox runtime for this branch
+      if (sandboxActive) {
+        cleanupAgentBranch(taskId, assignedTo);
+      }
+
       return {
         task_queue: [updatedTask],
         bot_stats: deltaStats,
@@ -486,6 +499,9 @@ export function createWorkerTaskNode(
         __node__: "worker_task",
       };
     } catch (err) {
+      // Cleanup sandbox runtime on error
+      cleanupAgentBranch(taskId, botId);
+
       const detail = formatExecutionError(err);
       const updatedTask = {
         ...taskItem,
