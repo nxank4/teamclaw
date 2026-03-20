@@ -118,7 +118,13 @@ export class AnthropicProvider implements StreamProvider {
   async healthCheck(): Promise<boolean> {
     if (!this.apiKey) return false;
     if (this.lastSuccessAt > 0 && Date.now() - this.lastSuccessAt < HEALTH_WINDOW_MS) return true;
-    return true;
+    try {
+      const client = this.getClient();
+      await client.models.list({ limit: 1 });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   isAvailable(): boolean {
