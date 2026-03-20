@@ -1,14 +1,12 @@
 /**
  * Unified TeamClaw Setup Wizard — `teamclaw setup` / `teamclaw init`
  *
- * 7-step sequential wizard:
- *   Step 1: Providers  — select LLM providers and API keys
- *   Step 2: Workspace  — choose workspace directory
- *   Step 3: Project    — name the project within the workspace
- *   Step 4: Model      — select model (defaults from provider)
- *   Step 5: Goal       — set the team's objective
- *   Step 6: Team       — pick a template or build custom roster
- *   Step 7: Composition Mode
+ * 5-step sequential wizard:
+ *   Step 1: Provider & Model — select LLM provider, API key, and model
+ *   Step 2: Workspace        — choose workspace directory
+ *   Step 3: Project          — name the project within the workspace
+ *   Step 4: Goal             — set the team's objective
+ *   Step 5: Team             — pick a template or build custom roster
  *   Summary + Save
  */
 
@@ -21,10 +19,11 @@ import {
     text,
     cancel,
 } from "@clack/prompts";
+import { searchableSelect } from "../utils/searchable-select.js";
 import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import {
     readTeamclawConfig,
 } from "../core/jsonConfigManager.js";
@@ -41,7 +40,6 @@ import { promptPath } from "../utils/path-autocomplete.js";
 import { handleCancel, stepProvider, type WizardState } from "./setup/connection.js";
 import { stepGoal } from "./setup/goal-input.js";
 import { stepTeam } from "./setup/team-builder.js";
-import { stepCompositionMode } from "./setup/composition-mode.js";
 import type { CompositionWizardState } from "./setup/composition-mode.js";
 
 import { PROVIDER_CATALOG } from "../providers/provider-catalog.js";
@@ -72,42 +70,32 @@ async function stepWorkspace(state: WizardState): Promise<void> {
         lastUsedDir !== localDefault &&
         lastUsedDir !== homeDefault;
 
-    let initialValue: string | undefined;
-    if (isLastUsedUnique) {
-        initialValue = "last";
-    } else if (lastUsedDir === homeDefault) {
-        initialValue = "home";
-    } else if (lastUsedDir === localDefault) {
-        initialValue = "local";
-    }
-
     const options: Array<{ value: string; label: string; hint?: string }> = [];
     if (isLastUsedUnique) {
         options.push({
             value: "last",
             label: `Last used (${pc.dim(lastUsedDir)})`,
-            hint: "previous session",
+            hint: "keeps files with your project",
         });
     }
     options.push(
         {
             value: "local",
             label: `Local directory (${pc.dim(localDefault)})`,
-            hint: lastUsedDir === localDefault ? "previous session" : undefined,
+            hint: "keeps files with your project",
         },
         {
             value: "home",
             label: `Home directory (${pc.dim(homeDefault)})`,
-            hint: lastUsedDir === homeDefault ? "previous session" : undefined,
+            hint: "accessible from anywhere",
         },
-        { value: "custom", label: "Custom path..." },
+        { value: "custom", label: "Choose a different folder..." },
     );
 
     const choice = handleCancel(
-        await select({
-            message: "Where should TeamClaw store workspace files?",
+        await searchableSelect({
+            message: "Where should TeamClaw keep your work?",
             options,
-            initialValue,
         }),
     ) as string;
 
@@ -123,7 +111,7 @@ async function stepWorkspace(state: WizardState): Promise<void> {
             cwd: process.cwd(),
         });
         if (selected === null) {
-            cancel("Setup cancelled.");
+            cancel("Cancelled.");
             process.exit(0);
         }
         state.workspaceDir = selected;
@@ -152,6 +140,7 @@ function listExistingProjects(workspaceDir: string): string[] {
     }
 }
 
+
 async function promptProjectName(
     state: WizardState,
     initialValue: string,
@@ -161,14 +150,14 @@ async function promptProjectName(
 
     const nameInput = handleCancel(
         await text({
-            message: "Project name:",
+            message: "What should we call this project?",
             initialValue,
-            placeholder: "my-awesome-project",
+            placeholder: "my-project",
             validate: (v) => {
                 const trimmed = (v ?? "").trim();
                 if (!trimmed) return "Project name cannot be empty";
                 if (trimmed === workspaceDirName) {
-                    return `Name cannot match workspace directory ("${workspaceDirName}")`;
+                    return "Project name can't be the same as the workspace folder";
                 }
                 return undefined;
             },
@@ -199,12 +188,12 @@ async function handleDuplicateProject(
 
     const resolution = handleCancel(
         await select({
-            message: `Project "${name}" already exists in the workspace.`,
+            message: `"${name}" already exists in this workspace. What would you like to do?`,
             options: [
                 { value: "__rename__", label: "Choose a different name" },
-                { value: "__suffix__", label: `Add suffix → "${autoName}"` },
-                { value: "__custom_suffix__", label: "Add my own prefix/suffix" },
-                { value: "__use_anyway__", label: `Use "${name}" anyway`, hint: "may overwrite" },
+                { value: "__suffix__", label: `Use "${autoName}" instead` },
+                { value: "__custom_suffix__", label: "Enter a different name" },
+                { value: "__use_anyway__", label: `Use "${name}" anyway`, hint: "⚠ will overwrite existing project" },
             ],
         }),
     ) as string;
@@ -248,30 +237,29 @@ async function handleDuplicateProject(
 }
 
 async function stepProject(state: WizardState): Promise<void> {
-    const tc = readTeamclawConfig();
-    const existingName = (tc.data as Record<string, unknown>).project_name as string | undefined;
-    const workspaceDirName = path.basename(state.workspaceDir);
     const existingProjects = listExistingProjects(state.workspaceDir);
 
-    const options: Array<{ value: string; label: string; hint?: string }> = [];
-
-    // Show previous project name if it's valid (not same as workspace dir)
-    if (existingName?.trim() && existingName.trim() !== workspaceDirName) {
-        options.push({
-            value: existingName.trim(),
-            label: `Use "${existingName.trim()}"`,
-            hint: "from previous config",
-        });
+    if (existingProjects.length === 0) {
+        // No projects — go straight to creation
+        console.log(`  ${pc.dim("[empty]")} No projects yet in ${pc.dim(state.workspaceDir)} — let's create one.`);
+        await promptProjectName(state, "", existingProjects);
+        return;
     }
 
+    // Show existing projects to select from, plus create/back options
+    const options: Array<{ value: string; label: string; hint?: string }> = existingProjects.map((proj) => ({
+        value: proj,
+        label: proj,
+    }));
+
     options.push(
-        { value: "__custom__", label: "Enter a project name" },
-        { value: "__back__", label: "Go back", hint: "return to workspace step" },
+        { value: "__custom__", label: "Create new project" },
+        { value: "__back__", label: "Go back", hint: "change workspace" },
     );
 
     const choice = handleCancel(
-        await select({
-            message: "Project name:",
+        await searchableSelect({
+            message: "Select a project:",
             options,
         }),
     ) as string;
@@ -287,102 +275,8 @@ async function stepProject(state: WizardState): Promise<void> {
         return;
     }
 
-    // User picked the previous config name — still check for duplicates
-    if (existingProjects.includes(choice)) {
-        await handleDuplicateProject(state, choice, existingProjects);
-    } else {
-        state.projectName = choice;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Step 4: Model Selection (simplified — defaults from first provider)
-// ---------------------------------------------------------------------------
-
-const ANTHROPIC_MODELS = [
-    { value: "claude-sonnet-4-20250514", label: "claude-sonnet-4-6", hint: "Recommended · Fast + smart" },
-    { value: "claude-opus-4-20250514", label: "claude-opus-4-6", hint: "Most capable · Slower" },
-    { value: "claude-haiku-4-5-20251001", label: "claude-haiku-4-5", hint: "Fastest · Lighter tasks" },
-];
-
-const OPENAI_MODELS = [
-    { value: "gpt-4o", label: "gpt-4o", hint: "Recommended · Fast + smart" },
-    { value: "gpt-4o-mini", label: "gpt-4o-mini", hint: "Fastest · Lighter tasks" },
-    { value: "o3", label: "o3", hint: "Most capable · Reasoning" },
-];
-
-async function stepModel(state: WizardState): Promise<void> {
-    const firstProvider = state.providerEntries[0];
-    const providerType = firstProvider?.type ?? "anthropic";
-    const providerModel = firstProvider?.model;
-    const defaultModel = providerModel || getDefaultModelForProvider(providerType) || "";
-
-    let modelOptions: Array<{ value: string; label: string; hint?: string }> | null = null;
-    let defaultModelLabel = "";
-
-    if (providerType === "anthropic") {
-        modelOptions = ANTHROPIC_MODELS;
-        defaultModelLabel = "claude-sonnet-4-6";
-    } else if (providerType === "openai") {
-        modelOptions = OPENAI_MODELS;
-        defaultModelLabel = "gpt-4o";
-    }
-
-    if (modelOptions) {
-        const options = [
-            ...modelOptions,
-            { value: "__custom__", label: "Other", hint: "Enter a model name manually" },
-        ];
-
-        console.log(`  ${pc.dim(`Tip: ${defaultModelLabel} is the best balance for most TeamClaw workflows.`)}`);
-
-        const choice = handleCancel(
-            await select({
-                message: "Choose a model:",
-                options,
-            }),
-        ) as string;
-
-        if (choice === "__custom__") {
-            const custom = handleCancel(
-                await text({
-                    message: "Enter model name:",
-                    placeholder: defaultModel || "model-name",
-                    initialValue: defaultModel,
-                }),
-            ) as string;
-            state.selectedModel = custom.trim() || defaultModel || "default";
-        } else {
-            state.selectedModel = choice;
-        }
-    } else {
-        if (defaultModel) {
-            note(
-                `Default model from ${providerType} provider: ${pc.cyan(defaultModel)}`,
-                "Model",
-            );
-            const useDefault = handleCancel(
-                await confirm({
-                    message: `Use ${defaultModel}?`,
-                    initialValue: true,
-                }),
-            ) as boolean;
-
-            if (useDefault) {
-                state.selectedModel = defaultModel;
-                return;
-            }
-        }
-
-        const custom = handleCancel(
-            await text({
-                message: "Enter model name:",
-                placeholder: defaultModel || "model-name",
-                initialValue: defaultModel,
-            }),
-        ) as string;
-        state.selectedModel = custom.trim() || defaultModel || "default";
-    }
+    // User selected an existing project
+    state.projectName = choice;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,21 +326,20 @@ export async function runSetup(): Promise<void> {
     const canTTY = Boolean(process.stdout.isTTY && process.stderr.isTTY);
 
     if (canTTY) {
-        intro(pc.bold(pc.cyan("TeamClaw Setup Wizard")));
+        intro(pc.bold(pc.cyan("TeamClaw Setup")));
 
         note(
             [
-                "TeamClaw gives you a team of specialized AI agents",
-                "that work together to ship your goals — and remember",
-                "everything across sessions.",
+                "Your AI team that never forgets.",
                 "",
-                "This setup takes about 2 minutes.",
-                `You'll need: an API key from your chosen AI provider.`,
+                "Takes about 2 minutes. You'll need an API key",
+                "from your AI provider of choice.",
                 "",
                 "Steps:",
-                `  ${pc.cyan("1.")} Workspace & project  ${pc.dim("(~30 seconds)")}`,
-                `  ${pc.cyan("2.")} Choose AI provider   ${pc.dim("(~60 seconds)")}`,
-                `  ${pc.cyan("3.")} Pick a team          ${pc.dim("(~30 seconds)")}`,
+                `  ${pc.cyan("1.")} Choose AI provider   ${pc.dim("(~60 seconds)")}`,
+                `  ${pc.cyan("2.")} Workspace & project  ${pc.dim("(~30 seconds)")}`,
+                `  ${pc.cyan("3.")} Set the goal         ${pc.dim("(~15 seconds)")}`,
+                `  ${pc.cyan("4.")} Pick a team          ${pc.dim("(~15 seconds)")}`,
             ].join("\n"),
             "Welcome to TeamClaw",
         );
@@ -464,33 +357,34 @@ export async function runSetup(): Promise<void> {
         templateId: "",
     };
 
-    // Step 1/7: Providers
-    note("Step 1/7", pc.bold("Providers"));
+    // Step 1/5: Providers (includes model selection)
+    note("Step 1/5", pc.bold("Provider & Model"));
     await stepProvider(state);
 
-    // Step 2/7: Workspace
-    note("Step 2/7", pc.bold("Workspace"));
+    // Set selectedModel from first provider's model choice
+    const firstProvider = state.providerEntries[0];
+    state.selectedModel = firstProvider?.model || getDefaultModelForProvider(firstProvider?.type ?? "anthropic") || "default";
+
+    // Step 2/5: Workspace
+    note("Step 2/5", pc.bold("Workspace"));
     await stepWorkspace(state);
 
-    // Step 3/7: Project
-    note("Step 3/7", pc.bold("Project"));
+    // Ensure workspace directory exists so stepProject can list existing projects
+    if (!existsSync(state.workspaceDir)) {
+        mkdirSync(state.workspaceDir, { recursive: true });
+    }
+
+    // Step 3/5: Project
+    note("Step 3/5", pc.bold("Project"));
     await stepProject(state);
 
-    // Step 4/7: Model Selection
-    note("Step 4/7", pc.bold("Model Selection"));
-    await stepModel(state);
-
-    // Step 5/7: Goal
-    note("Step 5/7", pc.bold("Goal"));
+    // Step 4/5: Goal (before team — team composition depends on the goal)
+    note("Step 4/5", pc.bold("Your Goal"));
     await stepGoal(state);
 
-    // Step 6/7: Team
-    note("Step 6/7", pc.bold("Team"));
+    // Step 5/5: Team (composition mode is handled inside stepTeam)
+    note("Step 5/5", pc.bold("Team"));
     await stepTeam(state);
-
-    // Step 7/7: Composition Mode
-    note("Step 7/7", pc.bold("Composition Mode"));
-    await stepCompositionMode(state);
 
     // Summary
     const rosterSummary = state.roster.length > 0
@@ -511,29 +405,31 @@ export async function runSetup(): Promise<void> {
         return flat.length > maxVal ? flat.slice(0, maxVal - 3) + "..." : flat;
     };
 
-    note(
-        [
-            `Providers : ${providerSummary}`,
-            `Workspace : ${trunc(state.workspaceDir)}`,
-            `Project   : ${state.projectName || "(none)"}`,
-            `Model     : ${trunc(state.selectedModel || "default")}`,
-            `Goal      : ${trunc(state.goal)}`,
-            `Team      : ${trunc(rosterSummary)}`,
-            `Template  : ${state.templateId || "custom"}`,
-            `Team Mode : ${state.teamMode || "manual"}`,
-        ].join("\n"),
-        "Configuration Summary",
-    );
+    const summaryLines = [
+        `Providers : ${providerSummary}`,
+        `Workspace : ${trunc(state.workspaceDir)}`,
+        `Project   : ${state.projectName || "(none)"}`,
+        `Model     : ${trunc(state.selectedModel || "default")}`,
+        `Goal      : ${trunc(state.goal)}`,
+        `Team      : ${trunc(rosterSummary)}`,
+        `Template  : ${state.templateId || "custom"}`,
+    ];
+    // Only show Team Mode when it's not the default (autonomous)
+    if (state.teamMode && state.teamMode !== "autonomous") {
+        summaryLines.push(`Team Mode : ${state.teamMode}`);
+    }
+
+    note(summaryLines.join("\n"), "Configuration Summary");
 
     const saveConfirm = handleCancel(
         await confirm({
-            message: "Save this configuration?",
+            message: "Save and continue?",
             initialValue: true,
         }),
     ) as boolean;
 
     if (!saveConfirm) {
-        cancel("Setup cancelled — nothing was saved.");
+        cancel("No worries — nothing was saved.");
         process.exit(0);
     }
 
@@ -560,31 +456,31 @@ export async function runSetup(): Promise<void> {
             `${pc.green("\u2192")} Browse team templates:`,
             `  ${pc.cyan("teamclaw templates browse")}`,
         ].join("\n"),
-        "Setup complete!",
+        "You're all set",
     );
 
     const nextStep = handleCancel(
         await select({
             message: "What would you like to do next?",
             options: [
-                { value: "work", label: "Start a work session now  (teamclaw work)" },
-                { value: "demo", label: "See TeamClaw in action  (teamclaw demo)" },
+                { value: "work", label: "Run my goal now" },
+                { value: "demo", label: "Try a sample goal first" },
                 { value: "exit", label: "Exit" },
             ],
         }),
     ) as string;
 
     if (nextStep === "work") {
-        outro("Launching work session...");
+        outro("Starting your session...");
         const { runWork } = await import("../work-runner.js");
         await runWork({ args: [], noWeb: false });
     } else if (nextStep === "demo") {
-        outro("Launching demo...");
+        outro("Loading sample goal...");
         const { runDemo } = await import("./demo.js");
         await runDemo([]);
     } else {
         outro(
-            `Setup complete! Run ${pc.green("teamclaw work")} whenever you're ready.`,
+            `Done! Run ${pc.green("teamclaw work")} whenever you're ready.`,
         );
     }
 }

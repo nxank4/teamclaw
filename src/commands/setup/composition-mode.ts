@@ -17,15 +17,15 @@ export async function stepCompositionMode(state: CompositionWizardState): Promis
       message: "How should agents be selected for each run?",
       options: [
         {
-          label: "Manual (default) — use the team template as-is",
-          value: "manual" as const,
-        },
-        {
-          label: "Autonomous — let the coordinator pick agents based on goal",
+          label: "Autonomous (recommended) — let the coordinator pick agents based on goal",
           value: "autonomous" as const,
         },
+        {
+          label: "Manual — use the custom team as-is",
+          value: "manual" as const,
+        },
       ],
-      initialValue: "manual" as const,
+      initialValue: "autonomous" as const,
     }),
   );
 

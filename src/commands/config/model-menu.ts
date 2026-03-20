@@ -11,6 +11,7 @@ import {
   confirm,
   spinner,
 } from "@clack/prompts";
+import { searchableSelect } from "../../utils/searchable-select.js";
 import pc from "picocolors";
 import {
   persistDefaultModel,
@@ -59,7 +60,7 @@ async function pickModel(
   }
   options.push({ value: "__custom__", label: pc.dim("Enter custom model ID...") });
 
-  const picked = handleCancel(await select({ message, options })) as string;
+  const picked = handleCancel(await searchableSelect({ message, options, maxItems: 12 })) as string;
 
   if (picked === "__default__") return null;
   if (picked === "__custom__") {

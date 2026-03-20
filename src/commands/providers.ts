@@ -11,8 +11,10 @@ import {
 import {
   PROVIDER_CATALOG,
   getProvidersByCategory,
+  getGroupVariants,
   type ProviderMeta,
 } from "../providers/provider-catalog.js";
+import { searchableSelect } from "../utils/searchable-select.js";
 import {
   readGlobalConfig,
   readGlobalConfigWithDefaults,
@@ -23,6 +25,28 @@ import { validateApiKeyFormat, maskApiKey } from "../core/errors.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { logger } from "../core/logger.js";
 import pc from "picocolors";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+/** Try to find an existing Claude OAuth token from Claude Code or OpenClaw. */
+function detectClaudeOAuthToken(): string | null {
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const home = homedir();
+  try {
+    const raw = readFileSync(join(home, ".claude", ".credentials.json"), "utf-8");
+    const data = JSON.parse(raw);
+    const token = data?.claudeAiOauth?.accessToken;
+    if (typeof token === "string" && token.length > 0) return token;
+  } catch { /* not found */ }
+  try {
+    const raw = readFileSync(join(home, ".openclaw", "credentials", "anthropic.token.json"), "utf-8");
+    const data = JSON.parse(raw);
+    const token = data?.token ?? data?.accessToken;
+    if (typeof token === "string" && token.length > 0) return token;
+  } catch { /* not found */ }
+  return null;
+}
 
 const ENV_KEYS: Record<string, string> = {
   ANTHROPIC_API_KEY: "anthropic",
@@ -201,6 +225,8 @@ async function addProvider(args: string[]): Promise<void> {
     for (const cat of categories) {
       const providers = getProvidersByCategory(cat.key);
       for (const [id, meta] of providers) {
+        // Skip variants that are reachable via their group parent
+        if (meta.group && meta.group !== id) continue;
         options.push({
           value: id,
           label: `${cat.emoji} ${id.padEnd(16)} ${meta.menuLabel}`,
@@ -210,11 +236,26 @@ async function addProvider(args: string[]): Promise<void> {
     }
 
     selectedId = handleCancel(
-      await select({ message: "How do you want to add a provider?", options }),
+      await searchableSelect({ message: "How do you want to add a provider?", options, maxItems: 12 }),
     ) as string;
   }
 
-  const meta = PROVIDER_CATALOG[selectedId]!;
+  let meta = PROVIDER_CATALOG[selectedId]!;
+
+  // If the selected provider is a group parent, show sub-selection for variants
+  if (meta.group && meta.group === selectedId) {
+    const variants = getGroupVariants(selectedId);
+    if (variants.length > 1) {
+      const variantChoice = handleCancel(
+        await select({
+          message: `Which ${meta.name} variant?`,
+          options: variants.map(([id, m]) => ({ value: id, label: m.name, hint: m.menuHint })),
+        }),
+      ) as string;
+      selectedId = variantChoice;
+      meta = PROVIDER_CATALOG[selectedId]!;
+    }
+  }
 
   // Show warning if present
   if (meta.warning) {
@@ -257,7 +298,7 @@ async function addProvider(args: string[]): Promise<void> {
       { value: "__custom__", label: "Other (enter manually)" },
     ];
     const modelChoice = handleCancel(
-      await select({ message: "Choose a model:", options: modelOptions }),
+      await select({ message: "Choose a model:", options: modelOptions, maxItems: 12 }),
     ) as string;
     if (modelChoice === "__custom__") {
       const custom = handleCancel(
@@ -305,12 +346,23 @@ async function promptApiKey(
     }
   }
 
-  // Show key URL
-  if (meta.keyUrl) {
-    logger.plain(`  Get your API key at: ${pc.cyan(meta.keyUrl)}`);
-  }
-  if (meta.keyPrefix) {
-    logger.plain(pc.dim(`  Key starts with: ${meta.keyPrefix}`));
+  // Show setup instructions
+  const { PROVIDER_SETUP_HINTS, API_KEY_PREFIXES } = await import("../core/errors.js");
+  const hints = PROVIDER_SETUP_HINTS[providerId];
+  if (hints) {
+    logger.plain("");
+    for (const step of hints) {
+      logger.plain(`  ${pc.dim(step)}`);
+    }
+    const prefix = API_KEY_PREFIXES[providerId];
+    if (prefix) logger.plain(`  Starts with: ${pc.dim(prefix)}`);
+  } else {
+    if (meta.keyUrl) {
+      logger.plain(`  Get your API key at: ${pc.cyan(meta.keyUrl)}`);
+    }
+    if (meta.keyPrefix) {
+      logger.plain(pc.dim(`  Key starts with: ${meta.keyPrefix}`));
+    }
   }
 
   const key = handleCancel(
@@ -443,10 +495,30 @@ async function promptCopilotAuth(entry: ProviderConfigEntry): Promise<void> {
 async function promptSetupToken(entry: ProviderConfigEntry): Promise<void> {
   entry.authMethod = "setup-token";
 
+  // Try to auto-detect an existing token
+  const detected = detectClaudeOAuthToken();
+  if (detected) {
+    const masked = detected.slice(0, 12) + "\u2026" + detected.slice(-4);
+    logger.plain(`\n  ${pc.green("\u2713")} Found existing Claude OAuth token: ${pc.dim(masked)}`);
+
+    const useDetected = handleCancel(
+      await confirm({ message: "Use this token?", initialValue: true }),
+    ) as boolean;
+    if (useDetected) {
+      entry.setupToken = detected;
+      return;
+    }
+  }
+
   note(
-    "Run this command in another terminal:\n" +
-      `  ${pc.cyan("claude setup-token")}\n\n` +
-      "Then paste the token below.",
+    `${pc.bold("How to get a setup token:")}\n\n` +
+      `${pc.cyan("Option 1:")} Run in another terminal:\n` +
+      `  ${pc.dim("$")} claude setup-token\n` +
+      `  Copy the token it prints.\n\n` +
+      `${pc.cyan("Option 2:")} Copy from Claude Code credentials:\n` +
+      `  ${pc.dim("$")} cat ~/.claude/.credentials.json\n` +
+      `  Copy the ${pc.dim("claudeAiOauth.accessToken")} value.\n` +
+      `  (Starts with ${pc.dim("sk-ant-oat01-")})`,
     "Claude Pro/Max Setup",
   );
 

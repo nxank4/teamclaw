@@ -1,5 +1,5 @@
 /**
- * Setup Step 6: Team — template selection and custom roster builder.
+ * Setup Step: Team — template selection and custom roster builder.
  */
 
 import {
@@ -11,6 +11,32 @@ import pc from "picocolors";
 import { TEAM_TEMPLATES, type RosterEntry } from "../../core/team-templates.js";
 import { getRoleTemplate } from "../../core/bot-definitions.js";
 import { handleCancel, type WizardState } from "./connection.js";
+import { stepCompositionMode } from "./composition-mode.js";
+import type { CompositionWizardState } from "./composition-mode.js";
+
+/** Goal-keyword → template-id mapping for hints. */
+const GOAL_TEMPLATE_HINTS: Array<{ keywords: RegExp; templateId: string; reason: string }> = [
+    { keywords: /\b(api|backend|endpoint|rest|graphql|microservice)\b/i, templateId: "api_service", reason: "API" },
+    { keywords: /\b(fullstack|full.stack|frontend\s.*backend|react\s.*node)\b/i, templateId: "fullstack", reason: "full-stack" },
+    { keywords: /\b(frontend|ui|interface|component|react|vue|svelte)\b/i, templateId: "fullstack", reason: "frontend" },
+    { keywords: /\b(game|gameplay|sprite|level|unity|godot)\b/i, templateId: "game_dev", reason: "game dev" },
+    { keywords: /\b(doc|documentation|readme|guide|tutorial|wiki)\b/i, templateId: "docs_team", reason: "documentation" },
+    { keywords: /\b(content|blog|article|marketing|copy|write)\b/i, templateId: "content", reason: "content" },
+    { keywords: /\b(build|implement|code|deploy|fix|refactor|test|ship)\b/i, templateId: "dev_team", reason: "development" },
+];
+
+/** Return a dim hint string if the goal matches a known template keyword. */
+export function getGoalTemplateHint(goal: string): string | null {
+    for (const { keywords, templateId, reason } of GOAL_TEMPLATE_HINTS) {
+        if (keywords.test(goal)) {
+            const tmpl = TEAM_TEMPLATES[templateId];
+            if (tmpl) {
+                return `Tip: your goal mentions "${reason}" — ${tmpl.name} template recommended`;
+            }
+        }
+    }
+    return null;
+}
 
 function formatTemplateSlots(template: { slots: Array<{ role_id: string; count: number }> }): string {
     return template.slots
@@ -25,13 +51,13 @@ function formatTemplateSlots(template: { slots: Array<{ role_id: string; count: 
 async function customTeamBuilder(): Promise<RosterEntry[]> {
     const sizeInput = handleCancel(
         await text({
-            message: "Total number of bots in your team?",
+            message: "How many agents in your team?",
             initialValue: "4",
-            placeholder: "4",
+            placeholder: "3",
             validate: (v) => {
                 const n = Number(v?.trim());
-                if (!Number.isInteger(n) || n < 1) return "Enter an integer >= 1.";
-                if (n > 200) return "Please keep team size <= 200.";
+                if (!Number.isInteger(n) || n < 1) return "Team needs at least 1 agent.";
+                if (n > 200) return "That's a big team — maximum is 200 agents.";
                 return undefined;
             },
         }),
@@ -50,15 +76,15 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
                     ? "No roles assigned yet."
                     : roster.map((r) => `${r.count}x ${r.role}`).join(", ")
             }`,
-            "Current roster",
+            "Your team so far",
         );
 
         const action = handleCancel(
             await select({
-                message: "What would you like to do?",
+                message: "What's next?",
                 options: [
-                    { label: "Confirm and Continue", value: "confirm" },
-                    { label: "Add a custom role", value: "add" },
+                    { label: "Done — looks good", value: "confirm" },
+                    { label: "Add a role", value: "add" },
                     { label: "Edit a role", value: "edit" },
                     { label: "Remove a role", value: "remove" },
                 ],
@@ -67,11 +93,11 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
 
         if (action === "confirm") {
             if (currentAssigned < totalCapacity) {
-                note("Please assign all bots before confirming.", "Roster incomplete");
+                note(`Assign all ${remaining} remaining agents first.`, "Not quite done");
                 continue;
             }
             if (currentAssigned > totalCapacity) {
-                note("Assigned bots exceed total team size. Please reduce counts.", "Roster exceeds capacity");
+                note("Total assigned exceeds team size. Reduce some counts.", "Too many agents assigned");
                 continue;
             }
             return roster;
@@ -79,13 +105,13 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
 
         if (action === "add") {
             if (remaining <= 0) {
-                note("No remaining capacity. Edit or remove existing roles to free up bots.", "No capacity");
+                note("Your team is full. Edit or remove a role to make room.", "Team is full");
                 continue;
             }
 
             const roleName = (handleCancel(
                 await text({
-                    message: "Role name?",
+                    message: "Role name:",
                     placeholder: "Backend Coder",
                     validate: (v) =>
                         (v ?? "").trim().length > 0 ? undefined : "Role name cannot be empty.",
@@ -94,19 +120,19 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
 
             const description = (handleCancel(
                 await text({
-                    message: "Role description?",
+                    message: "What does this role do?",
                     placeholder: "Focuses on backend services, APIs, and data models.",
                 }),
             ) as string).trim();
 
             const countInput = handleCancel(
                 await text({
-                    message: `How many bots for "${roleName}"? (Remaining: ${remaining})`,
+                    message: `How many "${roleName}" agents? (${remaining} spots left)`,
                     initialValue: String(Math.min(remaining, 1)),
                     validate: (v) => {
                         const n = Number(v?.trim());
-                        if (!Number.isInteger(n) || n < 1) return "Please enter a positive integer.";
-                        if (n > remaining) return "Exceeds remaining capacity.";
+                        if (!Number.isInteger(n) || n < 1) return "Enter a number greater than 0.";
+                        if (n > remaining) return "Not enough spots left in the team.";
                         return undefined;
                     },
                 }),
@@ -130,7 +156,7 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
 
         if (action === "edit") {
             if (roster.length === 0) {
-                note("No roles to edit. Add a role first.", "Nothing to edit");
+                note("No roles added yet — add one first.", "No roles yet");
                 continue;
             }
 
@@ -164,9 +190,9 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
                     initialValue: String(existing.count),
                     validate: (v) => {
                         const n = Number(v?.trim());
-                        if (!Number.isInteger(n) || n < 1) return "Please enter a positive integer.";
+                        if (!Number.isInteger(n) || n < 1) return "Enter a number greater than 0.";
                         const hypothetical = currentAssigned - existing.count + n;
-                        if (hypothetical > totalCapacity) return "Exceeds total team size.";
+                        if (hypothetical > totalCapacity) return "That's more than your total team size.";
                         return undefined;
                     },
                 }),
@@ -182,7 +208,7 @@ async function customTeamBuilder(): Promise<RosterEntry[]> {
 
         if (action === "remove") {
             if (roster.length === 0) {
-                note("No roles to remove.", "Nothing to remove");
+                note("Nothing to remove yet.", "No roles yet");
                 continue;
             }
 
@@ -212,9 +238,15 @@ export async function stepTeam(state: WizardState): Promise<void> {
     );
     options.push({ value: "__custom", label: "Custom..." });
 
+    // Show goal-based template suggestion if a keyword matches
+    const hint = state.goal ? getGoalTemplateHint(state.goal) : null;
+    if (hint) {
+        console.log(`  ${pc.dim(hint)}`);
+    }
+
     const picked = handleCancel(
         await select({
-            message: "Choose a team template:",
+            message: "Who's on your team?",
             options,
         }),
     ) as string;
@@ -222,6 +254,8 @@ export async function stepTeam(state: WizardState): Promise<void> {
     if (picked === "__custom") {
         state.roster = await customTeamBuilder();
         state.templateId = "custom";
+        // Ask composition mode only for custom teams
+        await stepCompositionMode(state as CompositionWizardState);
     } else {
         const template = TEAM_TEMPLATES[picked]!;
         state.templateId = picked;
@@ -233,5 +267,7 @@ export async function stepTeam(state: WizardState): Promise<void> {
                 description: role ? role.skills.join(", ") : "",
             };
         });
+        // Template teams default to autonomous
+        (state as CompositionWizardState).teamMode = "autonomous";
     }
 }

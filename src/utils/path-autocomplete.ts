@@ -1,4 +1,5 @@
-import { select, text, confirm, cancel, isCancel, note } from "@clack/prompts";
+import { text, confirm, cancel, isCancel, note } from "@clack/prompts";
+import { searchableSelect } from "./searchable-select.js";
 import pc from "picocolors";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -124,9 +125,10 @@ export async function promptPath(options: {
             });
         }
 
-        const choice = await select({
+        const choice = await searchableSelect({
             message: `${options.message ?? "Select directory"} ${pc.dim(`[${displayDir}]`)}`,
             options: menuOptions,
+            maxItems: 15,
         });
 
         if (isCancel(choice)) {

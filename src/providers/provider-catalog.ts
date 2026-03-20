@@ -22,6 +22,7 @@ export interface ProviderMeta {
   notes?: string[];
   warning?: string;
   openaiCompatible: boolean;
+  group?: string;
 }
 
 function m(id: string, label?: string, hint?: string): ProviderModel {
@@ -57,6 +58,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     name: "Claude Pro/Max",
     authMethod: "setup-token",
     category: "subscription",
+    group: "anthropic",
     envKeys: [],
     models: [m("claude-opus-4-6"), m("claude-sonnet-4-6"), m("claude-haiku-4-5")],
     menuLabel: "Claude Pro/Max \u2014 setup-token [ToS gray area]",
@@ -73,6 +75,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     name: "Google Gemini (subscription)",
     authMethod: "oauth",
     category: "subscription",
+    group: "gemini",
     envKeys: [],
     models: [m("gemini-3-pro"), m("gemini-3-flash")],
     menuLabel: "Google Gemini Pro/Ultra \u2014 OAuth [account ban risk]",
@@ -90,8 +93,9 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     name: "Anthropic (Claude)",
     authMethod: "apikey",
     category: "apikey",
+    group: "anthropic",
     envKeys: ["ANTHROPIC_API_KEY"],
-    keyPrefix: "sk-ant-",
+    keyPrefix: "sk-ant-api03-",
     keyUrl: "https://console.anthropic.com/settings/keys",
     statusUrl: "https://status.anthropic.com",
     models: [
@@ -107,7 +111,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     authMethod: "apikey",
     category: "apikey",
     envKeys: ["OPENAI_API_KEY"],
-    keyPrefix: "sk-",
+    keyPrefix: "sk-proj-",
     keyUrl: "https://platform.openai.com/api-keys",
     statusUrl: "https://status.openai.com",
     baseURL: "https://api.openai.com/v1",
@@ -119,6 +123,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     name: "Google Gemini",
     authMethod: "apikey",
     category: "apikey",
+    group: "gemini",
     envKeys: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
     keyUrl: "https://aistudio.google.com/app/apikey",
     statusUrl: "https://status.cloud.google.com",
@@ -195,8 +200,8 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     authMethod: "apikey",
     category: "apikey",
     envKeys: ["CEREBRAS_API_KEY"],
-    keyUrl: "https://inference.cerebras.ai",
-    statusUrl: "https://inference.cerebras.ai",
+    keyUrl: "https://cloud.cerebras.ai",
+    statusUrl: "https://cloud.cerebras.ai",
     baseURL: "https://api.cerebras.ai/v1",
     models: [m("qwen3-coder-480b"), m("llama-3.3-70b"), m("llama-3.1-70b")],
     menuLabel: "Cerebras \u2014 API key",
@@ -207,7 +212,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     authMethod: "apikey",
     category: "apikey",
     envKeys: ["TOGETHER_API_KEY", "TOGETHER_AI_API_KEY"],
-    keyUrl: "https://api.together.ai",
+    keyUrl: "https://api.together.ai/settings/api-keys",
     statusUrl: "https://api.together.ai",
     baseURL: "https://api.together.ai/v1",
     models: [
@@ -240,7 +245,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     authMethod: "apikey",
     category: "apikey",
     envKeys: ["OPENROUTER_API_KEY"],
-    keyPrefix: "sk-or-",
+    keyPrefix: "sk-or-v1-",
     keyUrl: "https://openrouter.ai/settings/keys",
     statusUrl: "https://openrouter.ai",
     baseURL: "https://openrouter.ai/api/v1",
@@ -274,8 +279,8 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     category: "apikey",
     envKeys: ["MOONSHOT_API_KEY"],
     keyPrefix: "sk-",
-    keyUrl: "https://platform.moonshot.cn/console/api-keys",
-    statusUrl: "https://platform.moonshot.cn",
+    keyUrl: "https://platform.moonshot.ai/console/api-keys",
+    statusUrl: "https://platform.moonshot.ai",
     baseURL: "https://api.moonshot.cn/v1",
     models: [m("kimi-k2.5-instruct"), m("kimi-k2-instruct"), m("moonshot-v1-128k")],
     menuLabel: "Moonshot AI (Kimi) \u2014 API key",
@@ -300,8 +305,8 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     authMethod: "apikey",
     category: "apikey",
     envKeys: ["MINIMAX_API_KEY"],
-    keyUrl: "https://api.minimax.io",
-    statusUrl: "https://api.minimax.io",
+    keyUrl: "https://platform.minimax.io",
+    statusUrl: "https://platform.minimax.io",
     baseURL: "https://api.minimax.io/v1",
     models: [
       m("minimax-m2.5", "minimax-m2.5", "1M context, multimodal, MIT"),
@@ -330,8 +335,9 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     name: "OpenCode Zen",
     authMethod: "apikey",
     category: "opencode",
+    group: "opencode",
     envKeys: ["OPENCODE_API_KEY"],
-    keyUrl: "https://opencode.ai/auth",
+    keyUrl: "https://opencode.ai/zen",
     statusUrl: "https://opencode.ai",
     baseURL: "https://api.opencode.ai/v1",
     models: [m("claude-sonnet-4-6"), m("gpt-5.3-codex"), m("gemini-3-pro")],
@@ -342,8 +348,9 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     name: "OpenCode Go",
     authMethod: "apikey",
     category: "opencode",
+    group: "opencode",
     envKeys: ["OPENCODE_GO_API_KEY"],
-    keyUrl: "https://opencode.ai/auth",
+    keyUrl: "https://opencode.ai/zen",
     statusUrl: "https://opencode.ai",
     baseURL: "https://api.opencode.ai/v1",
     models: [m("glm-5"), m("kimi-k2.5"), m("minimax-m2.5")],
@@ -432,4 +439,8 @@ export function getAllProviderIds(): string[] {
 
 export function getProvidersByCategory(category: ProviderCategory): Array<[string, ProviderMeta]> {
   return Object.entries(PROVIDER_CATALOG).filter(([, meta]) => meta.category === category);
+}
+
+export function getGroupVariants(groupId: string): Array<[string, ProviderMeta]> {
+  return Object.entries(PROVIDER_CATALOG).filter(([, meta]) => meta.group === groupId);
 }

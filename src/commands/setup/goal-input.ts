@@ -3,21 +3,23 @@
  */
 
 import {
+    confirm,
     note,
     select,
     spinner,
     text,
 } from "@clack/prompts";
+import { searchableSelect } from "../../utils/searchable-select.js";
 import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { readTeamclawConfig } from "../../core/jsonConfigManager.js";
 import { getDefaultGoal } from "../../core/configManager.js";
 import { handleCancel, type WizardState } from "./connection.js";
 import { randomPhrase } from "../../utils/spinner-phrases.js";
 
-function detectGoalFiles(workspaceDir: string): Array<{ path: string; label: string }> {
+function detectGoalFiles(workspaceDir: string, projectName?: string): Array<{ path: string; label: string }> {
     const candidates = [
         "GOAL.md", "GOAL.txt", "goal.md", "goal.txt",
         "SPEC.md", "SPEC.txt", "spec.md", "spec.txt",
@@ -30,11 +32,37 @@ function detectGoalFiles(workspaceDir: string): Array<{ path: string; label: str
     ];
 
     const resolvedWorkspace = path.resolve(workspaceDir);
-    const searchDirs = [resolvedWorkspace];
-    if (process.cwd() !== resolvedWorkspace) searchDirs.push(process.cwd());
+    const searchDirs = new Set<string>([resolvedWorkspace]);
+
+    // Also search the project directory inside the workspace
+    if (projectName) {
+        const projectDir = path.join(resolvedWorkspace, projectName);
+        if (existsSync(projectDir)) searchDirs.add(projectDir);
+    }
+
+    const cwd = process.cwd();
+    searchDirs.add(cwd);
+
+    // Walk up from cwd to find goal files in parent directories (stop at home or root)
+    const stopAt = os.homedir();
+    let parent = path.dirname(cwd);
+    while (parent !== cwd && parent !== stopAt && parent !== path.dirname(parent)) {
+        searchDirs.add(parent);
+        const next = path.dirname(parent);
+        if (next === parent) break;
+        parent = next;
+    }
 
     const found: Array<{ path: string; label: string }> = [];
     const seen = new Set<string>();
+
+    const dirLabels: Record<string, string> = {
+        [resolvedWorkspace]: "workspace",
+        [cwd]: "cwd",
+    };
+    if (projectName) {
+        dirLabels[path.join(resolvedWorkspace, projectName)] = "project";
+    }
 
     for (const dir of searchDirs) {
         for (const name of candidates) {
@@ -42,9 +70,9 @@ function detectGoalFiles(workspaceDir: string): Array<{ path: string; label: str
             if (seen.has(full)) continue;
             seen.add(full);
             if (existsSync(full)) {
-                const rel = path.relative(process.cwd(), full);
+                const rel = path.relative(cwd, full);
                 const label = rel.startsWith("..") ? full : `./${rel}`;
-                const source = dir === resolvedWorkspace ? "workspace" : "cwd";
+                const source = dirLabels[dir] ?? "parent";
                 found.push({ path: full, label: `${label}  ${pc.dim(`(${source})`)}` });
             }
         }
@@ -55,16 +83,10 @@ function detectGoalFiles(workspaceDir: string): Array<{ path: string; label: str
 async function promptManualFilePath(): Promise<string> {
     const input = handleCancel(
         await text({
-            message: "Path to goal file (absolute or relative, ~ supported):",
+            message: "Path to your goal file:",
             placeholder: "./GOAL.md",
             validate: (v) => {
                 if (!(v ?? "").trim()) return "Path cannot be empty";
-                let resolved = v!.trim();
-                if (resolved.startsWith("~")) {
-                    resolved = path.join(os.homedir(), resolved.slice(1));
-                }
-                resolved = path.resolve(resolved);
-                if (!existsSync(resolved)) return `File not found: ${resolved}`;
                 return undefined;
             },
         }),
@@ -74,17 +96,34 @@ async function promptManualFilePath(): Promise<string> {
     if (resolved.startsWith("~")) {
         resolved = path.join(os.homedir(), resolved.slice(1));
     }
-    return path.resolve(resolved);
+    resolved = path.resolve(resolved);
+
+    if (!existsSync(resolved)) {
+        const create = handleCancel(
+            await confirm({
+                message: `Can't find ${resolved} — create a new file there?`,
+                initialValue: true,
+            }),
+        ) as boolean;
+
+        if (create) {
+            mkdirSync(path.dirname(resolved), { recursive: true });
+            writeFileSync(resolved, "", "utf-8");
+            note(`Created ${resolved}`, "New file");
+        }
+    }
+
+    return resolved;
 }
 
-async function pickGoalFile(workspaceDir: string): Promise<string | null> {
-    const detected = detectGoalFiles(workspaceDir);
+async function pickGoalFile(workspaceDir: string, projectName?: string): Promise<string | null> {
+    const detected = detectGoalFiles(workspaceDir, projectName);
 
     const fileOptions: Array<{ value: string; label: string; hint?: string }> = [];
 
     if (detected.length > 0) {
         for (const f of detected) {
-            fileOptions.push({ value: f.path, label: f.label, hint: "detected" });
+            fileOptions.push({ value: f.path, label: f.label, hint: "found in your folder" });
         }
     }
     fileOptions.push({ value: "__manual__", label: "Enter path manually..." });
@@ -96,7 +135,7 @@ async function pickGoalFile(workspaceDir: string): Promise<string | null> {
         if (!filePath) return null;
     } else {
         const picked = handleCancel(
-            await select({
+            await searchableSelect({
                 message: "Select a goal file:",
                 options: fileOptions,
             }),
@@ -116,7 +155,7 @@ async function pickGoalFile(workspaceDir: string): Promise<string | null> {
 async function promptGoalText(initialValue: string): Promise<string> {
     const goalInput = handleCancel(
         await text({
-            message: "What do you want to build?\n  (Describe the project goal for the team.)",
+            message: "Describe what you want to build:",
             initialValue,
             placeholder: initialValue,
         }),
@@ -250,7 +289,7 @@ async function refineGoalWithAI(state: WizardState, draft: string): Promise<stri
         });
 
         if (!res.ok) {
-            s.stop(pc.yellow("AI refinement failed — using your draft as-is."));
+            s.stop(pc.yellow("Couldn't improve it — using your original."));
             return draft;
         }
 
@@ -260,11 +299,11 @@ async function refineGoalWithAI(state: WizardState, draft: string): Promise<stri
         });
 
         if (!refined) {
-            s.stop(pc.yellow("AI returned empty response — using your draft as-is."));
+            s.stop(pc.yellow("AI returned nothing — keeping your original."));
             return draft;
         }
 
-        s.stop("AI refinement complete!");
+        s.stop("Done — here's the improved version:");
 
         note(
             [
@@ -274,16 +313,16 @@ async function refineGoalWithAI(state: WizardState, draft: string): Promise<stri
                 `${pc.green("Refined:")}`,
                 refined.length > 300 ? refined.slice(0, 297) + "..." : refined,
             ].join("\n"),
-            "Goal Refinement",
+            "AI improved your goal",
         );
 
         const pick = handleCancel(
             await select({
-                message: "Which version to use?",
+                message: "Which version do you prefer?",
                 options: [
-                    { value: "refined", label: "Use refined version" },
-                    { value: "draft", label: "Keep my original draft" },
-                    { value: "edit", label: "Edit the refined version" },
+                    { value: "refined", label: "Use the improved version" },
+                    { value: "draft", label: "Keep my original" },
+                    { value: "edit", label: "Edit the improved version" },
                 ],
             }),
         ) as string;
@@ -292,7 +331,7 @@ async function refineGoalWithAI(state: WizardState, draft: string): Promise<stri
         if (pick === "edit") return await promptGoalText(refined);
         return refined;
     } catch {
-        s.stop(pc.yellow("Could not reach AI — using your draft as-is."));
+        s.stop(pc.yellow("Couldn't reach AI — keeping your original."));
         return draft;
     }
 }
@@ -304,17 +343,17 @@ export async function stepGoal(state: WizardState): Promise<void> {
 
     const method = handleCancel(
         await select({
-            message: "How would you like to set the goal?",
+            message: "What does your team need to build?",
             options: [
-                { value: "type", label: "Type it manually" },
-                { value: "file", label: "Load from a file (.txt, .md, .goal)" },
-                { value: "refine", label: "Type a draft, then refine with AI" },
+                { value: "type", label: "Describe it now" },
+                { value: "file", label: "Load from a file" },
+                { value: "refine", label: "Draft it — I'll help refine with AI" },
             ],
         }),
     ) as string;
 
     if (method === "file") {
-        const resolved = await pickGoalFile(state.workspaceDir);
+        const resolved = await pickGoalFile(state.workspaceDir, state.projectName);
         if (resolved === null) {
             state.goal = await promptGoalText(defaultGoal);
             return;
@@ -322,7 +361,7 @@ export async function stepGoal(state: WizardState): Promise<void> {
 
         const content = readFileSync(resolved, "utf-8").trim();
         if (!content) {
-            note("File is empty. Falling back to manual input.", "Warning");
+            note("That file is empty — let's describe the goal here instead.", "Empty file");
             state.goal = await promptGoalText(defaultGoal);
             return;
         }
@@ -336,11 +375,11 @@ export async function stepGoal(state: WizardState): Promise<void> {
 
         const useIt = handleCancel(
             await select({
-                message: `Loaded ${path.basename(resolved)} (${lines} lines, ${chars} chars)\n  ${pc.dim(preview)}`,
+                message: `Loaded ${path.basename(resolved)}\n  ${pc.dim(preview)}`,
                 options: [
-                    { value: "use", label: "Use as-is" },
-                    { value: "refine", label: "Refine with AI first" },
-                    { value: "edit", label: "Edit manually" },
+                    { value: "use", label: "Use this" },
+                    { value: "refine", label: "Improve with AI" },
+                    { value: "edit", label: "Edit it myself" },
                 ],
             }),
         ) as string;

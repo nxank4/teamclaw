@@ -107,6 +107,7 @@ async function runModelDashboard(): Promise<void> {
     if (models.length > 0) {
       const picked = await select({
         message: "Select a model:",
+        maxItems: 12,
         options: [
           ...models.map((m) => ({ value: m, label: m })),
           { value: "__custom__", label: pc.dim("Enter custom model ID...") },
