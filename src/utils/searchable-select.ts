@@ -246,8 +246,9 @@ export async function searchableSelect(
     );
 
     // Text input → update search filter
-    p.on("value", () => {
-        search = String(p.value ?? "");
+    // When trackValue=true, @clack/core emits "userInput" (not "value") for keystrokes
+    p.on("userInput", (input: string) => {
+        search = input ?? "";
         updateFilter(search);
     });
 

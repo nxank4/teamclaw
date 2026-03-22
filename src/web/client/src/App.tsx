@@ -175,12 +175,32 @@ function ApprovalBanner() {
 
 function GatewayBanner() {
   const gatewayAvailable = useWsStore((s) => s.gatewayAvailable);
+  const setGatewayAvailable = useWsStore((s) => s.setGatewayAvailable);
+  const [checking, setChecking] = useState(false);
+
   if (gatewayAvailable) return null;
+
+  const recheck = async () => {
+    setChecking(true);
+    try {
+      const res = await fetch("/api/gateway/check", { method: "POST" });
+      const data = await res.json() as { available?: boolean };
+      if (data.available) setGatewayAvailable(true);
+    } catch { /* ignore */ }
+    setChecking(false);
+  };
 
   return (
     <div className="rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 flex items-center gap-2">
       <i className="bi bi-exclamation-triangle text-base" />
       <span>LLM Gateway not connected — configure a provider to run sessions.</span>
+      <button
+        onClick={recheck}
+        disabled={checking}
+        className="ml-auto text-xs font-medium px-2 py-1 rounded bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 disabled:opacity-50"
+      >
+        {checking ? "Checking..." : "Retry"}
+      </button>
     </div>
   );
 }

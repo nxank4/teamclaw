@@ -240,8 +240,30 @@ async function stepProject(state: WizardState): Promise<void> {
     const existingProjects = listExistingProjects(state.workspaceDir);
 
     if (existingProjects.length === 0) {
-        // No projects — go straight to creation
-        console.log(`  ${pc.dim("[empty]")} No projects yet in ${pc.dim(state.workspaceDir)} — let's create one.`);
+        const cwdName = path.basename(process.cwd());
+        const choice = handleCancel(
+            await select({
+                message: `No projects in ${pc.dim(state.workspaceDir)}. How would you like to start?`,
+                options: clampSelectOptions([
+                    { value: "__create__", label: "Create a new project folder" },
+                    { value: "__use_cwd__", label: "Use current directory", hint: cwdName },
+                    { value: "__back__", label: "Go back", hint: "change workspace" },
+                ]),
+            }),
+        ) as string;
+
+        if (choice === "__back__") {
+            await stepWorkspace(state);
+            await stepProject(state);
+            return;
+        }
+
+        if (choice === "__use_cwd__") {
+            state.projectName = cwdName;
+            return;
+        }
+
+        // __create__
         await promptProjectName(state, "", existingProjects);
         return;
     }
@@ -284,6 +306,17 @@ async function stepProject(state: WizardState): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function persistAllConfig(state: WizardState): string {
+    // Create workspace and project directories if they don't exist
+    if (state.workspaceDir && !existsSync(state.workspaceDir)) {
+        mkdirSync(state.workspaceDir, { recursive: true });
+    }
+    if (state.workspaceDir && state.projectName) {
+        const projectDir = path.join(state.workspaceDir, state.projectName);
+        if (!existsSync(projectDir)) {
+            mkdirSync(projectDir, { recursive: true });
+        }
+    }
+
     const globalConfig: TeamClawGlobalConfig = {
         version: 1,
         managedGateway: false,
@@ -325,8 +358,39 @@ function persistAllConfig(state: WizardState): string {
 export async function runSetup(): Promise<void> {
     const canTTY = Boolean(process.stdout.isTTY && process.stderr.isTTY);
 
+    const existingConfig = readGlobalConfig();
+
     if (canTTY) {
         intro(pc.bold(pc.cyan("TeamClaw Setup")));
+
+        if (existingConfig) {
+            const existingModel = existingConfig.model ?? "";
+            const existingProviders = (existingConfig.providers ?? []).map((p) => p.type).join(", ") || "none";
+            note(
+                [
+                    `${pc.yellow("Existing configuration detected.")}`,
+                    "",
+                    `  Providers : ${existingProviders}`,
+                    `  Model     : ${existingModel || "default"}`,
+                    "",
+                    "Running setup again will overwrite your current",
+                    "provider, model, workspace, and team settings.",
+                    "",
+                    `Use ${pc.bold("teamclaw config")} to make targeted changes instead.`,
+                ].join("\n"),
+                "Re-configuring",
+            );
+            const proceed = handleCancel(
+                await confirm({
+                    message: "Continue and replace existing configuration?",
+                    initialValue: false,
+                }),
+            );
+            if (!proceed) {
+                outro("Setup cancelled. Your existing configuration is unchanged.");
+                return;
+            }
+        }
 
         note(
             [

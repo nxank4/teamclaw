@@ -30,6 +30,7 @@ import {
 } from "./webhooks.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { validateStartup } from "../core/startup-validation.js";
+import { llmHealthCheck } from "../core/llm-client.js";
 import { getTeamTemplate } from "../core/team-templates.js";
 import { logger } from "../core/logger.js";
 import { ensureWorkspaceDir } from "../core/workspace-fs.js";
@@ -224,6 +225,14 @@ export async function runWeb(args: string[]): Promise<void> {
 
   // Simple health check for dashboard persistence detection
   fastify.get("/health", async () => ({ status: "ok" }));
+
+  // Re-check LLM gateway availability (called by dashboard to clear the banner)
+  fastify.post("/api/gateway/check", async () => {
+    const ok = await llmHealthCheck();
+    updateSessionState({ gatewayAvailable: ok });
+    if (ok) broadcast({ type: "state_sync", state: { gatewayAvailable: true } });
+    return { available: ok };
+  });
 
   fastify.get("/api/config", async () => {
     const runtime = getFullConfig();
@@ -427,6 +436,11 @@ export async function runWeb(args: string[]): Promise<void> {
     // Reset session control for new session
     resetSessionControl();
     sessionControl.paused = false;
+
+    // Re-check gateway so the banner clears when a provider was added after boot
+    const gwOk = await llmHealthCheck();
+    updateSessionState({ gatewayAvailable: gwOk });
+    if (gwOk) broadcast({ type: "state_sync", state: { gatewayAvailable: true } });
 
     // Fire orchestration in background
     (async () => {
