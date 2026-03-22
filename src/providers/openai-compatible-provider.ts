@@ -26,12 +26,12 @@ const PRESETS: Record<OpenAIPreset, { baseURL: string; envKey: string; defaultMo
   openrouter: {
     baseURL: "https://openrouter.ai/api/v1",
     envKey: "OPENROUTER_API_KEY",
-    defaultModel: "anthropic/claude-sonnet-4",
+    defaultModel: "anthropic/claude-opus-4-6",
   },
   ollama: {
     baseURL: "http://localhost:11434/v1",
     envKey: "",
-    defaultModel: "llama3.1",
+    defaultModel: "llama3",
   },
   deepseek: {
     baseURL: "https://api.deepseek.com/v1",
@@ -48,7 +48,7 @@ const PRESETS: Record<OpenAIPreset, { baseURL: string; envKey: string; defaultMo
     envKey: "",
     defaultModel: "",
   },
-  gemini: { baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", envKey: "GOOGLE_API_KEY", defaultModel: "gemini-2.5-flash" },
+  gemini: { baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", envKey: "GOOGLE_API_KEY", defaultModel: "gemini-3-flash" },
   grok: { baseURL: "https://api.x.ai/v1", envKey: "XAI_API_KEY", defaultModel: "grok-4" },
   mistral: { baseURL: "https://api.mistral.ai/v1", envKey: "MISTRAL_API_KEY", defaultModel: "codestral" },
   cerebras: { baseURL: "https://api.cerebras.ai/v1", envKey: "CEREBRAS_API_KEY", defaultModel: "qwen3-coder-480b" },

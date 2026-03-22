@@ -45,14 +45,11 @@ const ENV_KEY_MAP: Record<string, OpenAIPreset> = {
   AZURE_OPENAI_API_KEY: "azure",
 };
 
-/** Types that use the Anthropic native SDK */
-const ANTHROPIC_TYPES = new Set(["anthropic", "anthropic-sub"]);
-
 export function providerFromConfig(entry: ProviderConfigEntry): StreamProvider | null {
   // Anthropic native SDK
-  if (ANTHROPIC_TYPES.has(entry.type)) {
+  if (entry.type === "anthropic") {
     return new AnthropicProvider({
-      apiKey: entry.apiKey ?? entry.setupToken,
+      apiKey: entry.apiKey,
       model: entry.model,
     });
   }

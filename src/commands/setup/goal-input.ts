@@ -9,7 +9,7 @@ import {
     spinner,
     text,
 } from "@clack/prompts";
-import { searchableSelect } from "../../utils/searchable-select.js";
+import { searchableSelect, clampSelectOptions } from "../../utils/searchable-select.js";
 import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
@@ -319,11 +319,11 @@ async function refineGoalWithAI(state: WizardState, draft: string): Promise<stri
         const pick = handleCancel(
             await select({
                 message: "Which version do you prefer?",
-                options: [
+                options: clampSelectOptions([
                     { value: "refined", label: "Use the improved version" },
                     { value: "draft", label: "Keep my original" },
                     { value: "edit", label: "Edit the improved version" },
-                ],
+                ]),
             }),
         ) as string;
 
@@ -344,11 +344,11 @@ export async function stepGoal(state: WizardState): Promise<void> {
     const method = handleCancel(
         await select({
             message: "What does your team need to build?",
-            options: [
+            options: clampSelectOptions([
                 { value: "type", label: "Describe it now" },
                 { value: "file", label: "Load from a file" },
                 { value: "refine", label: "Draft it — I'll help refine with AI" },
-            ],
+            ]),
         }),
     ) as string;
 
@@ -370,17 +370,14 @@ export async function stepGoal(state: WizardState): Promise<void> {
         const preview = firstLine.length > 80
             ? firstLine.slice(0, 77) + "..."
             : firstLine;
-        const lines = content.split("\n").length;
-        const chars = content.length;
-
         const useIt = handleCancel(
             await select({
                 message: `Loaded ${path.basename(resolved)}\n  ${pc.dim(preview)}`,
-                options: [
+                options: clampSelectOptions([
                     { value: "use", label: "Use this" },
                     { value: "refine", label: "Improve with AI" },
                     { value: "edit", label: "Edit it myself" },
-                ],
+                ]),
             }),
         ) as string;
 

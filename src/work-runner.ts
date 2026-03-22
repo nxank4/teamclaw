@@ -256,7 +256,7 @@ export async function runWork(
     let { maxRuns } = parsed;
     let timeoutMinutes = parsed.timeoutMinutes ?? 0;
     let sessionMode = parsed.sessionMode;
-    const { clearLegacy, autoApprove, noPreview, asyncMode, asyncTimeout, noBriefing } = parsed;
+    const { clearLegacy, autoApprove, noPreview, asyncMode, asyncTimeout, noBriefing, noInteractive } = parsed;
     let noWebFlag = parsed.noWebFlag || noWebFromInput;
 
     // Raise listener limit — @clack/prompts adds keypress/readline listeners
@@ -934,6 +934,15 @@ export async function runWork(
     };
     workerEvents.on("reasoning", reasoningListener);
 
+    // Display streaming LLM output in terminal
+    const streamingEnabled = setupConfig.streaming?.enabled !== false && !parsed.noStream;
+    const streamChunkListener = streamingEnabled && canRenderSpinner
+        ? (data: { botId: string; chunk: string }) => {
+            process.stdout.write(pc.dim(data.chunk));
+        }
+        : null;
+    if (streamChunkListener) workerEvents.on("stream-chunk", streamChunkListener);
+
     // ---------------------------------------------------------------------------
     // Global memory maintenance — prune stale patterns on startup
     // ---------------------------------------------------------------------------
@@ -1093,7 +1102,7 @@ export async function runWork(
             });
             const runStartTime = Date.now();
 
-            // Telemetry init
+            // Telemetry init (legacy canvas gateway — non-critical)
             if (runId === 1) {
                 try {
                     const { initCanvasTelemetry, getCanvasTelemetry } = await import("./core/canvas-telemetry.js");
@@ -1101,11 +1110,10 @@ export async function runWork(
                     if (telemetryConnected) {
                         getCanvasTelemetry().sendSessionStart(goal);
                         logger.success(">>> WebSocket Telemetry: CONNECTED");
-                    } else {
-                        logger.warn(">>> Telemetry Bridge failed. Dashboard will not update in real-time.");
                     }
+                    // No warning on failure — canvas telemetry is optional legacy feature
                 } catch {
-                    logger.warn(">>> Telemetry Bridge failed. Dashboard will not update in real-time.");
+                    // Canvas telemetry unavailable — silently skip
                 }
             }
 
@@ -1117,8 +1125,11 @@ export async function runWork(
                 sPlan.start(randomPhrase("plan"));
 
                 const heartbeatInterval = setInterval(() => {
-                    elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-                    sPlan.message(`🧠 Coordinator is decomposing the goal... (${elapsedSeconds}s)`);
+                    const newElapsed = Math.floor((Date.now() - startTime) / 5000) * 5;
+                    if (newElapsed > elapsedSeconds) {
+                        elapsedSeconds = newElapsed;
+                        sPlan.message(`🧠 Coordinator is decomposing the goal... (${elapsedSeconds}s)`);
+                    }
                 }, 5000);
 
                 try {
@@ -1573,6 +1584,7 @@ export async function runWork(
     disposeAllRuntimes();
 
     workerEvents.off("reasoning", reasoningListener);
+    if (streamChunkListener) workerEvents.off("stream-chunk", streamChunkListener);
     stopGatewayTailer();
     clearSessionConfig();
     if (maxRuns > 1) {
@@ -1688,10 +1700,43 @@ export async function runWork(
         const { getDashboardBridge } = await import("./core/dashboard-bridge.js");
         getDashboardBridge().disconnect();
     } catch { /* bridge may not have been initialized */ }
-    try {
-        const { stop: stopDaemon } = await import("./daemon/manager.js");
-        stopDaemon();
-    } catch { /* daemon may not have been started */ }
+    // Dashboard daemon is intentionally NOT stopped here — it persists
+    // across work sessions. Stop it explicitly with `teamclaw web stop`.
 
-    process.exit(0);
+    // ---------------------------------------------------------------------------
+    // Post-session interactive menu
+    // ---------------------------------------------------------------------------
+    const { showPostSessionMenu } = await import("./work-runner/post-session-menu.js");
+    const dashboardPort = setupConfig.dashboardPort || 9001;
+    const menuResult = await showPostSessionMenu({
+        noInteractive,
+        dashboardPort,
+    });
+
+    if (menuResult.choice === "continue") {
+        // Re-run with same config
+        await runWork({
+            args,
+            goal: effectiveGoal || undefined,
+            openDashboard: !noWebFlag,
+            noWeb: noWebFlag,
+        });
+        return;
+    }
+
+    if (menuResult.choice === "new-goal" && menuResult.newGoal) {
+        await runWork({
+            args,
+            goal: menuResult.newGoal,
+            openDashboard: !noWebFlag,
+            noWeb: noWebFlag,
+        });
+        return;
+    }
+
+    // "exit" — clean exit
+    if (canRenderSpinner) {
+        const { outro } = await import("@clack/prompts");
+        outro("Done! Run teamclaw work whenever you're ready.");
+    }
 }

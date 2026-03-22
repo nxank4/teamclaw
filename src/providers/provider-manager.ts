@@ -3,6 +3,40 @@ import type { StreamProvider } from "./provider.js";
 import { ProviderError, type ProviderStatEntry, type ProviderStats, emptyStats } from "./types.js";
 import { logger } from "../core/logger.js";
 
+/**
+ * Maps model name prefixes to the provider name that serves them.
+ * Used to route requests to the correct provider when the user
+ * sets a specific model (e.g. gpt-4o should go to openai, not anthropic).
+ */
+/**
+ * Maps model name prefixes to provider names that can serve them.
+ * Multiple provider names per prefix allows matching copilot/chatgpt
+ * which also serve GPT models.
+ */
+const MODEL_PROVIDER_PREFIXES: [string[], string[]][] = [
+  [["anthropic"], ["claude-"]],
+  [["openai", "copilot", "chatgpt"], ["gpt-", "o1-", "o3-", "o4-", "chatgpt-"]],
+  [["deepseek"], ["deepseek-"]],
+  [["gemini"], ["gemini-"]],
+  [["grok"], ["grok-"]],
+  [["mistral"], ["mistral-", "codestral", "pixtral", "ministral"]],
+  [["groq"], ["llama-", "llama3", "mixtral"]],
+  [["cohere"], ["command-"]],
+];
+
+/**
+ * Return the set of provider names that can serve a given model, or null.
+ */
+function matchModelToProviders(model: string): Set<string> | null {
+  const lower = model.toLowerCase();
+  for (const [providers, prefixes] of MODEL_PROVIDER_PREFIXES) {
+    for (const prefix of prefixes) {
+      if (lower.startsWith(prefix)) return new Set(providers);
+    }
+  }
+  return null;
+}
+
 export class ProviderManager {
   private readonly providers: StreamProvider[];
   private stats: ProviderStats = emptyStats();
@@ -20,14 +54,45 @@ export class ProviderManager {
     return entry;
   }
 
+  /**
+   * Order providers so those matching the requested model come first.
+   * Falls back to the original chain order if no match is found.
+   */
+  private orderForModel(model?: string): StreamProvider[] {
+    if (!model) return this.providers;
+
+    const targets = matchModelToProviders(model);
+    if (!targets) return this.providers;
+
+    // Split into matching and non-matching, preserving relative order
+    const matching: StreamProvider[] = [];
+    const rest: StreamProvider[] = [];
+    for (const p of this.providers) {
+      if (targets.has(p.name)) {
+        matching.push(p);
+      } else {
+        rest.push(p);
+      }
+    }
+
+    if (matching.length === 0 || matching[0] === this.providers[0]) {
+      return this.providers; // already optimal or no match
+    }
+
+    const reordered = [...matching, ...rest];
+    logger.debug(`[providers] reordered chain: ${reordered.map((p) => p.name).join(" -> ")} (model=${model})`);
+    return reordered;
+  }
+
   async *stream(
     prompt: string,
     options?: StreamOptions,
   ): AsyncGenerator<StreamChunk, void, undefined> {
     const errors: ProviderError[] = [];
+    const ordered = this.orderForModel(options?.model);
 
-    for (let i = 0; i < this.providers.length; i++) {
-      const provider = this.providers[i]!;
+    for (let i = 0; i < ordered.length; i++) {
+      const provider = ordered[i]!;
 
       if (!provider.isAvailable()) {
         logger.debug(`[providers] skipping ${provider.name} (unavailable)`);
@@ -59,7 +124,7 @@ export class ProviderManager {
 
         errors.push(providerErr);
 
-        const next = this.providers[i + 1];
+        const next = ordered[i + 1];
         if (next) {
           (this.stats.fallbacksTriggered as number)++;
           logger.warn(`${provider.name} unavailable — switching to ${next.name}`);
@@ -68,7 +133,7 @@ export class ProviderManager {
     }
 
     throw new ProviderError({
-      provider: this.providers[this.providers.length - 1]?.name ?? "unknown",
+      provider: ordered[ordered.length - 1]?.name ?? "unknown",
       code: "ALL_PROVIDERS_FAILED",
       message: `ALL_PROVIDERS_FAILED: ${errors.map((e) => `${e.provider}: ${e.message}`).join("; ")}`,
       isFallbackTrigger: false,

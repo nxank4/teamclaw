@@ -312,12 +312,35 @@ export function getFallbackChain(): string[] {
 }
 
 /**
- * List available models from config + discovery.
+ * List available models from configured providers.
+ * Aggregates from model cache (fast) and provider catalog (fallback).
  */
 export async function listAvailableModels(): Promise<string[]> {
-  // Models are now managed per-provider; return empty for now.
-  // Provider-specific model listing can be added later.
-  return [];
+  const globalCfg = readGlobalConfig();
+  const providers = globalCfg?.providers ?? [];
+  if (providers.length === 0) return [];
+
+  const { getCachedModels } = await import("../providers/model-cache.js");
+  const { PROVIDER_CATALOG } = await import("../providers/provider-catalog.js");
+
+  const allModels = new Set<string>();
+
+  for (const provider of providers) {
+    // Try cache first (fast, no network)
+    const cached = await getCachedModels(provider.type);
+    if (cached && cached.length > 0) {
+      for (const m of cached) allModels.add(m);
+      continue;
+    }
+
+    // Fall back to catalog defaults
+    const meta = PROVIDER_CATALOG[provider.type];
+    if (meta?.models) {
+      for (const m of meta.models) allModels.add(m.id);
+    }
+  }
+
+  return [...allModels];
 }
 
 /**

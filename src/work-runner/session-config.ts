@@ -20,6 +20,8 @@ export type ParsedWorkArgs = {
     teamMode: "manual" | "autonomous" | "template" | undefined;
     templateId: string | undefined;
     noBriefing: boolean;
+    noInteractive: boolean;
+    noStream: boolean;
 };
 
 export function parseWorkArgs(args: string[]): ParsedWorkArgs {
@@ -35,6 +37,8 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
     let teamMode: "manual" | "autonomous" | "template" | undefined = undefined;
     let templateId: string | undefined = undefined;
     let noBriefing = false;
+    let noInteractive = false;
+    let noStream = false;
     let warnedInfraFlag = false;
 
     for (let i = 0; i < args.length; i++) {
@@ -64,6 +68,10 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
             noPreview = true;
         } else if (args[i] === "--no-briefing") {
             noBriefing = true;
+        } else if (args[i] === "--no-interactive") {
+            noInteractive = true;
+        } else if (args[i] === "--no-stream") {
+            noStream = true;
         } else if (args[i] === "--async") {
             asyncMode = true;
         } else if (args[i] === "--template" && args[i + 1]) {
@@ -96,7 +104,7 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
         }
     }
 
-    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview, asyncMode, asyncTimeout, teamMode, templateId, noBriefing };
+    return { maxRuns, timeoutMinutes, sessionMode, clearLegacy, autoApprove, noWebFlag, noPreview, asyncMode, asyncTimeout, teamMode, templateId, noBriefing, noInteractive, noStream };
 }
 
 export async function promptSessionConfig(

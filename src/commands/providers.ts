@@ -14,7 +14,7 @@ import {
   getGroupVariants,
   type ProviderMeta,
 } from "../providers/provider-catalog.js";
-import { searchableSelect } from "../utils/searchable-select.js";
+import { searchableSelect, clampSelectOptions } from "../utils/searchable-select.js";
 import {
   readGlobalConfig,
   readGlobalConfigWithDefaults,
@@ -25,28 +25,9 @@ import { validateApiKeyFormat, maskApiKey } from "../core/errors.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { logger } from "../core/logger.js";
 import pc from "picocolors";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import { fetchModelsForProvider } from "../providers/model-fetcher.js";
+import { getCachedModels, setCachedModels } from "../providers/model-cache.js";
 
-/** Try to find an existing Claude OAuth token from Claude Code or OpenClaw. */
-function detectClaudeOAuthToken(): string | null {
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  const home = homedir();
-  try {
-    const raw = readFileSync(join(home, ".claude", ".credentials.json"), "utf-8");
-    const data = JSON.parse(raw);
-    const token = data?.claudeAiOauth?.accessToken;
-    if (typeof token === "string" && token.length > 0) return token;
-  } catch { /* not found */ }
-  try {
-    const raw = readFileSync(join(home, ".openclaw", "credentials", "anthropic.token.json"), "utf-8");
-    const data = JSON.parse(raw);
-    const token = data?.token ?? data?.accessToken;
-    if (typeof token === "string" && token.length > 0) return token;
-  } catch { /* not found */ }
-  return null;
-}
 
 const ENV_KEYS: Record<string, string> = {
   ANTHROPIC_API_KEY: "anthropic",
@@ -108,7 +89,7 @@ export async function runProvidersCommand(args: string[]): Promise<void> {
   process.exit(1);
 }
 
-async function listProviders(): Promise<void> {
+export async function listProviders(): Promise<void> {
   let configEntries: ProviderConfigEntry[] | undefined;
   try {
     const cfg = readGlobalConfig();
@@ -206,7 +187,7 @@ function handleCancel<T>(v: T): T {
   return v;
 }
 
-async function addProvider(args: string[]): Promise<void> {
+export async function addProvider(args: string[]): Promise<void> {
   const directId = args[0];
   let selectedId: string;
 
@@ -249,7 +230,7 @@ async function addProvider(args: string[]): Promise<void> {
       const variantChoice = handleCancel(
         await select({
           message: `Which ${meta.name} variant?`,
-          options: variants.map(([id, m]) => ({ value: id, label: m.name, hint: m.menuHint })),
+          options: clampSelectOptions(variants.map(([id, m]) => ({ value: id, label: m.name, hint: m.menuHint }))),
         }),
       ) as string;
       selectedId = variantChoice;
@@ -278,8 +259,6 @@ async function addProvider(args: string[]): Promise<void> {
     await promptLocalProvider(entry, selectedId, meta);
   } else if (meta.authMethod === "device-oauth" && selectedId === "copilot") {
     await promptCopilotAuth(entry);
-  } else if (meta.authMethod === "setup-token") {
-    await promptSetupToken(entry);
   } else if (meta.authMethod === "credentials" && selectedId === "bedrock") {
     await promptBedrockAuth(entry);
   } else if (meta.authMethod === "credentials" && selectedId === "vertex") {
@@ -291,14 +270,56 @@ async function addProvider(args: string[]): Promise<void> {
     return;
   }
 
-  // Model selection
-  if (meta.models.length > 0) {
-    const modelOptions = [
-      ...meta.models.map((m) => ({ value: m.id, label: m.label, hint: m.hint })),
+  // Model selection — try live fetch, fall back to catalog
+  let modelOptions: Array<{ value: string; label: string; hint?: string }> = [];
+  let sourceHint = "";
+
+  if (entry.apiKey || entry.githubToken ||
+      selectedId === "ollama" || selectedId === "lmstudio") {
+    const cached = await getCachedModels(selectedId);
+    if (cached && cached.length > 0) {
+      modelOptions = cached.map((id) => ({ value: id, label: id }));
+      sourceHint = "cached";
+    } else {
+      const s = spinner();
+      s.start("Fetching available models...");
+      const result = await fetchModelsForProvider(
+        selectedId,
+        entry.apiKey ?? entry.githubToken ?? "",
+        entry.baseURL,
+      );
+      if (result.source === "live" && result.models.length > 0) {
+        const ids = result.models.map((m) => m.id);
+        modelOptions = result.models.slice(0, 50).map((m) => ({
+          value: m.id,
+          label: m.name !== m.id ? `${m.id}  ${pc.dim(m.name)}` : m.id,
+        }));
+        sourceHint = "live";
+        setCachedModels(selectedId, ids).catch(() => {});
+        s.stop(`${pc.green(`${result.models.length} models available`)}`);
+      } else {
+        if (result.error) logger.debug(`Model fetch failed: ${result.error}`);
+        s.stop(pc.dim("Using default model list"));
+      }
+    }
+  }
+
+  // Fall back to catalog
+  if (modelOptions.length === 0 && meta.models.length > 0) {
+    modelOptions = meta.models.map((m) => ({ value: m.id, label: m.label, hint: m.hint }));
+  }
+
+  if (modelOptions.length > 0) {
+    const selectOptions = clampSelectOptions([
+      ...modelOptions,
       { value: "__custom__", label: "Other (enter manually)" },
-    ];
+    ]);
     const modelChoice = handleCancel(
-      await select({ message: "Choose a model:", options: modelOptions, maxItems: 12 }),
+      await searchableSelect({
+        message: `Choose a model:${sourceHint ? ` ${pc.dim(`(${sourceHint})`)}` : ""}`,
+        options: selectOptions,
+        maxItems: 12,
+      }),
     ) as string;
     if (modelChoice === "__custom__") {
       const custom = handleCancel(
@@ -490,43 +511,6 @@ async function promptCopilotAuth(entry: ProviderConfigEntry): Promise<void> {
     pollS.stop("Authorization timed out");
     logger.plain(pc.yellow("  Device flow timed out. Please try again."));
   }
-}
-
-async function promptSetupToken(entry: ProviderConfigEntry): Promise<void> {
-  entry.authMethod = "setup-token";
-
-  // Try to auto-detect an existing token
-  const detected = detectClaudeOAuthToken();
-  if (detected) {
-    const masked = detected.slice(0, 12) + "\u2026" + detected.slice(-4);
-    logger.plain(`\n  ${pc.green("\u2713")} Found existing Claude OAuth token: ${pc.dim(masked)}`);
-
-    const useDetected = handleCancel(
-      await confirm({ message: "Use this token?", initialValue: true }),
-    ) as boolean;
-    if (useDetected) {
-      entry.setupToken = detected;
-      return;
-    }
-  }
-
-  note(
-    `${pc.bold("How to get a setup token:")}\n\n` +
-      `${pc.cyan("Option 1:")} Run in another terminal:\n` +
-      `  ${pc.dim("$")} claude setup-token\n` +
-      `  Copy the token it prints.\n\n` +
-      `${pc.cyan("Option 2:")} Copy from Claude Code credentials:\n` +
-      `  ${pc.dim("$")} cat ~/.claude/.credentials.json\n` +
-      `  Copy the ${pc.dim("claudeAiOauth.accessToken")} value.\n` +
-      `  (Starts with ${pc.dim("sk-ant-oat01-")})`,
-    "Claude Pro/Max Setup",
-  );
-
-  const token = handleCancel(
-    await password({ message: "Paste setup token:" }),
-  ) as string;
-
-  entry.setupToken = token.trim();
 }
 
 async function promptBedrockAuth(entry: ProviderConfigEntry): Promise<void> {

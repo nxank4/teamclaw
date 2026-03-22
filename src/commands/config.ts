@@ -5,13 +5,11 @@ import {
     isCancel,
     note,
     outro,
-    password,
     select,
-    spinner,
     text,
 } from "@clack/prompts";
 import pc from "picocolors";
-import { discoverOpenAIApi } from "../core/port-scanner.js";
+import { clampSelectOptions } from "../utils/searchable-select.js";
 import {
     readTeamclawConfig,
     writeTeamclawConfig,
@@ -20,21 +18,21 @@ import {
     readGlobalConfigWithDefaults,
     writeGlobalConfig,
     type TeamClawGlobalConfig,
+    type ProviderConfigEntry,
 } from "../core/global-config.js";
 import { clearTeamConfigCache, loadTeamConfig } from "../core/team-config.js";
 import { modelManagementMenu } from "./config/model-menu.js";
 import { advancedSettingsMenu, type AdvancedState } from "./config/advanced-menu.js";
-import { randomPhrase } from "../utils/spinner-phrases.js";
+import { addProvider, listProviders } from "./providers.js";
+import { maskApiKey } from "../core/errors.js";
 
 type MemoryBackend = "lancedb" | "local_json";
 type LoggingLevel = "info" | "verbose";
 type RosterEntry = { role: string; count: number; description: string };
 
 interface DashboardState {
-    gatewayUrl: string;
-    token: string;
     model: string;
-    chatEndpoint: string;
+    streamingEnabled: boolean;
     memoryBackend: MemoryBackend;
     memoryPath: string;
     roster: RosterEntry[];
@@ -48,79 +46,10 @@ interface DashboardState {
     webhookSecret: string;
 }
 
-function maskSecret(value: string): string {
-    const v = value.trim();
-    if (!v) return "(not set)";
-    if (v.length <= 8) return "********";
-    return `${v.slice(0, 3)}…${v.slice(-4)}`;
-}
-
-function isHttpOrWsUrl(value: string): boolean {
-    return /^(https?|wss?):\/\//i.test(value.trim());
-}
-
 function parsePort(value: string): number | null {
     const n = Number(value);
     if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
     return n;
-}
-
-function parsePortFromUrl(value: string): number | undefined {
-    const input = value.trim();
-    if (!input) return undefined;
-    try {
-        const withProtocol = input.includes("://") ? input : `http://${input}`;
-        const parsed = new URL(withProtocol);
-        if (!parsed.port) return undefined;
-        const port = Number(parsed.port);
-        return Number.isInteger(port) && port >= 1 && port <= 65535
-            ? port
-            : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-async function fetchModelsForService(
-    baseUrl: string,
-    token: string,
-): Promise<string[]> {
-    const httpBase = /^wss?:\/\//i.test(baseUrl)
-        ? baseUrl.replace(/^wss?:\/\//i, "http://")
-        : baseUrl;
-    const modelsUrl = `${httpBase.replace(/\/$/, "")}/v1/models`;
-    try {
-        const headers: Record<string, string> = {};
-        if (token.trim().length > 0) {
-            headers.Authorization = `Bearer ${token.trim()}`;
-        }
-        const res = await fetch(modelsUrl, {
-            method: "GET",
-            headers,
-            signal: AbortSignal.timeout(3000),
-        });
-        if (!res.ok) return [];
-        const data = (await res.json()) as {
-            data?: Array<{ id?: string }>;
-            models?: Array<{ id?: string; name?: string }>;
-        };
-        const fromData =
-            data.data
-                ?.map((m) => (typeof m.id === "string" ? m.id.trim() : ""))
-                .filter((x) => x.length > 0) ?? [];
-        const fromModels =
-            data.models
-                ?.map((m) => {
-                    const id = typeof m.id === "string" ? m.id.trim() : "";
-                    const name =
-                        typeof m.name === "string" ? m.name.trim() : "";
-                    return id || name;
-                })
-                .filter((x) => x.length > 0) ?? [];
-        return Array.from(new Set([...fromData, ...fromModels]));
-    } catch {
-        return [];
-    }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -157,24 +86,10 @@ async function loadDashboardState(): Promise<DashboardState> {
     const loggingLevel: LoggingLevel =
         (verboseRaw === true || verboseRaw === "true") ? "verbose" : "info";
 
-    const gatewayUrl =
-        String(globalCfg.gatewayUrl || "") ||
-        (typeof data.worker_url === "string" ? data.worker_url.trim() : "") ||
-        (parsed?.worker_url?.trim() ?? "");
-
-    const chatEndpoint =
-        String(globalCfg.chatEndpoint || "") ||
-        (typeof data.chat_endpoint === "string" ? data.chat_endpoint.trim() : "") ||
-        (parsed?.chat_endpoint?.trim() ?? "/v1/chat/completions");
-
     const model =
         String(globalCfg.model || "") ||
         (typeof data.model === "string" ? data.model.trim() : "") ||
         (parsed?.model?.trim() ?? "");
-
-    const token = String(globalCfg.token || "") ||
-        (typeof data.token === "string" ? data.token.trim() : "") ||
-        "";
 
     const memoryPath =
         (typeof data.vector_store_path === "string" ? data.vector_store_path : "") ||
@@ -210,10 +125,8 @@ async function loadDashboardState(): Promise<DashboardState> {
         (typeof data.webhook_secret === "string" ? data.webhook_secret : "");
 
     return {
-        gatewayUrl,
-        token,
         model,
-        chatEndpoint,
+        streamingEnabled: globalCfg.streaming?.enabled !== false,
         memoryBackend,
         memoryPath,
         roster,
@@ -228,205 +141,163 @@ async function loadDashboardState(): Promise<DashboardState> {
     };
 }
 
-async function providerMenu(state: DashboardState): Promise<void> {
+async function providerMenu(_state: DashboardState): Promise<void> {
     let back = false;
     while (!back) {
+        const config = readGlobalConfigWithDefaults();
+        const providers = config.providers ?? [];
+        const providerCount = providers.length;
+
         const choice = handleCancel(
             await select({
                 message: "LLM Provider Settings",
                 options: [
                     {
-                        value: "url",
-                        label: `Edit LLM Gateway URL (Current: ${state.gatewayUrl || "(not set)"})`,
+                        value: "add",
+                        label: "Add / edit provider",
+                        hint: "same flow as setup wizard",
                     },
                     {
-                        value: "token",
-                        label: `Edit API Token (Current: ${maskSecret(state.token)})`,
+                        value: "view",
+                        label: `View configured providers${providerCount > 0 ? ` (${providerCount})` : ""}`,
                     },
                     {
-                        value: "endpoint",
-                        label: `Edit Chat Endpoint (Current: ${state.chatEndpoint || "(not set)"})`,
+                        value: "remove",
+                        label: "Remove a provider",
                     },
-                    { value: "discover", label: "Run Auto-Discovery Scanner" },
+                    {
+                        value: "order",
+                        label: "Set provider chain order",
+                    },
                     { value: "back", label: "Back to Main Menu" },
                 ],
             }),
-        ) as "url" | "token" | "endpoint" | "discover" | "back";
+        ) as "add" | "view" | "remove" | "order" | "back";
 
         if (choice === "back") {
             back = true;
             continue;
         }
 
-        if (choice === "url") {
-            const value = handleCancel(
-                await text({
-                    message: "LLM Gateway URL",
-                    initialValue:
-                        state.gatewayUrl || "ws://localhost:18789",
-                    placeholder: "ws://localhost:18789",
-                    validate: (v) =>
-                        isHttpOrWsUrl(v ?? "")
-                            ? undefined
-                            : "URL must start with http://, https://, ws://, or wss://",
-                }),
-            ) as string;
-            state.gatewayUrl = value.trim();
+        if (choice === "add") {
+            // Reuse the full provider add flow from `teamclaw providers add`
+            await addProvider([]);
             continue;
         }
 
-        if (choice === "token") {
-            const value = handleCancel(
-                await password({
-                    message: "API Token",
-                    validate: (v) =>
-                        (v ?? "").trim().length > 0
-                            ? undefined
-                            : "Token cannot be empty",
-                }),
-            ) as string;
-            state.token = value.trim();
+        if (choice === "view") {
+            await listProviders();
             continue;
         }
 
-        if (choice === "endpoint") {
-            const value = handleCancel(
-                await text({
-                    message: "Chat Endpoint",
-                    initialValue:
-                        state.chatEndpoint || "/v1/chat/completions",
-                    placeholder: "/v1/chat/completions",
-                    validate: (v) =>
-                        (v ?? "").trim().startsWith("/")
-                            ? undefined
-                            : "Endpoint must start with '/'",
-                }),
-            ) as string;
-            state.chatEndpoint = value.trim();
+        if (choice === "remove") {
+            await removeProviderMenu();
             continue;
         }
 
-        if (choice === "discover") {
-            const s = spinner();
-            s.start(randomPhrase("scan"));
-
-            // Scan local ports for OpenAI-compatible services
-            const discovered = await discoverOpenAIApi("http://localhost", {
-                preferredPort: parsePortFromUrl(state.gatewayUrl),
-                timeoutMs: 1000,
-            }).catch(() => []);
-            if (discovered.length === 0) {
-                s.stop("⚠️ Could not auto-detect API.");
-                note(
-                    [
-                        "No OpenAI-compatible API responded on common ports.",
-                        "Tip: configure providers via `teamclaw setup` instead.",
-                        "Tip: ensure you are pointing to the API port, not the Web UI port.",
-                    ].join("\n"),
-                    "Discovery warning",
-                );
-                continue;
-            }
-            let selectedService = discovered[0]!;
-            s.stop(`Found ${discovered.length} OpenAI-compatible service(s).`);
-            const pickedService = handleCancel(
-                await select({
-                    message:
-                        discovered.length > 1
-                            ? "Select detected service:"
-                            : "Detected service:",
-                    options: discovered.map((d, idx) => {
-                        const proto =
-                            d.protocol === "ws"
-                                ? pc.magenta("[WS]")
-                                : pc.cyan("[HTTP]");
-                        const modelSummary =
-                            d.protocol === "ws"
-                                ? pc.dim("(Models verified after auth)")
-                                : `${d.models.length} model${d.models.length !== 1 ? "s" : ""} found`;
-                        return {
-                            value: String(idx),
-                            label: `${proto} Port ${d.port} (${d.serviceName} - ${modelSummary})`,
-                        };
-                    }),
-                    initialValue: "0",
-                }),
-            ) as string;
-            const pickedIdx = Number(pickedService);
-            if (
-                Number.isInteger(pickedIdx) &&
-                pickedIdx >= 0 &&
-                pickedIdx < discovered.length
-            ) {
-                selectedService = discovered[pickedIdx]!;
-            }
-
-            state.gatewayUrl = selectedService.baseUrl;
-            state.chatEndpoint = selectedService.chatEndpoint;
-
-            if (selectedService.protocol === "ws") {
-                const tokenValue = handleCancel(
-                    await password({
-                        message:
-                            "Selected WebSocket gateway. Enter API token:",
-                        validate: (v) =>
-                            (v ?? "").trim().length > 0
-                                ? undefined
-                                : "Token cannot be empty",
-                    }),
-                ) as string;
-                state.token = tokenValue.trim();
-                const models = await fetchModelsForService(
-                    selectedService.baseUrl,
-                    state.token,
-                );
-                if (models.length > 0) {
-                    const selectedModel = handleCancel(
-                        await select({
-                            message:
-                                "Select model for selected WebSocket service:",
-                            options: models.map((m) => ({
-                                value: m,
-                                label: m,
-                            })),
-                            initialValue: models[0],
-                        }),
-                    ) as string;
-                    state.model = selectedModel.trim();
-                } else {
-                    const modelValue = handleCancel(
-                        await text({
-                            message:
-                                "Could not auto-fetch models for this WS gateway. Enter model manually:",
-                            initialValue: state.model || "",
-                            placeholder: "qwen2.5-coder:7b",
-                            validate: (v) =>
-                                (v ?? "").trim().length > 0
-                                    ? undefined
-                                    : "Model cannot be empty",
-                        }),
-                    ) as string;
-                    state.model = modelValue.trim();
-                    note(
-                        "Model list not returned by gateway on /v1/models. Saved manual model value.",
-                        "WebSocket service selected",
-                    );
-                }
-            } else if (selectedService.models.length > 0) {
-                const selectedModel = handleCancel(
-                    await select({
-                        message: "Select model for selected HTTP service:",
-                        options: selectedService.models.map((m) => ({
-                            value: m,
-                            label: m,
-                        })),
-                        initialValue: selectedService.models[0],
-                    }),
-                ) as string;
-                state.model = selectedModel.trim();
-            }
+        if (choice === "order") {
+            await reorderChainMenu();
+            continue;
         }
     }
+}
+
+async function removeProviderMenu(): Promise<void> {
+    const config = readGlobalConfigWithDefaults();
+    const providers = config.providers ?? [];
+
+    if (providers.length === 0) {
+        note("No providers configured.", "Nothing to remove");
+        return;
+    }
+
+    const options = providers.map((p, i) => ({
+        value: String(i),
+        label: `${p.name ?? p.type}${p.model ? pc.dim(` (${p.model})`) : ""}${p.apiKey ? "  " + pc.dim(maskApiKey(p.apiKey)) : ""}`,
+    }));
+    options.push({ value: "cancel", label: "Cancel" });
+
+    const choice = handleCancel(
+        await select({
+            message: "Select provider to remove:",
+            options: clampSelectOptions(options),
+        }),
+    ) as string;
+
+    if (choice === "cancel") return;
+
+    const idx = Number(choice);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= providers.length) return;
+
+    if (providers.length === 1) {
+        note("Can't remove the only provider in your chain.\nAdd another provider first.", "Error");
+        return;
+    }
+
+    const target = providers[idx]!;
+    const yes = handleCancel(
+        await confirm({
+            message: `Remove ${target.name ?? target.type}?`,
+            initialValue: false,
+        }),
+    ) as boolean;
+
+    if (!yes) return;
+
+    providers.splice(idx, 1);
+    config.providers = providers;
+    writeGlobalConfig(config);
+    note(`Removed ${target.name ?? target.type}.`, "Done");
+}
+
+async function reorderChainMenu(): Promise<void> {
+    const config = readGlobalConfigWithDefaults();
+    const providers = config.providers ?? [];
+
+    if (providers.length < 2) {
+        note(
+            providers.length === 0
+                ? "No providers configured."
+                : "Only one provider — nothing to reorder.",
+            "Chain order",
+        );
+        return;
+    }
+
+    const currentOrder = providers.map((p) => p.name ?? p.type).join(" -> ");
+    const ids = providers.map((p) => p.name ?? p.type);
+
+    const newOrder = handleCancel(
+        await text({
+            message: "Enter provider IDs in priority order (comma-separated):",
+            initialValue: ids.join(", "),
+            placeholder: ids.join(", "),
+            validate: (v) => {
+                const entered = (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+                if (entered.length === 0) return "Enter at least one provider";
+                const unknown = entered.filter((e) => !ids.includes(e));
+                if (unknown.length > 0) return `Unknown: ${unknown.join(", ")}. Available: ${ids.join(", ")}`;
+                return undefined;
+            },
+        }),
+    ) as string;
+
+    const ordered = newOrder.split(",").map((s) => s.trim()).filter(Boolean);
+    const reordered: ProviderConfigEntry[] = [];
+
+    for (const id of ordered) {
+        const found = providers.find((p) => (p.name ?? p.type) === id);
+        if (found) reordered.push(found);
+    }
+    // Append any providers not mentioned (keep them at the end)
+    for (const p of providers) {
+        if (!reordered.includes(p)) reordered.push(p);
+    }
+
+    config.providers = reordered;
+    writeGlobalConfig(config);
+    const newOrderStr = reordered.map((p) => p.name ?? p.type).join(" -> ");
+    note(`${currentOrder}\n  =>\n${newOrderStr}`, "Chain reordered");
 }
 
 async function memoryMenu(state: DashboardState): Promise<void> {
@@ -531,12 +402,7 @@ async function teamMenu(state: DashboardState): Promise<void> {
         const refreshed = await loadDashboardState();
         state.roster = refreshed.roster;
         state.workers = refreshed.workers;
-        state.gatewayUrl =
-            refreshed.gatewayUrl || state.gatewayUrl;
-        state.token = refreshed.token || state.token;
         state.model = refreshed.model || state.model;
-        state.chatEndpoint =
-            refreshed.chatEndpoint || state.chatEndpoint;
         note(
             "Reloaded configuration from onboarding.",
             "Roster builder completed",
@@ -597,21 +463,14 @@ async function systemMenu(state: DashboardState): Promise<void> {
     }
 }
 
-function applyRuntime(_state: DashboardState): void {
-    // Runtime setters removed; config is now persisted to global config
-    // and providers are configured via the provider system.
-}
-
 function saveState(state: DashboardState): void {
-    // Update global config (connection + system prefs)
+    // Update global config (system prefs — providers managed separately)
     const globalCfg = readGlobalConfigWithDefaults();
     writeGlobalConfig({
         ...globalCfg,
-        gatewayUrl: state.gatewayUrl,
-        token: state.token,
-        chatEndpoint: state.chatEndpoint,
         model: state.model,
         dashboardPort: state.webPort,
+        streaming: { enabled: state.streamingEnabled, showThinking: globalCfg.streaming?.showThinking ?? false },
         ...({
             webhookOnTaskComplete: state.webhookOnTaskComplete || undefined,
             webhookOnCycleEnd: state.webhookOnCycleEnd || undefined,
@@ -623,8 +482,6 @@ function saveState(state: DashboardState): void {
     const cfg = readTeamclawConfig();
     const next = {
         ...cfg.data,
-        worker_url: state.gatewayUrl,
-        chat_endpoint: state.chatEndpoint,
         model: state.model,
         memory_backend: state.memoryBackend,
         vector_store_path: state.memoryPath,
@@ -637,7 +494,6 @@ function saveState(state: DashboardState): void {
     } as Record<string, unknown>;
     writeTeamclawConfig(cfg.path, next);
     clearTeamConfigCache();
-    applyRuntime(state);
 }
 
 export async function runConfigDashboard(): Promise<void> {
@@ -649,15 +505,15 @@ export async function runConfigDashboard(): Promise<void> {
         const choice = handleCancel(
             await select({
                 message: "Main Menu",
-                options: [
+                options: clampSelectOptions([
                     { value: "providers", label: "🔌 LLM Provider Settings" },
                     { value: "models", label: "🧩 Model Management" },
                     { value: "memory", label: "🧠 Memory & Database" },
                     { value: "team", label: "🤖 Team Roster & Workers" },
                     { value: "advanced", label: "🔧 Advanced Settings" },
-                    { value: "system", label: "⚙️ System Preferences" },
+                    { value: "system", label: "\u{2699}\uFE0F  System Preferences" },
                     { value: "save", label: "💾 Save & Exit" },
-                ],
+                ]),
             }),
         ) as "providers" | "models" | "memory" | "team" | "advanced" | "system" | "save";
 
@@ -684,6 +540,7 @@ export async function runConfigDashboard(): Promise<void> {
             const advState: AdvancedState = {
                 creativity: state.creativity,
                 maxCycles: state.maxCycles,
+                streamingEnabled: state.streamingEnabled,
                 webhookOnTaskComplete: state.webhookOnTaskComplete,
                 webhookOnCycleEnd: state.webhookOnCycleEnd,
                 webhookSecret: state.webhookSecret,
@@ -691,6 +548,7 @@ export async function runConfigDashboard(): Promise<void> {
             await advancedSettingsMenu(advState);
             state.creativity = advState.creativity;
             state.maxCycles = advState.maxCycles;
+            state.streamingEnabled = advState.streamingEnabled;
             state.webhookOnTaskComplete = advState.webhookOnTaskComplete;
             state.webhookOnCycleEnd = advState.webhookOnCycleEnd;
             state.webhookSecret = advState.webhookSecret;

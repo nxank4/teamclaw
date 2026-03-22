@@ -28,7 +28,7 @@ export class CanvasTelemetry {
         }
 
         // Gateway telemetry disabled — no gateway configured
-        logger.info("Canvas telemetry: no gateway configured, skipping");
+        logger.debug("Canvas telemetry: no gateway configured, skipping");
         return false;
     }
 

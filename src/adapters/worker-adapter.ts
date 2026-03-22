@@ -162,13 +162,24 @@ export class UniversalWorkerAdapter implements WorkerAdapter {
         ? AbortSignal.any([signal, timeoutSignal])
         : timeoutSignal;
 
-      const result = await mgr.generate(userMsg, {
+      // Stream chunks for real-time display instead of waiting for full response
+      const chunks: string[] = [];
+      let streamUsage: { promptTokens: number; completionTokens: number } | undefined;
+      const streamCb = _onChunk ?? this.onStreamChunk;
+
+      for await (const chunk of mgr.stream(userMsg, {
         model: model || undefined,
         systemPrompt: systemMsg?.content,
         signal: combinedSignal,
-      });
+      })) {
+        if (chunk.content) {
+          chunks.push(chunk.content);
+          if (streamCb) streamCb(chunk.content);
+        }
+        if (chunk.done && chunk.usage) streamUsage = chunk.usage;
+      }
 
-      const text = result.text;
+      const text = chunks.join("");
 
       // Extract thinking/reasoning from <think> tags
       const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
@@ -182,8 +193,8 @@ export class UniversalWorkerAdapter implements WorkerAdapter {
       const reasoning = thinkMatches.join("\n\n");
 
       // Token usage callback
-      if (result.usage && tokenUsageCb) {
-        tokenUsageCb(result.usage.promptTokens, result.usage.completionTokens, 0, model);
+      if (streamUsage && tokenUsageCb) {
+        tokenUsageCb(streamUsage.promptTokens, streamUsage.completionTokens, 0, model);
       }
 
       // Store in semantic cache (fire-and-forget)
@@ -210,7 +221,7 @@ export class UniversalWorkerAdapter implements WorkerAdapter {
         meta: {
           elapsedMs: Date.now() - startedAt,
           responseLength: cleanedText.length,
-          ...(result.usage ? { tokensUsed: result.usage } : {}),
+          ...(streamUsage ? { tokensUsed: streamUsage } : {}),
         },
         timestamp: Date.now(),
       });

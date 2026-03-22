@@ -1,69 +1,85 @@
 /**
  * Dashboard auto-start, health verification, and bridge initialization.
+ *
+ * The dashboard is a persistent background service — it survives work session
+ * restarts and only stops on explicit `teamclaw web stop` or process kill.
  */
 
 import { logger } from "../core/logger.js";
-import { findAvailablePort } from "../core/port.js";
 
 export type DashboardSetupOptions = {
     webPort: number;
     dashboardPort?: number;
 };
 
-/** Wait until a port can be bound (i.e. the previous process released it). */
-async function waitForPortFree(port: number, timeoutMs = 5000): Promise<boolean> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        try {
-            // findAvailablePort returns the port itself when it's free
-            const free = await findAvailablePort(port, 0);
-            if (free === port) return true;
-        } catch {
-            // port not free yet
+/**
+ * Check if a TeamClaw dashboard is already serving on the given port.
+ * Uses the /health endpoint added specifically for persistence detection.
+ */
+export async function isDashboardRunning(port: number): Promise<boolean> {
+    try {
+        const res = await fetch(`http://localhost:${port}/health`, {
+            signal: AbortSignal.timeout(1000),
+        });
+        if (res.ok) {
+            const body = await res.json() as { status?: string };
+            return body.status === "ok";
         }
-        await new Promise((r) => setTimeout(r, 200));
+    } catch {
+        // Not reachable
     }
     return false;
 }
 
 /**
- * Start the dashboard daemon, verify health, and initialize the bridge.
- * Returns the actual port the dashboard is serving on.
+ * Ensure the dashboard is running. If already running, reuse it.
+ * If not, start a new daemon. Returns the actual port.
  */
 export async function startDashboard(
     opts: DashboardSetupOptions,
 ): Promise<number> {
-    const { start: startDaemon, stop: stopDaemon, status: daemonStatus } = await import("../daemon/manager.js");
+    const { start: startDaemon, status: daemonStatus } = await import("../daemon/manager.js");
     const webPort = opts.webPort;
 
-    // Restart daemon if already running so it serves the latest build
+    // Check if dashboard is already running via HTTP health check
+    const alreadyRunning = await isDashboardRunning(webPort);
+    if (alreadyRunning) {
+        const dashboardUrl = `http://localhost:${webPort}`;
+        logger.plain("");
+        logger.plain(`>>> Connecting to dashboard at ${dashboardUrl}`);
+        logger.plain("");
+
+        // Initialize bridge to existing dashboard
+        await initBridge(webPort);
+        return webPort;
+    }
+
+    // Also check daemon state for a different port
     const preStatus = daemonStatus();
-    if (preStatus.web === "running") {
-        const oldPort = preStatus.webPort ?? webPort;
-        stopDaemon();
-        // Wait for the port to actually be released before restarting
-        const freed = await waitForPortFree(oldPort);
-        if (!freed) {
-            logger.warn(`Port ${oldPort} still in use after stop — new dashboard may bind to a different port`);
+    if (preStatus.web === "running" && preStatus.webPort) {
+        const existingPort = preStatus.webPort;
+        const runningOnOtherPort = await isDashboardRunning(existingPort);
+        if (runningOnOtherPort) {
+            const dashboardUrl = `http://localhost:${existingPort}`;
+            logger.plain("");
+            logger.plain(`>>> Connecting to dashboard at ${dashboardUrl}`);
+            logger.plain("");
+            await initBridge(existingPort);
+            return existingPort;
         }
     }
 
+    // Start new daemon
     const daemonResult = startDaemon({ web: true, gateway: false, webPort });
     const actualStatus = daemonStatus();
     const actualPort = actualStatus.webPort || webPort;
     if (!daemonResult.error) {
         const dashboardUrl = `http://localhost:${actualPort}`;
         logger.plain("");
-        logger.plain(`>>> TeamClaw Dashboard: ${dashboardUrl}`);
+        logger.plain(`>>> Dashboard started at ${dashboardUrl}`);
         logger.plain("");
 
-        // Auto-open dashboard in browser
-        try {
-            const { default: open } = await import("open");
-            await open(dashboardUrl);
-        } catch {
-            // Ignore - non-critical
-        }
+        // No auto-open — just show the URL
     } else {
         logger.warn(`Dashboard auto-start skipped: ${daemonResult.error}`);
     }
@@ -72,18 +88,14 @@ export async function startDashboard(
     let dashboardHealthy = false;
     for (let attempt = 0; attempt < 10; attempt++) {
         try {
-            const checkUrl = `http://localhost:${actualPort}`;
-            const res = await fetch(checkUrl, { signal: AbortSignal.timeout(2000) });
-            const contentType = res.headers.get("content-type") ?? "";
-            const body = await res.text();
-            const hasHtml = contentType.includes("text/html") && body.includes("<script");
-            if (res.ok && hasHtml) {
-                logger.success(`>>> Dashboard Health: OK (HTTP ${res.status}, ${(body.length / 1024).toFixed(1)}KB HTML)`);
+            const res = await fetch(`http://localhost:${actualPort}/health`, {
+                signal: AbortSignal.timeout(2000),
+            });
+            if (res.ok) {
+                logger.success(`>>> Dashboard Health: OK`);
                 dashboardHealthy = true;
-            } else {
-                logger.warn(`>>> Dashboard Health: unexpected response (HTTP ${res.status}, content-type: ${contentType})`);
+                break;
             }
-            break;
         } catch {
             if (attempt < 9) {
                 await new Promise((r) => setTimeout(r, 500));
@@ -109,10 +121,15 @@ export async function startDashboard(
         }
     }
 
-    // Initialize dashboard bridge to forward orchestration events + terminal output
+    await initBridge(actualPort);
+    return actualPort;
+}
+
+/** Initialize dashboard bridge to forward orchestration events + terminal output. */
+async function initBridge(port: number): Promise<void> {
     try {
         const { initDashboardBridge, getDashboardBridge } = await import("../core/dashboard-bridge.js");
-        const bridgeOk = await initDashboardBridge(actualPort);
+        const bridgeOk = await initDashboardBridge(port);
         if (bridgeOk) {
             logger.success(">>> Dashboard Bridge: CONNECTED");
             getDashboardBridge().startTerminalForwarding();
@@ -122,6 +139,4 @@ export async function startDashboard(
     } catch {
         logger.warn(">>> Dashboard Bridge: init failed.");
     }
-
-    return actualPort;
 }

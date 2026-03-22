@@ -181,9 +181,9 @@ describe("provider chain integration", () => {
     expect(chain.map(p => p.name)).toEqual(["copilot", "chatgpt", "bedrock", "vertex"]);
   });
 
-  it("handles anthropic-sub via AnthropicProvider with setupToken", () => {
+  it("ignores removed anthropic-sub type gracefully", () => {
     const entries: ProviderConfigEntry[] = [
-      { type: "anthropic-sub", setupToken: "sk-ant-oat01-test" },
+      { type: "anthropic", apiKey: "sk-ant-api03-test" },
     ];
 
     const chain = createProviderChain(entries);

@@ -12,39 +12,14 @@ import {
     password,
 } from "@clack/prompts";
 import pc from "picocolors";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import type { ProviderConfigEntry } from "../../core/global-config.js";
 import { randomPhrase } from "../../utils/spinner-phrases.js";
 import { PROVIDER_CATALOG } from "../../providers/provider-catalog.js";
-import { searchableSelect } from "../../utils/searchable-select.js";
+import { searchableSelect, clampSelectOptions } from "../../utils/searchable-select.js";
+import { fetchModelsForProvider } from "../../providers/model-fetcher.js";
+import { getCachedModels, setCachedModels } from "../../providers/model-cache.js";
+import { logger } from "../../core/logger.js";
 
-/** Try to find an existing Claude OAuth token from Claude Code or OpenClaw. */
-function detectClaudeOAuthToken(): string | null {
-    // 1. Environment variable (highest priority)
-    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN;
-
-    const home = homedir();
-
-    // 2. Claude Code credentials (~/.claude/.credentials.json)
-    try {
-        const raw = readFileSync(join(home, ".claude", ".credentials.json"), "utf-8");
-        const data = JSON.parse(raw);
-        const token = data?.claudeAiOauth?.accessToken;
-        if (typeof token === "string" && token.length > 0) return token;
-    } catch { /* not found */ }
-
-    // 3. OpenClaw credentials (~/.openclaw/credentials/anthropic.token.json)
-    try {
-        const raw = readFileSync(join(home, ".openclaw", "credentials", "anthropic.token.json"), "utf-8");
-        const data = JSON.parse(raw);
-        const token = data?.token ?? data?.accessToken;
-        if (typeof token === "string" && token.length > 0) return token;
-    } catch { /* not found */ }
-
-    return null;
-}
 
 export interface WizardState {
     providerEntries: ProviderConfigEntry[];
@@ -73,7 +48,7 @@ const PROVIDER_CHOICES: Array<{ value: string; label: string; hint?: string }> =
     { value: "chatgpt", label: "ChatGPT Plus/Pro", hint: "Use your ChatGPT Plus/Pro subscription" },
     { value: "copilot", label: "GitHub Copilot", hint: "Use your Copilot subscription — no API key needed" },
     // API keys
-    { value: "anthropic", label: "Anthropic (Claude)", hint: "Recommended — built and tested with TeamClaw" },
+    { value: "anthropic", label: "Anthropic (Claude)", hint: "Claude models" },
     { value: "openai", label: "OpenAI (GPT)", hint: "Great quality" },
     { value: "gemini", label: "Google Gemini", hint: "API key or subscription (OAuth)" },
     { value: "grok", label: "xAI Grok", hint: "2M token context · live web search" },
@@ -130,7 +105,7 @@ async function testProviderConnection(entry: ProviderConfigEntry): Promise<boole
     if (entry.type === "ollama" || entry.type === "lmstudio") return true;
     const meta = PROVIDER_CATALOG[entry.type];
     if (meta?.authMethod === "credentials" || meta?.authMethod === "local") return true;
-    if (!entry.apiKey && !entry.setupToken) return true;
+    if (!entry.apiKey) return true;
 
     const { providerFromConfig } = await import("../../providers/provider-factory.js");
     const provider = providerFromConfig(entry);
@@ -158,7 +133,7 @@ async function testProviderConnection(entry: ProviderConfigEntry): Promise<boole
 async function promptProviderEntry(): Promise<ProviderConfigEntry> {
     const providerType = handleCancel(
         await searchableSelect({
-            message: "Which AI provider will power your team?\n  " + pc.dim("New here? Anthropic (Claude) is what we recommend."),
+            message: "Which AI provider will power your team?",
             options: PROVIDER_CHOICES,
             maxItems: 12,
         }),
@@ -174,7 +149,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
             "",
             `  Requirements:`,
             `  \u00b7 Ollama installed: ${pc.cyan("https://ollama.ai/download")}`,
-            `  \u00b7 At least one model pulled: ${pc.dim("ollama pull llama3.1")}`,
+            `  \u00b7 At least one model pulled: ${pc.dim("ollama pull llama3")}`,
             "",
         ].join("\n"));
 
@@ -198,7 +173,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
                 `  To install Ollama:`,
                 `    1. Download from: ${pc.cyan("https://ollama.ai/download")}`,
                 `    2. Install and open it`,
-                `    3. Pull a model: ${pc.dim("ollama pull llama3.1")}`,
+                `    3. Pull a model: ${pc.dim("ollama pull llama3")}`,
                 `    4. Come back and run: ${pc.dim("teamclaw setup")}`,
                 "",
             ].join("\n"));
@@ -214,102 +189,14 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
                 process.exit(0);
             }
         }
-    } else if (providerType === "anthropic") {
-        const authMethod = handleCancel(
-            await select({
-                message: "How do you want to connect Anthropic?",
-                options: [
-                    { value: "apikey", label: "API key", hint: "Recommended · get one at console.anthropic.com" },
-                    { value: "setup-token", label: "Claude Pro/Max subscription", hint: "⚠ Uses claude setup-token · unofficial path" },
-                ],
-            }),
-        ) as string;
-
-        if (authMethod === "setup-token") {
-            entry.type = "anthropic-sub" as ProviderType;
-            entry.authMethod = "setup-token";
-
-            // Try to auto-detect an existing token
-            const detected = detectClaudeOAuthToken();
-            if (detected) {
-                const masked = detected.slice(0, 12) + "\u2026" + detected.slice(-4);
-                console.log(`\n  ${pc.green("\u2713")} Found existing Claude OAuth token: ${pc.dim(masked)}`);
-
-                const useDetected = handleCancel(
-                    await confirm({ message: "Use this token?", initialValue: true }),
-                ) as boolean;
-                if (useDetected) {
-                    entry.setupToken = detected;
-                }
-            }
-
-            if (!entry.setupToken) {
-                console.log([
-                    "",
-                    `  ${pc.yellow("\u26a0")}  Heads up: Anthropic's ToS states that OAuth tokens from Claude Pro/Max`,
-                    `     are intended for Claude Code and claude.ai only.`,
-                    `     Use at your own discretion.`,
-                    "",
-                    `  ${pc.bold("How to get a setup token:")}`,
-                    "",
-                    `  ${pc.cyan("Option 1:")} Run in another terminal:`,
-                    `    ${pc.dim("$")} claude setup-token`,
-                    `    Copy the token it prints.`,
-                    "",
-                    `  ${pc.cyan("Option 2:")} Copy from Claude Code credentials:`,
-                    `    ${pc.dim("$")} cat ~/.claude/.credentials.json`,
-                    `    Copy the ${pc.dim("claudeAiOauth.accessToken")} value.`,
-                    `    (Starts with ${pc.dim("sk-ant-oat01-")})`,
-                    "",
-                ].join("\n"));
-                const token = handleCancel(
-                    await password({ message: "Paste your setup token:" }),
-                ) as string;
-                entry.setupToken = token.trim();
-            }
-        } else {
-            // API key flow
-            const { PROVIDER_SETUP_HINTS, API_KEY_PREFIXES, validateApiKeyFormat } = await import("../../core/errors.js");
-            const hints = PROVIDER_SETUP_HINTS.anthropic;
-            const prefix = API_KEY_PREFIXES.anthropic;
-            console.log("");
-            for (const step of hints) {
-                console.log(`  ${pc.dim(step)}`);
-            }
-            if (prefix) console.log(`  Starts with: ${pc.dim(prefix)}`);
-            console.log(`  ${pc.dim("Your key is stored locally in ~/.teamclaw/config.json")}`);
-
-            const apiKey = handleCancel(
-                await password({ message: "Your Anthropic API key:" }),
-            ) as string;
-
-            if (!apiKey?.trim()) {
-                const proceed = handleCancel(
-                    await confirm({ message: "No key entered — some features won't work. Continue anyway?", initialValue: false }),
-                ) as boolean;
-                if (!proceed) { cancel("Cancelled."); process.exit(0); }
-            } else {
-                const validation = validateApiKeyFormat(providerType, apiKey.trim());
-                if (validation.valid) {
-                    console.log(`  ${pc.green("\u2713")} Key format looks good`);
-                } else {
-                    console.log(`  ${pc.yellow("\u26a0")} ${validation.hint}`);
-                    const proceed = handleCancel(
-                        await confirm({ message: "This key format doesn't look right. Use it anyway?", initialValue: true }),
-                    ) as boolean;
-                    if (!proceed) { cancel("Cancelled."); process.exit(0); }
-                }
-                entry.apiKey = apiKey.trim();
-            }
-        }
     } else if (providerType === "opencode") {
         const variant = handleCancel(
             await select({
                 message: "Which OpenCode plan?",
-                options: [
+                options: clampSelectOptions([
                     { value: "opencode-zen", label: "OpenCode Zen", hint: "Curated frontier models (Claude, GPT, Gemini)" },
                     { value: "opencode-go", label: "OpenCode Go", hint: "Curated open models ($10/mo)" },
-                ],
+                ]),
             }),
         ) as string;
         entry.type = variant as ProviderType;
@@ -356,10 +243,10 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
         const authMethod = handleCancel(
             await select({
                 message: "How do you want to authenticate?",
-                options: [
+                options: clampSelectOptions([
                     { value: "apikey", label: "API key", hint: "Recommended \u00b7 free tier available" },
                     { value: "oauth", label: "Gemini subscription (OAuth)", hint: "\u26a0\ufe0f Account ban risk" },
-                ],
+                ]),
             }),
         ) as string;
 
@@ -505,16 +392,60 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
         }
     }
 
-    // Model selection — catalog-driven dropdown when models are available
+    // Model selection — try live fetch, fall back to catalog
     const catalogMeta = PROVIDER_CATALOG[entry.type];
     const catalogModels = catalogMeta?.models ?? [];
-    if (catalogModels.length > 0) {
-        const modelOptions = [
-            ...catalogModels.map((m) => ({ value: m.id, label: m.label, hint: m.hint })),
-            { value: "__custom__", label: "Other", hint: "Enter a model name manually" },
-        ];
+
+    let modelOptions: Array<{ value: string; label: string; hint?: string }> = [];
+    let sourceHint = "";
+
+    if (entry.apiKey || entry.type === "ollama" || entry.type === "lmstudio") {
+        // Try cache first, then live fetch
+        const cached = await getCachedModels(entry.type);
+        if (cached && cached.length > 0) {
+            modelOptions = cached.map((id) => ({ value: id, label: id }));
+            sourceHint = "cached";
+        } else {
+            const s = spinner();
+            s.start("Fetching available models...");
+            const result = await fetchModelsForProvider(
+                entry.type,
+                entry.apiKey ?? "",
+                entry.baseURL,
+            );
+            if (result.source === "live" && result.models.length > 0) {
+                const ids = result.models.map((m) => m.id);
+                modelOptions = result.models.slice(0, 50).map((m) => ({
+                    value: m.id,
+                    label: m.name !== m.id ? `${m.id}  ${pc.dim(m.name)}` : m.id,
+                }));
+                sourceHint = "live";
+                // Cache for next time (fire-and-forget)
+                setCachedModels(entry.type, ids).catch(() => {});
+                s.stop(`${pc.green(`${result.models.length} models available`)}`);
+            } else {
+                if (result.error) logger.debug(`Model fetch failed: ${result.error}`);
+                s.stop(pc.dim("Using default model list"));
+            }
+        }
+    }
+
+    // Fall back to catalog if live/cached fetch didn't produce results
+    if (modelOptions.length === 0 && catalogModels.length > 0) {
+        modelOptions = catalogModels.map((m) => ({ value: m.id, label: m.label, hint: m.hint }));
+    }
+
+    if (modelOptions.length > 0) {
+        const selectOptions = clampSelectOptions([
+            ...modelOptions,
+            { value: "__custom__", label: "Enter model name manually" },
+        ]);
         const modelChoice = handleCancel(
-            await select({ message: "Which model should your team use?", options: modelOptions, maxItems: 12 }),
+            await searchableSelect({
+                message: `Which model should your team use?${sourceHint ? ` ${pc.dim(`(${sourceHint})`)}` : ""}`,
+                options: selectOptions,
+                maxItems: 12,
+            }),
         ) as string;
         if (modelChoice === "__custom__") {
             const custom = handleCancel(
@@ -532,10 +463,10 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
         const action = handleCancel(
             await select({
                 message: "What would you like to do?",
-                options: [
+                options: clampSelectOptions([
                     { value: "continue", label: "Continue anyway", hint: "You can fix the key later" },
                     { value: "reenter", label: "Re-enter API key", hint: "Try a different key" },
-                ],
+                ]),
             }),
         ) as string;
         if (action === "reenter") {

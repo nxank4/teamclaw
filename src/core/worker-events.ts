@@ -10,4 +10,9 @@ export interface WorkerReasoningStep {
   reasoning: string;
 }
 
+export interface WorkerStreamChunk {
+  botId: string;
+  chunk: string;
+}
+
 export const workerEvents = new EventEmitter();

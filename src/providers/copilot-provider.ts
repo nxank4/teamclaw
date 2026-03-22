@@ -70,12 +70,14 @@ export class CopilotProvider implements StreamProvider {
     });
 
     if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      logger.warn(`[copilot] token exchange failed: HTTP ${res.status} — ${body.slice(0, 300)}`);
       throw new ProviderError({
         provider: "copilot",
         code: "COPILOT_TOKEN_EXPIRED",
-        message: `Copilot token exchange failed: ${res.status} ${res.statusText}`,
+        message: `Copilot token exchange failed: ${res.status} ${res.statusText} — ${body.slice(0, 200)}`,
         statusCode: res.status,
-        isFallbackTrigger: res.status === 401,
+        isFallbackTrigger: true,
       });
     }
 
@@ -92,6 +94,7 @@ export class CopilotProvider implements StreamProvider {
     if (!this.needsRefresh() && this.copilotToken) {
       return this.copilotToken;
     }
+    logger.debug(`[copilot] token refresh needed (has github token: ${!!this.githubToken}, copilot token expired: ${this.needsRefresh()})`);
     if (!this.refreshing) {
       this.refreshing = this.refreshCopilotToken().finally(() => {
         this.refreshing = null;
@@ -120,8 +123,10 @@ export class CopilotProvider implements StreamProvider {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
-        "Copilot-Integration-Id": "teamclaw",
-        "User-Agent": "TeamClaw/1.0",
+        "Copilot-Integration-Id": "vscode-chat",
+        "Editor-Version": "vscode/1.99.0",
+        "Editor-Plugin-Version": "copilot-chat/0.24.0",
+        "User-Agent": "GitHubCopilotChat/0.24.0",
         Accept: "text/event-stream",
       },
       body: JSON.stringify({
@@ -134,7 +139,8 @@ export class CopilotProvider implements StreamProvider {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
+      const errText = await res.text().catch(() => "");
+      logger.warn(`[copilot] stream failed: HTTP ${res.status} — ${errText.slice(0, 300)}`);
       if (res.status === 401) {
         try {
           await this.refreshCopilotToken();
@@ -150,7 +156,7 @@ export class CopilotProvider implements StreamProvider {
             : res.status === 429
               ? "RATE_LIMITED"
               : "STREAM_FAILED",
-        message: `Copilot API error: ${res.status} ${text.slice(0, 200)}`,
+        message: `Copilot API error: ${res.status} ${errText.slice(0, 200)}`,
         statusCode: res.status,
         isFallbackTrigger: true,
       });

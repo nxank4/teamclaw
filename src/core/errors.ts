@@ -2,7 +2,7 @@ import pc from 'picocolors';
 import type { ProviderErrorType } from './result-types.js';
 
 export const PROVIDER_URLS: Record<string, { keyUrl: string | null; statusUrl: string }> = {
-  anthropic:  { keyUrl: 'https://console.anthropic.com/settings/keys', statusUrl: 'https://status.anthropic.com' },
+  anthropic:  { keyUrl: 'https://platform.claude.com/settings/keys', statusUrl: 'https://status.anthropic.com' },
   openai:     { keyUrl: 'https://platform.openai.com/api-keys', statusUrl: 'https://status.openai.com' },
   openrouter: { keyUrl: 'https://openrouter.ai/settings/keys', statusUrl: 'https://openrouter.ai' },
   deepseek:   { keyUrl: 'https://platform.deepseek.com/api_keys', statusUrl: 'https://platform.deepseek.com' },
@@ -13,15 +13,15 @@ export const PROVIDER_URLS: Record<string, { keyUrl: string | null; statusUrl: s
   grok:       { keyUrl: 'https://console.x.ai', statusUrl: 'https://status.x.ai' },
   mistral:    { keyUrl: 'https://console.mistral.ai/api-keys', statusUrl: 'https://console.mistral.ai' },
   cerebras:   { keyUrl: 'https://cloud.cerebras.ai', statusUrl: 'https://cloud.cerebras.ai' },
-  together:   { keyUrl: 'https://api.together.ai/settings/api-keys', statusUrl: 'https://api.together.ai' },
+  together:   { keyUrl: 'https://api.together.ai', statusUrl: 'https://api.together.ai' },
   fireworks:  { keyUrl: 'https://fireworks.ai/api-keys', statusUrl: 'https://fireworks.ai' },
   perplexity: { keyUrl: 'https://www.perplexity.ai/settings/api', statusUrl: 'https://www.perplexity.ai' },
-  moonshot:   { keyUrl: 'https://platform.moonshot.ai/console/api-keys', statusUrl: 'https://platform.moonshot.ai' },
-  zai:        { keyUrl: 'https://open.bigmodel.cn', statusUrl: 'https://open.bigmodel.cn' },
+  moonshot:   { keyUrl: 'https://platform.moonshot.cn/console/api-keys', statusUrl: 'https://platform.moonshot.cn' },
+  zai:        { keyUrl: 'https://api.z.ai', statusUrl: 'https://open.bigmodel.cn' },
   minimax:    { keyUrl: 'https://platform.minimax.io', statusUrl: 'https://platform.minimax.io' },
   cohere:     { keyUrl: 'https://dashboard.cohere.com/api-keys', statusUrl: 'https://dashboard.cohere.com' },
-  'opencode-zen': { keyUrl: 'https://opencode.ai/zen', statusUrl: 'https://opencode.ai' },
-  'opencode-go':  { keyUrl: 'https://opencode.ai/zen', statusUrl: 'https://opencode.ai' },
+  'opencode-zen': { keyUrl: 'https://opencode.ai/auth', statusUrl: 'https://opencode.ai' },
+  'opencode-go':  { keyUrl: 'https://opencode.ai/auth', statusUrl: 'https://opencode.ai' },
   bedrock:    { keyUrl: null, statusUrl: 'https://health.aws.amazon.com' },
   vertex:     { keyUrl: null, statusUrl: 'https://status.cloud.google.com' },
   azure:      { keyUrl: null, statusUrl: 'https://status.azure.com' },
@@ -33,7 +33,7 @@ export const PROVIDER_URLS: Record<string, { keyUrl: string | null; statusUrl: s
 /** Short setup instructions shown during API key prompts. */
 export const PROVIDER_SETUP_HINTS: Record<string, string[]> = {
   anthropic: [
-    '1. Go to https://console.anthropic.com/settings/keys',
+    '1. Go to https://platform.claude.com/settings/keys',
     '2. Click "Create Key", name it, and copy it',
     '3. Free tier available; pay-as-you-go after',
   ],
@@ -60,7 +60,7 @@ export const PROVIDER_SETUP_HINTS: Record<string, string[]> = {
   gemini: [
     '1. Go to https://aistudio.google.com/app/apikey',
     '2. Sign in with Google, click "Create API Key"',
-    '3. Free tier: 60 requests/min (Gemini 2.0 Flash)',
+    '3. Free tier available with rate limits',
   ],
   grok: [
     '1. Go to https://console.x.ai \u2192 API Keys',
@@ -78,8 +78,8 @@ export const PROVIDER_SETUP_HINTS: Record<string, string[]> = {
     '3. Free tier available; fastest inference on market',
   ],
   together: [
-    '1. Go to https://api.together.ai/settings/api-keys',
-    '2. Sign up \u2192 key auto-generated with $5 free credit',
+    '1. Go to https://api.together.ai',
+    '2. Sign up \u2192 key auto-generated with $100 free credit',
     '3. 100+ open models available',
   ],
   fireworks: [
@@ -93,12 +93,12 @@ export const PROVIDER_SETUP_HINTS: Record<string, string[]> = {
     '3. Key starts with pplx-; billed separately from Pro sub',
   ],
   moonshot: [
-    '1. Go to https://platform.moonshot.ai \u2192 API Keys',
+    '1. Go to https://platform.moonshot.cn/console/api-keys',
     '2. Sign in with Google, create a key',
     '3. Copy immediately \u2014 shown only once',
   ],
   zai: [
-    '1. Go to https://open.bigmodel.cn (or https://z.ai for international)',
+    '1. Go to https://api.z.ai (or https://open.bigmodel.cn)',
     '2. Sign up, navigate to API Keys section',
     '3. Generate and copy your key',
   ],
@@ -113,31 +113,31 @@ export const PROVIDER_SETUP_HINTS: Record<string, string[]> = {
     '3. Free trial tier; add billing for production',
   ],
   'opencode-zen': [
-    '1. Go to https://opencode.ai/zen and sign in',
+    '1. Go to https://opencode.ai/auth and sign in',
     '2. Add billing, copy your API key',
     '3. Same key works for both Zen and Go',
   ],
   'opencode-go': [
-    '1. Go to https://opencode.ai/zen and sign in',
+    '1. Go to https://opencode.ai/auth and sign in',
     '2. Add billing, copy your API key',
     '3. Same key works for both Zen and Go; $10/mo',
   ],
 };
 
 export const API_KEY_PREFIXES: Record<string, string | null> = {
-  anthropic: 'sk-ant-api03-',
+  anthropic: 'sk-ant-',
   openai: 'sk-proj-',
-  openrouter: 'sk-or-v1-',
+  openrouter: 'sk-or-',
   deepseek: 'sk-',
   groq: 'gsk_',
   ollama: null,
   custom: null,
-  gemini: null,
+  gemini: 'AIza',
   grok: 'xai-',
   mistral: null,
-  cerebras: 'csk-',
+  cerebras: null,
   together: null,
-  fireworks: 'fw-',
+  fireworks: null,
   perplexity: 'pplx-',
   moonshot: 'sk-',
   zai: null,
@@ -273,9 +273,9 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
     fix: ['If this persists, re-run: teamclaw providers add copilot'],
   },
   CLAUDE_SETUP_TOKEN_REJECTED: {
-    title: 'Anthropic rejected the setup-token',
-    body: 'The setup-token from Claude CLI was not accepted.',
-    fix: ['Re-run: claude setup-token', 'If persistent, switch to API key: teamclaw providers add anthropic'],
+    title: 'Anthropic setup-token not supported',
+    body: 'Anthropic does not allow OAuth/setup-tokens for third-party tools.',
+    fix: ['Use an API key instead: teamclaw providers add anthropic', 'Get a key at: https://platform.claude.com/settings/keys'],
   },
   GEMINI_OAUTH_BANNED: {
     title: 'Google account may be suspended',
@@ -300,7 +300,7 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
   ANTHROPIC_OAUTH_BLOCKED: {
     title: 'Anthropic OAuth not supported',
     body: 'Anthropic OAuth tokens (from claude.ai) are not supported for third-party tools.',
-    fix: ['Use an API key: teamclaw providers add anthropic', 'Or setup-token (gray area): teamclaw providers add anthropic-sub'],
+    fix: ['Use an API key: teamclaw providers add anthropic', 'Get a key at: https://platform.claude.com/settings/keys'],
   },
   SANDBOX_TIMEOUT: {
     title: 'Code execution timed out',

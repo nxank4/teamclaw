@@ -91,21 +91,21 @@ export class WorkerBot {
     const heavyAdapterWithStream = this.heavyAdapter as StreamableAdapter | null;
 
     const setupStreaming = (adapter: StreamableAdapter | null) => {
-      if (adapter && typeof adapter.onStreamChunk === "function") {
-        adapter.onStreamChunk = (chunk: string) => {
-          telemetry.sendStreamChunk(taskId, botId, chunk);
-        };
-        adapter.onStreamDone = (error?: { message: string }) => {
-          telemetry.sendStreamDone(taskId, botId, error);
-        };
-        adapter.onTokenUsage = (inputTokens: number, outputTokens: number, cachedInputTokens: number, model: string) => {
-          telemetry.sendTokenUsage(inputTokens, outputTokens, cachedInputTokens, model);
-        };
-        adapter.onReasoning = (reasoning: string) => {
-          telemetry.sendReasoning(taskId, botId, reasoning);
-          workerEvents.emit("reasoning", { taskId, botId, reasoning });
-        };
-      }
+      if (!adapter) return;
+      adapter.onStreamChunk = (chunk: string) => {
+        telemetry.sendStreamChunk(taskId, botId, chunk);
+        workerEvents.emit("stream-chunk", { botId, chunk });
+      };
+      adapter.onStreamDone = (error?: { message: string }) => {
+        telemetry.sendStreamDone(taskId, botId, error);
+      };
+      adapter.onTokenUsage = (inputTokens: number, outputTokens: number, cachedInputTokens: number, model: string) => {
+        telemetry.sendTokenUsage(inputTokens, outputTokens, cachedInputTokens, model);
+      };
+      adapter.onReasoning = (reasoning: string) => {
+        telemetry.sendReasoning(taskId, botId, reasoning);
+        workerEvents.emit("reasoning", { taskId, botId, reasoning });
+      };
     };
 
     const clearStreaming = (adapter: StreamableAdapter | null) => {

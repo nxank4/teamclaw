@@ -5,6 +5,7 @@
 import { select, isCancel } from "@clack/prompts";
 import type { WizardState } from "./connection.js";
 import { handleCancel } from "./connection.js";
+import { clampSelectOptions } from "../../utils/searchable-select.js";
 
 /** Extended wizard state with team_mode field. */
 export interface CompositionWizardState extends WizardState {
@@ -15,7 +16,7 @@ export async function stepCompositionMode(state: CompositionWizardState): Promis
   const modeInput = handleCancel(
     await select({
       message: "How should agents be selected for each run?",
-      options: [
+      options: clampSelectOptions([
         {
           label: "Autonomous (recommended) — let the coordinator pick agents based on goal",
           value: "autonomous" as const,
@@ -24,7 +25,7 @@ export async function stepCompositionMode(state: CompositionWizardState): Promis
           label: "Manual — use the custom team as-is",
           value: "manual" as const,
         },
-      ],
+      ]),
       initialValue: "autonomous" as const,
     }),
   );

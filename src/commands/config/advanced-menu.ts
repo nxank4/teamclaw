@@ -10,6 +10,7 @@ import {
   select,
   text,
 } from "@clack/prompts";
+import { clampSelectOptions } from "../../utils/searchable-select.js";
 
 function handleCancel<T>(v: T): T {
   if (isCancel(v)) {
@@ -22,6 +23,7 @@ function handleCancel<T>(v: T): T {
 export interface AdvancedState {
   creativity: number;
   maxCycles: number;
+  streamingEnabled: boolean;
   webhookOnTaskComplete: string;
   webhookOnCycleEnd: string;
   webhookSecret: string;
@@ -53,7 +55,7 @@ export async function advancedSettingsMenu(state: AdvancedState): Promise<void> 
     const choice = handleCancel(
       await select({
         message: "Advanced Settings",
-        options: [
+        options: clampSelectOptions([
           {
             value: "creativity",
             label: `Creativity (Current: ${state.creativity.toFixed(1)})`,
@@ -61,6 +63,10 @@ export async function advancedSettingsMenu(state: AdvancedState): Promise<void> 
           {
             value: "cycles",
             label: `Max Cycles (Current: ${state.maxCycles})`,
+          },
+          {
+            value: "streaming",
+            label: `Streaming display (Current: ${state.streamingEnabled ? "on" : "off"})`,
           },
           {
             value: "wh_task",
@@ -75,7 +81,7 @@ export async function advancedSettingsMenu(state: AdvancedState): Promise<void> 
             label: `Webhook Secret (${maskSecret(state.webhookSecret)})`,
           },
           { value: "back", label: "Back to Main Menu" },
-        ],
+        ]),
       }),
     ) as string;
 
@@ -113,6 +119,11 @@ export async function advancedSettingsMenu(state: AdvancedState): Promise<void> 
         }),
       ) as string;
       state.maxCycles = parsePositiveInt(raw) ?? state.maxCycles;
+      continue;
+    }
+
+    if (choice === "streaming") {
+      state.streamingEnabled = !state.streamingEnabled;
       continue;
     }
 

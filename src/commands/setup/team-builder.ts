@@ -13,6 +13,7 @@ import { getRoleTemplate } from "../../core/bot-definitions.js";
 import { handleCancel, type WizardState } from "./connection.js";
 import { stepCompositionMode } from "./composition-mode.js";
 import type { CompositionWizardState } from "./composition-mode.js";
+import { clampSelectOptions } from "../../utils/searchable-select.js";
 
 /** Goal-keyword → template-id mapping for hints. */
 const GOAL_TEMPLATE_HINTS: Array<{ keywords: RegExp; templateId: string; reason: string }> = [
@@ -247,7 +248,7 @@ export async function stepTeam(state: WizardState): Promise<void> {
     const picked = handleCancel(
         await select({
             message: "Who's on your team?",
-            options,
+            options: clampSelectOptions(options),
         }),
     ) as string;
 

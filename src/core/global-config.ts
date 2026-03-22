@@ -10,14 +10,14 @@ export interface ProviderConfigEntry {
   baseURL?: string;
   model?: string;
   name?: string;
-  authMethod?: "apikey" | "oauth" | "device-oauth" | "setup-token" | "local" | "credentials";
+  authMethod?: "apikey" | "oauth" | "device-oauth" | "local" | "credentials";
   oauthToken?: string;
   refreshToken?: string;
   tokenExpiry?: number;
   githubToken?: string;
   copilotToken?: string;
   copilotTokenExpiry?: number;
-  setupToken?: string;
+  setupToken?: string; // deprecated: OAuth tokens not supported by Anthropic API
   accessKeyId?: string;
   secretAccessKey?: string;
   sessionToken?: string;
@@ -29,6 +29,12 @@ export interface ProviderConfigEntry {
 
 export interface TeamClawGlobalConfig {
   version: 1;
+  meta?: {
+    version: string;
+    createdAt?: string;
+    updatedAt?: string;
+    setupVersion?: string;
+  };
   managedGateway?: boolean;
   gatewayHost?: string;
   gatewayPort?: number;
@@ -91,6 +97,23 @@ export interface TeamClawGlobalConfig {
       allowTierDowngrade?: boolean;
     };
     memoryTopK?: number;
+  };
+  timeouts?: {
+    firstChunkMs: number;
+    requestMs: number;
+  };
+  dashboard?: {
+    port: number;
+    persistent: boolean;
+    autoOpen: boolean;
+  };
+  work?: {
+    interactive: boolean;
+    sessionCount: number;
+  };
+  streaming?: {
+    enabled: boolean;
+    showThinking: boolean;
   };
   providers?: ProviderConfigEntry[];
   workspaceDir?: string;
@@ -295,7 +318,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
   // Parse providers: ProviderConfigEntry[]
   const validProviderTypes = [
     "anthropic", "openai", "openrouter", "ollama", "deepseek", "groq", "custom",
-    "chatgpt", "copilot", "anthropic-sub", "gemini-oauth",
+    "chatgpt", "copilot", "gemini-oauth",
     "gemini", "grok", "mistral", "cerebras", "together", "fireworks",
     "perplexity", "moonshot", "zai", "minimax", "cohere",
     "opencode-zen", "opencode-go",
@@ -336,6 +359,59 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
     ? (rawTokenOpt as TeamClawGlobalConfig["tokenOptimization"])
     : undefined;
 
+  // Parse timeouts
+  const rawTimeouts = asRecord((input as Record<string, unknown>).timeouts);
+  const timeouts: TeamClawGlobalConfig["timeouts"] | undefined =
+    Object.keys(rawTimeouts).length > 0
+      ? {
+          firstChunkMs: toPositiveInt(rawTimeouts.firstChunkMs, 15000),
+          requestMs: toPositiveInt(rawTimeouts.requestMs, 60000),
+        }
+      : undefined;
+
+  // Parse dashboard config
+  const rawDashboard = asRecord((input as Record<string, unknown>).dashboard);
+  const dashboard: TeamClawGlobalConfig["dashboard"] | undefined =
+    Object.keys(rawDashboard).length > 0
+      ? {
+          port: toPositiveInt(rawDashboard.port, DEFAULT_DASHBOARD_PORT),
+          persistent: typeof rawDashboard.persistent === "boolean" ? rawDashboard.persistent : true,
+          autoOpen: typeof rawDashboard.autoOpen === "boolean" ? rawDashboard.autoOpen : false,
+        }
+      : undefined;
+
+  // Parse work config
+  const rawWork = asRecord((input as Record<string, unknown>).work);
+  const work: TeamClawGlobalConfig["work"] | undefined =
+    Object.keys(rawWork).length > 0
+      ? {
+          interactive: typeof rawWork.interactive === "boolean" ? rawWork.interactive : true,
+          sessionCount: toPositiveInt(rawWork.sessionCount, 0) || 0,
+        }
+      : undefined;
+
+  // Parse streaming config
+  const rawStreaming = asRecord((input as Record<string, unknown>).streaming);
+  const streaming: TeamClawGlobalConfig["streaming"] | undefined =
+    Object.keys(rawStreaming).length > 0
+      ? {
+          enabled: typeof rawStreaming.enabled === "boolean" ? rawStreaming.enabled : true,
+          showThinking: typeof rawStreaming.showThinking === "boolean" ? rawStreaming.showThinking : false,
+        }
+      : undefined;
+
+  // Parse meta
+  const rawMeta = asRecord((input as Record<string, unknown>).meta);
+  const meta: TeamClawGlobalConfig["meta"] | undefined =
+    Object.keys(rawMeta).length > 0
+      ? {
+          version: typeof rawMeta.version === "string" ? rawMeta.version : "1",
+          ...(typeof rawMeta.createdAt === "string" ? { createdAt: rawMeta.createdAt } : {}),
+          ...(typeof rawMeta.updatedAt === "string" ? { updatedAt: rawMeta.updatedAt } : {}),
+          ...(typeof rawMeta.setupVersion === "string" ? { setupVersion: rawMeta.setupVersion } : {}),
+        }
+      : undefined;
+
   // Gateway fields are optional — include only when present in input
   const gatewayFields: Partial<TeamClawGlobalConfig> = {};
   if (typeof input.managedGateway === "boolean") gatewayFields.managedGateway = input.managedGateway;
@@ -354,6 +430,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
 
   return {
     version: 1,
+    ...(meta ? { meta } : {}),
     ...gatewayFields,
     dashboardPort,
     debugMode,
@@ -366,6 +443,10 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
     ...(workspaceDir ? { workspaceDir } : {}),
     ...(proxy ? { proxy } : {}),
     ...(tokenOptimization ? { tokenOptimization } : {}),
+    ...(timeouts ? { timeouts } : {}),
+    ...(dashboard ? { dashboard } : {}),
+    ...(work ? { work } : {}),
+    ...(streaming ? { streaming } : {}),
     ...(providers && providers.length > 0 ? { providers } : {}),
   };
 }
@@ -388,6 +469,15 @@ export function readGlobalConfigWithDefaults(): TeamClawGlobalConfig {
 
 export function writeGlobalConfig(input: TeamClawGlobalConfig): string {
   const normalized = normalizeGlobalConfig(input);
+
+  // Automatically stamp meta.updatedAt on every write
+  normalized.meta = {
+    version: normalized.meta?.version ?? "1",
+    createdAt: normalized.meta?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...(normalized.meta?.setupVersion ? { setupVersion: normalized.meta.setupVersion } : {}),
+  };
+
   ensureGlobalConfigDir();
   const configPath = getGlobalConfigPath();
   writeFileSync(configPath, JSON.stringify(normalized, null, 2) + "\n", "utf-8");

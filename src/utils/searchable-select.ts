@@ -5,6 +5,44 @@
 import { Prompt } from "@clack/core";
 import pc from "picocolors";
 
+// ── ANSI-aware string truncation ────────────────────────────────────────────
+
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+/** Strip ANSI escape codes and return visual width (assumes 1 char = 1 col). */
+function visualWidth(s: string): number {
+    return s.replace(ANSI_RE, "").length;
+}
+
+/**
+ * Truncate a string to `maxCols` visual columns, preserving ANSI codes
+ * that start before the cut-off. Appends "…" when truncated.
+ */
+export function truncateAnsi(s: string, maxCols: number): string {
+    if (maxCols <= 0) return "";
+    if (visualWidth(s) <= maxCols) return s;
+
+    let vis = 0;
+    let i = 0;
+    const target = maxCols - 1; // reserve 1 col for "…"
+    while (i < s.length && vis < target) {
+        if (s[i] === "\x1b") {
+            // skip entire ANSI sequence
+            const end = s.indexOf("m", i);
+            if (end !== -1) { i = end + 1; continue; }
+        }
+        vis++;
+        i++;
+    }
+    // include any trailing ANSI codes so colours are properly closed
+    while (i < s.length && s[i] === "\x1b") {
+        const end = s.indexOf("m", i);
+        if (end === -1) break;
+        i = end + 1;
+    }
+    return s.slice(0, i) + "…";
+}
+
 // ── Clack-matching unicode glyphs ────────────────────────────────────────────
 function supportsUnicode(): boolean {
     if (process.platform !== "win32") return process.env.TERM !== "linux";
@@ -55,6 +93,45 @@ export interface SearchableSelectOptions {
     placeholder?: string;
 }
 
+/**
+ * Clamp select option labels/hints so they don't wrap in the terminal.
+ * Accounts for clack's prefix (~6 visual cols: "│  ● ") and hint parens.
+ * Works with both `@clack/prompts` select and `searchableSelect`.
+ */
+export function clampSelectOptions<T extends { label: string; hint?: string }>(
+    options: T[],
+): T[] {
+    const cols = process.stdout.columns || 80;
+    // clack prefix "│  ● " = 5, plus 1 space before hint paren = 6
+    const overhead = 6;
+    return options.map((opt) => {
+        let label = opt.label;
+        let hint = opt.hint;
+
+        if (hint) {
+            // "label (hint)" — overhead includes " (" + ")" = 3 chars
+            const totalVis = visualWidth(label) + 3 + visualWidth(hint) + overhead;
+            if (totalVis > cols) {
+                // First try to shorten the hint
+                const availHint = cols - overhead - visualWidth(label) - 3;
+                if (availHint > 10) {
+                    hint = truncateAnsi(hint, availHint);
+                } else {
+                    // Hint too small — truncate the label and drop hint
+                    const maxLabel = cols - overhead - 1;
+                    label = truncateAnsi(label, maxLabel);
+                    hint = undefined;
+                }
+            }
+        } else if (visualWidth(label) + overhead > cols) {
+            const maxLabel = cols - overhead - 1;
+            label = truncateAnsi(label, maxLabel);
+        }
+
+        return { ...opt, label, hint };
+    });
+}
+
 // ── Scrollable option rendering (matches clack's internal algorithm) ─────────
 function renderScrollableOptions(opts: {
     filtered: SearchableOption[];
@@ -76,6 +153,8 @@ function renderScrollableOptions(opts: {
     const hasAbove = maxVisible < filtered.length && start > 0;
     const hasBelow = maxVisible < filtered.length && start + maxVisible < filtered.length;
 
+    const cols = process.stdout.columns || 80;
+
     return filtered.slice(start, start + maxVisible).map((opt, i, arr) => {
         const isFirst = i === 0 && hasAbove;
         const isLast = i === arr.length - 1 && hasBelow;
@@ -86,7 +165,8 @@ function renderScrollableOptions(opts: {
         const formatted = active
             ? `${pc.green(S_RADIO_ACTIVE)} ${label} ${opt.hint ? pc.dim(`(${opt.hint})`) : ""}`
             : `${pc.dim(S_RADIO_INACTIVE)} ${pc.dim(label)}`;
-        return `${barColor(S_BAR)}  ${formatted}`;
+        const line = `${barColor(S_BAR)}  ${formatted}`;
+        return visualWidth(line) > cols ? truncateAnsi(line, cols) : line;
     });
 }
 
@@ -186,5 +266,5 @@ export async function searchableSelect(
         }
     });
 
-    return p.prompt();
+    return p.prompt() as Promise<string | symbol>;
 }

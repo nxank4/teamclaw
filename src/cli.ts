@@ -112,6 +112,8 @@ function printHelp(): void {
         "  " + cmd(pad("--help, -h")) + desc("Show this help"),
         "  " + cmd(pad("--version")) + desc("Show version"),
         "  " + cmd(pad("--no-web")) + desc("Disable dashboard"),
+        "  " + cmd(pad("--no-interactive")) + desc("Skip post-session menu"),
+        "  " + cmd(pad("--no-stream")) + desc("Hide streaming LLM output"),
         "  " + cmd(pad("--mock-llm")) + desc("Use mock responses (testing)"),
         "",
         section("EXAMPLES"),
@@ -186,37 +188,91 @@ async function main(): Promise<void> {
             noWeb: hasNoWebFlag,
         });
 
-        if (canRenderSpinner) {
-            outro("Work session finished.");
-        }
-
     } else if (cmd === "web") {
         const subCmd = args[1];
         const hasDaemonFlag = args.includes("--daemon");
 
         if (subCmd === "start" || hasDaemonFlag) {
-            const { start } = await import("./daemon/manager.js");
-            const result = start({ web: true, gateway: false });
+            const { isDashboardRunning } = await import("./work-runner/dashboard-setup.js");
+            const { start, status: daemonStatus } = await import("./daemon/manager.js");
+            const { readGlobalConfigWithDefaults } = await import("./core/global-config.js");
+            const port = readGlobalConfigWithDefaults().dashboardPort ?? 9001;
+
+            // Check if already running
+            const running = await isDashboardRunning(port);
+            if (running) {
+                logger.success(`Dashboard already running at http://localhost:${port}`);
+                return;
+            }
+
+            const result = start({ web: true, gateway: false, webPort: port });
             if (result.error) {
                 logger.error(result.error);
                 process.exit(1);
             }
-            logger.success("Web started in background.");
+            const actualPort = daemonStatus().webPort ?? port;
+            logger.success(`Dashboard running at http://localhost:${actualPort}`);
             return;
         }
 
         if (subCmd === "stop") {
             const { stop } = await import("./daemon/manager.js");
             stop();
-            logger.success("Web stopped.");
+            logger.success("Dashboard stopped.");
             return;
         }
 
         if (subCmd === "status") {
             const { status } = await import("./daemon/manager.js");
+            const { isDashboardRunning } = await import("./work-runner/dashboard-setup.js");
             const result = status();
-            logger.plain(`Web UI: ${result.web}`);
-            if (result.webPort) logger.plain(`Port: ${result.webPort}`);
+            if (result.web === "running" && result.webPort) {
+                const healthy = await isDashboardRunning(result.webPort);
+                if (healthy) {
+                    logger.plain(`Running at http://localhost:${result.webPort} (PID from daemon state)`);
+                } else {
+                    logger.plain(`Daemon state says running on port ${result.webPort} but health check failed`);
+                }
+            } else {
+                logger.plain("Not running — start with: teamclaw web start");
+            }
+            return;
+        }
+
+        if (subCmd === "open") {
+            const { isDashboardRunning } = await import("./work-runner/dashboard-setup.js");
+            const { readGlobalConfigWithDefaults } = await import("./core/global-config.js");
+            const port = readGlobalConfigWithDefaults().dashboardPort ?? 9001;
+
+            // Start if not running
+            let running = await isDashboardRunning(port);
+            if (!running) {
+                const { start } = await import("./daemon/manager.js");
+                const result = start({ web: true, gateway: false, webPort: port });
+                if (result.error) {
+                    logger.error(result.error);
+                    process.exit(1);
+                }
+                // Wait for it to come up
+                for (let i = 0; i < 10; i++) {
+                    await new Promise((r) => setTimeout(r, 500));
+                    running = await isDashboardRunning(port);
+                    if (running) break;
+                }
+                if (running) {
+                    logger.success(`Dashboard started at http://localhost:${port}`);
+                } else {
+                    logger.warn(`Dashboard may still be starting at http://localhost:${port}`);
+                }
+            }
+
+            try {
+                const { default: open } = await import("open");
+                await open(`http://localhost:${port}`);
+                logger.success(`Opened http://localhost:${port} in browser`);
+            } catch {
+                logger.plain(`Open http://localhost:${port} in your browser`);
+            }
             return;
         }
 
@@ -305,7 +361,7 @@ async function main(): Promise<void> {
         const subMatch = findClosestSubcommand("config", sub);
         handleUnknownSubcommand("config", sub, subMatch);
 
-    } else if (cmd === "model") {
+    } else if (cmd === "model" || cmd === "models") {
         const { runModelCommand } = await import("./commands/model.js");
         await runModelCommand(args.slice(1));
 

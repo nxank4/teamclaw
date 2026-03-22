@@ -221,6 +221,10 @@ export async function runWeb(args: string[]): Promise<void> {
   // ---------------------------------------------------------------------------
   // REST endpoints
   // ---------------------------------------------------------------------------
+
+  // Simple health check for dashboard persistence detection
+  fastify.get("/health", async () => ({ status: "ok" }));
+
   fastify.get("/api/config", async () => {
     const runtime = getFullConfig();
     const teamConfig = await loadTeamConfig();

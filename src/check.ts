@@ -46,6 +46,22 @@ export async function runCheck(_args: string[]): Promise<void> {
       if (result.success) {
         const providerCount = result.data.providers?.length ?? 0;
         lines.push(`  ${pc.green("✓")}  Config       ~/.teamclaw/config.json ${pc.dim(`(${providerCount} provider${providerCount !== 1 ? "s" : ""})`)}`);
+
+        // Show new config sections
+        const d = result.data.dashboard;
+        const dashPort = d?.port ?? result.data.dashboardPort ?? 9001;
+        const dashPersist = d?.persistent !== false;
+        const dashAutoOpen = d?.autoOpen === true;
+        lines.push(`  ${pc.green("✓")}  Dashboard    port ${dashPort}, ${dashPersist ? "persistent" : "session-scoped"}${dashAutoOpen ? ", auto-open" : ""}`);
+
+        const w = result.data.work;
+        const workInteractive = w?.interactive !== false;
+        lines.push(`  ${pc.green("✓")}  Work         interactive ${workInteractive ? "on" : "off"}`);
+
+        const t = result.data.timeouts;
+        const firstChunk = t?.firstChunkMs ?? 15000;
+        const requestMs = t?.requestMs ?? 60000;
+        lines.push(`  ${pc.green("✓")}  Timeouts     firstChunk: ${(firstChunk / 1000).toFixed(0)}s, request: ${(requestMs / 1000).toFixed(0)}s`);
       } else {
         lines.push(`  ${pc.yellow("⚠")}  Config       ~/.teamclaw/config.json ${pc.yellow("(validation warnings)")}`);
         for (const err of result.errors.slice(0, 3)) {

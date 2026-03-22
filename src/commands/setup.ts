@@ -19,7 +19,7 @@ import {
     text,
     cancel,
 } from "@clack/prompts";
-import { searchableSelect } from "../utils/searchable-select.js";
+import { searchableSelect, clampSelectOptions } from "../utils/searchable-select.js";
 import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
@@ -189,12 +189,12 @@ async function handleDuplicateProject(
     const resolution = handleCancel(
         await select({
             message: `"${name}" already exists in this workspace. What would you like to do?`,
-            options: [
+            options: clampSelectOptions([
                 { value: "__rename__", label: "Choose a different name" },
                 { value: "__suffix__", label: `Use "${autoName}" instead` },
                 { value: "__custom_suffix__", label: "Enter a different name" },
                 { value: "__use_anyway__", label: `Use "${name}" anyway`, hint: "⚠ will overwrite existing project" },
-            ],
+            ]),
         }),
     ) as string;
 
@@ -462,11 +462,11 @@ export async function runSetup(): Promise<void> {
     const nextStep = handleCancel(
         await select({
             message: "What would you like to do next?",
-            options: [
+            options: clampSelectOptions([
                 { value: "work", label: "Run my goal now" },
                 { value: "demo", label: "Try a sample goal first" },
                 { value: "exit", label: "Exit" },
-            ],
+            ]),
         }),
     ) as string;
 

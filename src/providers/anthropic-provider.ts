@@ -53,6 +53,7 @@ export class AnthropicProvider implements StreamProvider {
     };
     if (options?.systemPrompt) {
       if (this.promptCachingEnabled) {
+        // cache_control breakpoints — only for API key auth, not OAuth
         params.system = [
           {
             type: "text" as const,

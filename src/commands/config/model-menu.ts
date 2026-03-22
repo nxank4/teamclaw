@@ -11,7 +11,7 @@ import {
   confirm,
   spinner,
 } from "@clack/prompts";
-import { searchableSelect } from "../../utils/searchable-select.js";
+import { searchableSelect, clampSelectOptions } from "../../utils/searchable-select.js";
 import pc from "picocolors";
 import {
   persistDefaultModel,
@@ -87,10 +87,10 @@ async function setAgentModelMenu(summary: ModelSummary): Promise<void> {
   const role = handleCancel(
     await select({
       message: "Select agent role:",
-      options: KNOWN_AGENT_ROLES.map((r) => ({
+      options: clampSelectOptions(KNOWN_AGENT_ROLES.map((r) => ({
         value: r,
         label: `${r} ${pc.dim(`(current: ${resolveModelForAgent(r) || "default"})`)}`,
-      })),
+      }))),
     }),
   ) as string;
 
@@ -297,7 +297,7 @@ export async function modelManagementMenu(): Promise<void> {
     const choice = handleCancel(
       await select({
         message: "Model Management",
-        options: [
+        options: clampSelectOptions([
           { value: "default", label: `Set Default Model (${summary.defaultModel || "not set"})` },
           { value: "agent", label: "Set Per-Agent Model" },
           { value: "fallback", label: `Edit Fallback Chain (${summary.fallbackChain.length} models)` },
@@ -306,7 +306,7 @@ export async function modelManagementMenu(): Promise<void> {
           { value: "summary", label: "View Resolution Summary" },
           { value: "reset", label: pc.red("Reset All Overrides") },
           { value: "back", label: "Back to Main Menu" },
-        ],
+        ]),
       }),
     ) as string;
 

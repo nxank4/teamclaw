@@ -8,10 +8,12 @@
  *   set <model>   Set global default model
  *   set --agent <role> <model>  Set per-agent model
  *   reset         Clear all overrides
+ *   refresh       Re-fetch models from all configured providers
  */
 
 import pc from "picocolors";
 import { cancel, isCancel, note, select, text } from "@clack/prompts";
+import { clampSelectOptions } from "../utils/searchable-select.js";
 import { logger } from "../core/logger.js";
 import {
   getModelConfig,
@@ -63,8 +65,13 @@ export async function runModelCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === "refresh") {
+    await runModelRefresh(args.slice(1));
+    return;
+  }
+
   logger.error(`Unknown subcommand: model ${sub}`);
-  logger.error("Usage: teamclaw model | model list | model get | model set <model> | model set --agent <role> <model> | model reset");
+  logger.error("Usage: teamclaw model | model list | model get | model set <model> | model set --agent <role> <model> | model reset | model refresh");
   process.exit(1);
 }
 
@@ -87,13 +94,13 @@ async function runModelDashboard(): Promise<void> {
 
   const action = await select({
     message: "What would you like to do?",
-    options: [
+    options: clampSelectOptions([
       { value: "set-default", label: "Set default model" },
       { value: "set-agent", label: "Set model for a specific agent" },
       { value: "list", label: "List available models" },
       { value: "reset", label: "Reset all overrides" },
       { value: "exit", label: "Exit" },
-    ],
+    ]),
   });
 
   if (isCancel(action)) {
@@ -108,10 +115,10 @@ async function runModelDashboard(): Promise<void> {
       const picked = await select({
         message: "Select a model:",
         maxItems: 12,
-        options: [
+        options: clampSelectOptions([
           ...models.map((m) => ({ value: m, label: m })),
           { value: "__custom__", label: pc.dim("Enter custom model ID...") },
-        ],
+        ]),
       });
       if (isCancel(picked)) { cancel("Cancelled."); return; }
       if (picked === "__custom__") {
@@ -136,10 +143,10 @@ async function runModelDashboard(): Promise<void> {
   if (action === "set-agent") {
     const role = await select({
       message: "Select agent role:",
-      options: KNOWN_AGENT_ROLES.map((r) => ({
+      options: clampSelectOptions(KNOWN_AGENT_ROLES.map((r) => ({
         value: r,
         label: `${r} ${pc.dim(`(current: ${resolveModelForAgent(r) || "default"})`)}`,
-      })),
+      }))),
     });
     if (isCancel(role)) { cancel("Cancelled."); return; }
 
@@ -148,11 +155,11 @@ async function runModelDashboard(): Promise<void> {
     if (models.length > 0) {
       const picked = await select({
         message: `Select model for ${role as string}:`,
-        options: [
+        options: clampSelectOptions([
           { value: "__default__", label: pc.dim("Use default model") },
           ...models.map((m) => ({ value: m, label: m })),
           { value: "__custom__", label: pc.dim("Enter custom model ID...") },
-        ],
+        ]),
       });
       if (isCancel(picked)) { cancel("Cancelled."); return; }
       if (picked === "__default__") {
@@ -258,4 +265,60 @@ async function runModelSet(args: string[]): Promise<void> {
 function runModelReset(): void {
   resetAllModelOverrides();
   logger.success("All model overrides cleared.");
+}
+
+async function runModelRefresh(args: string[]): Promise<void> {
+  const { fetchModelsForProvider } = await import("../providers/model-fetcher.js");
+  const { clearCache, setCachedModels } = await import("../providers/model-cache.js");
+  const { readGlobalConfig } = await import("../core/global-config.js");
+
+  const providerFilter = args.includes("--provider") ? args[args.indexOf("--provider") + 1] : undefined;
+
+  const config = readGlobalConfig();
+  const providers = config?.providers ?? [];
+
+  if (providers.length === 0) {
+    logger.warn("No providers configured. Run `teamclaw setup` first.");
+    return;
+  }
+
+  const targets = providerFilter
+    ? providers.filter((p) => p.type === providerFilter)
+    : providers;
+
+  if (targets.length === 0) {
+    logger.error(`Provider "${providerFilter}" not found in config.`);
+    return;
+  }
+
+  // Clear relevant caches
+  if (providerFilter) {
+    await clearCache(providerFilter);
+  } else {
+    await clearCache();
+  }
+
+  logger.plain("\nRefreshing models...\n");
+
+  for (const entry of targets) {
+    const result = await fetchModelsForProvider(
+      entry.type,
+      entry.apiKey ?? "",
+      entry.baseURL,
+    );
+
+    if (result.source === "live" && result.models.length > 0) {
+      const ids = result.models.map((m) => m.id);
+      await setCachedModels(entry.type, ids);
+      const count = result.models.length;
+      const suffix = count > 50 ? ` (showing top 50)` : "";
+      logger.plain(`  ${pc.green("\u2713")} ${entry.type.padEnd(16)} ${count} models fetched${suffix}`);
+    } else if (result.source === "fallback" && !result.error) {
+      logger.plain(`  ${pc.dim("-")} ${entry.type.padEnd(16)} ${pc.dim("Skipped (cloud credentials)")}`);
+    } else {
+      logger.plain(`  ${pc.red("\u2717")} ${entry.type.padEnd(16)} ${pc.dim(result.error ?? "No models found")}`);
+    }
+  }
+
+  logger.plain("");
 }

@@ -9,7 +9,6 @@ export type ProviderName =
   // Subscription providers
   | "chatgpt"
   | "copilot"
-  | "anthropic-sub"
   | "gemini-oauth"
   // API key providers
   | "gemini"
