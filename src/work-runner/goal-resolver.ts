@@ -8,8 +8,31 @@ import path from "node:path";
 import { log as clackLog, note, spinner, select, text, cancel, isCancel } from "@clack/prompts";
 import { randomPhrase } from "../utils/spinner-phrases.js";
 import { logger } from "../core/logger.js";
+import { getGlobalProviderManager } from "../providers/provider-factory.js";
 
 export const WORKSPACE_PROTECTED = new Set([".git", "teamclaw.config.json"]);
+
+/** Word-wrap text to a max column width, breaking on spaces. */
+export function wrapText(text: string, maxWidth = 80): string {
+    const lines: string[] = [];
+    for (const paragraph of text.split("\n")) {
+        if (paragraph.length <= maxWidth) {
+            lines.push(paragraph);
+            continue;
+        }
+        let line = "";
+        for (const word of paragraph.split(" ")) {
+            if (line && line.length + 1 + word.length > maxWidth) {
+                lines.push(line);
+                line = word;
+            } else {
+                line = line ? `${line} ${word}` : word;
+            }
+        }
+        if (line) lines.push(line);
+    }
+    return lines.join("\n");
+}
 
 const SUPPORTED_GOAL_EXTENSIONS = [".md", ".mdx", ".txt", ".json", ".yaml", ".yml", ".rst", ".adoc"];
 
@@ -85,13 +108,88 @@ export async function suggestGoalFromWorkspace(
             "\nSuggest an updated goal that accounts for the existing work. Respond with ONLY the goal text, no explanation.",
         ].join("\n");
 
+        const pm = getGlobalProviderManager();
+        if (pm.getProviders().length === 0) {
+            s.stop("No LLM providers configured.");
+            return null;
+        }
+
         s.message(randomPhrase("ai"));
-        // Goal suggestion via external CLI is disabled — provider integration pending.
-        s.stop("AI goal suggestion is not available.");
-        void prompt; // suppress unused warning
-        return null;
+        const { text: resultText } = await pm.generate(prompt, {
+            systemPrompt: [
+                "You are a project planning assistant that writes clear, actionable goals for AI agent teams.",
+                "Given workspace context, suggest an updated goal that:",
+                "- Uses specific action verbs (build, implement, add, create) instead of vague ones (improve, fix, update)",
+                "- References concrete components from the workspace",
+                "- Includes measurable success criteria when possible",
+                "Respond with ONLY the goal text (2-4 sentences). No explanation or markdown.",
+            ].join(" "),
+            temperature: 0.7,
+            signal: AbortSignal.timeout(30_000),
+        });
+
+        const suggestion = resultText.trim();
+        if (!suggestion) {
+            s.stop("AI returned an empty suggestion.");
+            return null;
+        }
+
+        s.stop("Got a suggestion!");
+        return suggestion;
     } catch {
         s.stop("Could not get AI suggestion.");
+        return null;
+    }
+}
+
+export async function refineGoalWithAI(
+    currentGoal: string,
+    issues: Array<{ type: string; question: string; severity: string }>,
+    suggestions: string[],
+): Promise<string | null> {
+    const s = spinner();
+    try {
+        const pm = getGlobalProviderManager();
+        if (pm.getProviders().length === 0) {
+            return null;
+        }
+
+        s.start(randomPhrase("ai"));
+
+        const issueList = issues.map((i) => `- [${i.severity}] ${i.question}`).join("\n");
+        const suggestionList = suggestions.length > 0
+            ? "\n\nExisting suggestions:\n" + suggestions.map((s) => `- ${s}`).join("\n")
+            : "";
+
+        const prompt = [
+            `Original goal: "${currentGoal}"`,
+            `\nClarity issues found:\n${issueList}`,
+            suggestionList,
+            "\nRewrite this goal to address ALL the issues above. Respond with ONLY the refined goal text (2-4 sentences). No explanation or markdown.",
+        ].join("\n");
+
+        const { text: resultText } = await pm.generate(prompt, {
+            systemPrompt: [
+                "You are a project planning assistant that rewrites unclear goals into clear, actionable ones.",
+                "Rules: use specific action verbs (build, implement, add, create) instead of vague ones (improve, fix, update).",
+                "Replace ambiguous references (it, that, the thing) with concrete nouns.",
+                "Include measurable success criteria.",
+                "Keep the original intent — only clarify, don't change the scope.",
+            ].join(" "),
+            temperature: 0.7,
+            signal: AbortSignal.timeout(30_000),
+        });
+
+        const refined = resultText.trim();
+        if (!refined) {
+            s.stop("AI returned an empty result.");
+            return null;
+        }
+
+        s.stop("Done!");
+        return refined;
+    } catch {
+        s.stop("Could not reach AI — try rephrasing manually.");
         return null;
     }
 }

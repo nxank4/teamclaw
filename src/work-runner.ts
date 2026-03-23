@@ -50,7 +50,7 @@ import { promptPath } from "./utils/path-autocomplete.js";
 import { randomPhrase } from "./utils/spinner-phrases.js";
 
 import { collectBriefingData, renderBriefing, renderInterRunSummary } from "./briefing/index.js";
-import { resolveGoalFromFile, checkWorkspaceContent, promptGoalChoice } from "./work-runner/goal-resolver.js";
+import { resolveGoalFromFile, checkWorkspaceContent, promptGoalChoice, refineGoalWithAI, wrapText } from "./work-runner/goal-resolver.js";
 import {
     getBotName,
     printRunBanner,
@@ -521,6 +521,7 @@ export async function runWork(
             const choice = await select({
                 message: "Both clarity and drift issues found. How would you like to proceed?",
                 options: [
+                    { label: "Refine with AI", value: "ai_refine" },
                     { label: "Rephrase my goal", value: "rephrase" },
                     { label: "Proceed anyway", value: "proceed" },
                     { label: "Abort", value: "abort" },
@@ -532,7 +533,63 @@ export async function runWork(
                 process.exit(0);
             }
 
-            if (choice === "rephrase") {
+            if (choice === "ai_refine") {
+                const refined = await refineGoalWithAI(
+                    effectiveGoal,
+                    clarityResult.issues.map((i) => ({ type: i.type, question: i.question, severity: i.severity })),
+                    clarityResult.suggestions,
+                );
+                if (refined) {
+                    const { note: clackNote } = await import("@clack/prompts");
+                    clackNote(
+                        wrapText([
+                            `${pc.dim("Original:")} ${effectiveGoal}`,
+                            "",
+                            `${pc.green("Refined:")} ${refined}`,
+                        ].join("\n")),
+                        "AI-refined goal",
+                    );
+                    const acceptChoice = await select({
+                        message: "Use this refined goal?",
+                        options: [
+                            { label: "Accept", value: "accept" },
+                            { label: "Edit the refined version", value: "edit" },
+                            { label: "Discard (keep original)", value: "discard" },
+                        ],
+                    });
+                    if (clackIsCancel(acceptChoice)) {
+                        cancel("Work session cancelled.");
+                        process.exit(0);
+                    }
+                    if (acceptChoice === "accept") {
+                        effectiveGoal = refined;
+                        logger.plain(pc.green("✓ Goal refined. Proceeding to decomposition."));
+                    } else if (acceptChoice === "edit") {
+                        const edited = await clackText({
+                            message: "Edit the refined goal:",
+                            initialValue: refined,
+                        });
+                        if (clackIsCancel(edited) || !edited) {
+                            cancel("Work session cancelled.");
+                            process.exit(0);
+                        }
+                        effectiveGoal = String(edited).trim();
+                        logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
+                    }
+                } else {
+                    logger.warn("AI refinement unavailable. You can rephrase manually.");
+                    const newGoal = await clackText({
+                        message: "Enter your revised goal:",
+                        placeholder: effectiveGoal,
+                    });
+                    if (clackIsCancel(newGoal) || !newGoal) {
+                        cancel("Work session cancelled.");
+                        process.exit(0);
+                    }
+                    effectiveGoal = String(newGoal).trim();
+                    logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
+                }
+            } else if (choice === "rephrase") {
                 const newGoal = await clackText({
                     message: "Enter your revised goal:",
                     placeholder: effectiveGoal,
@@ -705,6 +762,7 @@ export async function runWork(
                     const hasTooWide = clarityResult.issues.some((i) => i.type === "too_broad");
                     const options: Array<{ label: string; value: string }> = [
                         { label: "Answer the questions — I'll clarify the goal", value: "clarify" },
+                        { label: "Refine with AI", value: "ai_refine" },
                         { label: "Proceed anyway — I want the team to interpret it", value: "proceed" },
                         { label: "Rephrase my goal", value: "rephrase" },
                     ];
@@ -738,6 +796,63 @@ export async function runWork(
                         logger.plain(pc.green(`"${clarified}"`));
                         effectiveGoal = clarified;
                         logger.plain(pc.green("✓ Goal is clear. Proceeding to decomposition."));
+                    } else if (choice === "ai_refine") {
+                        const refined = await refineGoalWithAI(
+                            effectiveGoal,
+                            clarityResult.issues.map((i) => ({ type: i.type, question: i.question, severity: i.severity })),
+                            clarityResult.suggestions,
+                        );
+                        if (refined) {
+                            const { note: clackNote } = await import("@clack/prompts");
+                            clackNote(
+                                [
+                                    `${pc.dim("Original:")} ${effectiveGoal}`,
+                                    "",
+                                    `${pc.green("Refined:")} ${refined}`,
+                                ].join("\n"),
+                                "AI-refined goal",
+                            );
+                            const acceptChoice = await select({
+                                message: "Use this refined goal?",
+                                options: [
+                                    { label: "Accept", value: "accept" },
+                                    { label: "Edit the refined version", value: "edit" },
+                                    { label: "Discard (keep original)", value: "discard" },
+                                ],
+                            });
+                            if (clackIsCancel(acceptChoice)) {
+                                cancel("Work session cancelled.");
+                                process.exit(0);
+                            }
+                            if (acceptChoice === "accept") {
+                                effectiveGoal = refined;
+                                logger.plain(pc.green("✓ Goal refined. Proceeding to decomposition."));
+                            } else if (acceptChoice === "edit") {
+                                const edited = await clackText({
+                                    message: "Edit the refined goal:",
+                                    initialValue: refined,
+                                });
+                                if (clackIsCancel(edited) || !edited) {
+                                    cancel("Work session cancelled.");
+                                    process.exit(0);
+                                }
+                                effectiveGoal = String(edited).trim();
+                                logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
+                            }
+                            // "discard" → keep original
+                        } else {
+                            logger.warn("AI refinement unavailable. You can rephrase manually.");
+                            const newGoal = await clackText({
+                                message: "Enter your rephrased goal:",
+                                placeholder: effectiveGoal,
+                            });
+                            if (clackIsCancel(newGoal) || !newGoal) {
+                                cancel("Work session cancelled.");
+                                process.exit(0);
+                            }
+                            effectiveGoal = String(newGoal).trim();
+                            logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
+                        }
                     } else if (choice === "rephrase") {
                         const newGoal = await clackText({
                             message: "Enter your rephrased goal:",
