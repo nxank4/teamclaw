@@ -129,10 +129,10 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
-    if (args[0] === "--help" || args[0] === "-h") {
-        printHelp();
-        return;
-    }
+
+    // ── TUI entry points (before any commander parsing) ──────────────────
+
+    // No args → launch interactive TUI
     if (args.length === 0) {
         if (!process.stdin.isTTY) {
             printHelp();
@@ -140,6 +140,37 @@ async function main(): Promise<void> {
         }
         const { launchTUI } = await import("./app/index.js");
         await launchTUI();
+        return;
+    }
+
+    // -p / --print <prompt> → non-interactive print mode
+    const printIdx = args.findIndex((a) => a === "-p" || a === "--print");
+    if (printIdx !== -1) {
+        const prompt = args[printIdx + 1];
+        if (!prompt) {
+            logger.error("Usage: teamclaw -p <prompt>");
+            process.exit(1);
+        }
+        const { runPrintMode } = await import("./app/index.js");
+        await runPrintMode(prompt);
+        return;
+    }
+
+    // -c / --continue → resume last TUI session
+    if (args.includes("-c") || args.includes("--continue")) {
+        if (!process.stdin.isTTY) {
+            logger.error("Cannot resume TUI session in non-interactive mode.");
+            process.exit(1);
+        }
+        const { launchTUI } = await import("./app/index.js");
+        await launchTUI({ resume: true });
+        return;
+    }
+
+    // ── Standard CLI flags ───────────────────────────────────────────────
+
+    if (args[0] === "--help" || args[0] === "-h") {
+        printHelp();
         return;
     }
     if (args[0] === "--version" || args[0] === "-V") {
