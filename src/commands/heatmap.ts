@@ -1,14 +1,14 @@
 /**
  * CLI commands for agent utilization heatmap.
  *
- * teamclaw heatmap <sessionId>                  Current run heatmap
- * teamclaw heatmap <sessionId> --run 2          Specific run
- * teamclaw heatmap <sessionId> --all-runs       All runs side by side
- * teamclaw heatmap <sessionId> --metric cost    Cost view
- * teamclaw heatmap <sessionId> --view time      Time bucket view
- * teamclaw heatmap --global                     Cross-session heatmap
- * teamclaw heatmap --global --since 30d         Last 30 days
- * teamclaw heatmap <sessionId> --suggestions    Optimization suggestions only
+ * openpawl heatmap <sessionId>                  Current run heatmap
+ * openpawl heatmap <sessionId> --run 2          Specific run
+ * openpawl heatmap <sessionId> --all-runs       All runs side by side
+ * openpawl heatmap <sessionId> --metric cost    Cost view
+ * openpawl heatmap <sessionId> --view time      Time bucket view
+ * openpawl heatmap --global                     Cross-session heatmap
+ * openpawl heatmap --global --since 30d         Last 30 days
+ * openpawl heatmap <sessionId> --suggestions    Optimization suggestions only
  */
 
 import pc from "picocolors";
@@ -56,7 +56,7 @@ export async function runHeatmapCommand(args: string[]): Promise<void> {
 
   const sessionId = args.find((a) => !a.startsWith("--") && args.indexOf(a) === 0) ?? args[0];
   if (!sessionId || sessionId.startsWith("--")) {
-    logger.error("Usage: teamclaw heatmap <sessionId>");
+    logger.error("Usage: openpawl heatmap <sessionId>");
     process.exit(1);
   }
 
@@ -314,13 +314,13 @@ async function loadProfiles(): Promise<ProfileData[]> {
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw heatmap") + " — Agent utilization heatmap",
+    pc.bold("openpawl heatmap") + " — Agent utilization heatmap",
     "",
     pc.bold("Usage:"),
-    "  " + pc.green("teamclaw heatmap <sessionId>") + "              Current run heatmap",
-    "  " + pc.green("teamclaw heatmap <sessionId> --run 2") + "     Specific run",
-    "  " + pc.green("teamclaw heatmap <sessionId> --all-runs") + "  All runs side by side",
-    "  " + pc.green("teamclaw heatmap --global") + "                Cross-session heatmap",
+    "  " + pc.green("openpawl heatmap <sessionId>") + "              Current run heatmap",
+    "  " + pc.green("openpawl heatmap <sessionId> --run 2") + "     Specific run",
+    "  " + pc.green("openpawl heatmap <sessionId> --all-runs") + "  All runs side by side",
+    "  " + pc.green("openpawl heatmap --global") + "                Cross-session heatmap",
     "",
     pc.bold("Options:"),
     "  " + pc.green("--metric <m>") + "     Metric: duration, cost, confidence (default: duration)",
@@ -329,10 +329,10 @@ function printHelp(): void {
     "  " + pc.green("--since <dur>") + "    Global filter: 30d, 7d, 24h (default: 30d)",
     "",
     "Examples:",
-    pc.dim("  teamclaw heatmap sess_abc123"),
-    pc.dim("  teamclaw heatmap sess_abc123 --metric cost"),
-    pc.dim("  teamclaw heatmap sess_abc123 --suggestions"),
-    pc.dim("  teamclaw heatmap --global --since 7d"),
+    pc.dim("  openpawl heatmap sess_abc123"),
+    pc.dim("  openpawl heatmap sess_abc123 --metric cost"),
+    pc.dim("  openpawl heatmap sess_abc123 --suggestions"),
+    pc.dim("  openpawl heatmap --global --since 7d"),
     "",
   ];
   console.log(lines.join("\n"));

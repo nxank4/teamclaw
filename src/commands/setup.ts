@@ -1,5 +1,5 @@
 /**
- * Unified TeamClaw Setup Wizard — `teamclaw setup` / `teamclaw init`
+ * Unified OpenPawl Setup Wizard — `openpawl setup` / `openpawl init`
  *
  * 5-step sequential wizard:
  *   Step 1: Provider & Model — select LLM provider, API key, and model
@@ -25,13 +25,13 @@ import os from "node:os";
 import path from "node:path";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import {
-    readTeamclawConfig,
+    readOpenpawlConfig,
 } from "../core/jsonConfigManager.js";
 import { logger } from "../core/logger.js";
 import {
     writeGlobalConfig,
     readGlobalConfig,
-    type TeamClawGlobalConfig,
+    type OpenPawlGlobalConfig,
 } from "../core/global-config.js";
 import { getDefaultGoal } from "../core/configManager.js";
 import { writeConfig } from "../onboard/writeConfig.js";
@@ -55,11 +55,11 @@ function getDefaultModelForProvider(providerType: string): string {
 // ---------------------------------------------------------------------------
 
 async function stepWorkspace(state: WizardState): Promise<void> {
-    const localDefault = path.resolve("./teamclaw-workspace");
-    const homeDefault = path.join(os.homedir(), ".teamclaw", "workspace");
+    const localDefault = path.resolve("./openpawl-workspace");
+    const homeDefault = path.join(os.homedir(), ".openpawl", "workspace");
 
     const globalConfig = readGlobalConfig();
-    const tc = readTeamclawConfig();
+    const tc = readOpenpawlConfig();
     const projectWorkspace = (tc.data as Record<string, unknown>).workspace_dir as string | undefined;
     const lastUsedDir =
         globalConfig?.workspaceDir?.trim() ||
@@ -94,7 +94,7 @@ async function stepWorkspace(state: WizardState): Promise<void> {
 
     const choice = handleCancel(
         await searchableSelect({
-            message: "Where should TeamClaw keep your work?",
+            message: "Where should OpenPawl keep your work?",
             options,
         }),
     ) as string;
@@ -317,7 +317,7 @@ function persistAllConfig(state: WizardState): string {
         }
     }
 
-    const globalConfig: TeamClawGlobalConfig = {
+    const globalConfig: OpenPawlGlobalConfig = {
         version: 1,
         managedGateway: false,
         gatewayHost: "127.0.0.1",
@@ -361,7 +361,7 @@ export async function runSetup(): Promise<void> {
     const existingConfig = readGlobalConfig();
 
     if (canTTY) {
-        intro(pc.bold(pc.cyan("TeamClaw Setup")));
+        intro(pc.bold(pc.cyan("OpenPawl Setup")));
 
         if (existingConfig) {
             const existingModel = existingConfig.model ?? "";
@@ -376,7 +376,7 @@ export async function runSetup(): Promise<void> {
                     "Running setup again will overwrite your current",
                     "provider, model, workspace, and team settings.",
                     "",
-                    `Use ${pc.bold("teamclaw config")} to make targeted changes instead.`,
+                    `Use ${pc.bold("openpawl config")} to make targeted changes instead.`,
                 ].join("\n"),
                 "Re-configuring",
             );
@@ -405,15 +405,15 @@ export async function runSetup(): Promise<void> {
                 `  ${pc.cyan("3.")} Set the goal         ${pc.dim("(~15 seconds)")}`,
                 `  ${pc.cyan("4.")} Pick a team          ${pc.dim("(~15 seconds)")}`,
             ].join("\n"),
-            "Welcome to TeamClaw",
+            "Welcome to OpenPawl",
         );
     } else {
-        logger.info("TeamClaw Setup Wizard");
+        logger.info("OpenPawl Setup Wizard");
     }
 
     const state: CompositionWizardState = {
         providerEntries: [],
-        workspaceDir: path.resolve("./teamclaw-workspace"),
+        workspaceDir: path.resolve("./openpawl-workspace"),
         projectName: "",
         selectedModel: "",
         goal: getDefaultGoal(),
@@ -509,16 +509,16 @@ export async function runSetup(): Promise<void> {
             `${pc.bold("What to do next:")}`,
             "",
             `${pc.green("\u2192")} Start your first sprint:`,
-            `  ${pc.cyan('teamclaw work --goal "describe what you want to build"')}`,
+            `  ${pc.cyan('openpawl work --goal "describe what you want to build"')}`,
             "",
-            `${pc.green("\u2192")} See TeamClaw in action first:`,
-            `  ${pc.cyan("teamclaw demo")}`,
+            `${pc.green("\u2192")} See OpenPawl in action first:`,
+            `  ${pc.cyan("openpawl demo")}`,
             "",
             `${pc.green("\u2192")} Open the dashboard:`,
-            `  ${pc.cyan("teamclaw web start")}`,
+            `  ${pc.cyan("openpawl web start")}`,
             "",
             `${pc.green("\u2192")} Browse team templates:`,
-            `  ${pc.cyan("teamclaw templates browse")}`,
+            `  ${pc.cyan("openpawl templates browse")}`,
         ].join("\n"),
         "You're all set",
     );
@@ -544,7 +544,7 @@ export async function runSetup(): Promise<void> {
         await runDemo([]);
     } else {
         outro(
-            `Done! Run ${pc.green("teamclaw work")} whenever you're ready.`,
+            `Done! Run ${pc.green("openpawl work")} whenever you're ready.`,
         );
     }
 }

@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("teamclaw demo", () => {
+describe("openpawl demo", () => {
   it("showcases session briefing with prior work summary", async () => {
     await runDemo([]);
 

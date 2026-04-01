@@ -40,7 +40,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("teamclaw clarity", () => {
+describe("openpawl clarity", () => {
   describe("argument parsing", () => {
     it("--help shows usage without running analysis", async () => {
       await runClarityCommand(["--help"]);

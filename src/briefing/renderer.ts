@@ -23,7 +23,7 @@ export function renderBriefing(data: BriefingData): string {
 
   const lines: string[] = [];
   lines.push(color(pc.dim, SEPARATOR));
-  lines.push(color(pc.cyan, "Previously on TeamClaw"));
+  lines.push(color(pc.cyan, "Previously on OpenPawl"));
 
   const daysLabel = data.lastSession.daysAgo === 0
     ? "today"
@@ -79,7 +79,7 @@ export function renderBriefing(data: BriefingData): string {
       const q = r.question.length > 40 ? r.question.slice(0, 37) + "..." : r.question;
       const saved = r.savedToJournal ? pc.green("saved") : pc.dim("not saved");
       lines.push(color(pc.cyan, `  "${q}" — ${r.recommendation} (${(r.confidence * 100).toFixed(0)}%) [${saved}]`));
-      lines.push(color(pc.dim, `  teamclaw think results ${r.jobId}`));
+      lines.push(color(pc.dim, `  openpawl think results ${r.jobId}`));
     }
   }
 
@@ -132,7 +132,7 @@ export function renderBriefing(data: BriefingData): string {
 export function renderWelcome(): string {
   return [
     color(pc.dim, SEPARATOR),
-    color(pc.cyan, "Welcome to TeamClaw"),
+    color(pc.cyan, "Welcome to OpenPawl"),
     "Your AI team is ready. No previous sessions found.",
     color(pc.dim, SEPARATOR),
     "Your team remembers everything from here on.",

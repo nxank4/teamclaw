@@ -64,7 +64,7 @@ beforeEach(() => {
   mockProfileStore.getByRole.mockResolvedValue(null);
 });
 
-describe("teamclaw profile", () => {
+describe("openpawl profile", () => {
   describe("list subcommand (default)", () => {
     it("shows message when no profiles exist", async () => {
       mockProfileStore.getAll.mockResolvedValue([]);

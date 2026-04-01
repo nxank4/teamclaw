@@ -1,6 +1,6 @@
 /**
  * Background worker for async think jobs.
- * Called via hidden CLI subcommand: teamclaw think-worker <jobId>
+ * Called via hidden CLI subcommand: openpawl think-worker <jobId>
  */
 
 import { AsyncThinkJobStore } from "./job-store.js";

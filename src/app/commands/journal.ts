@@ -19,7 +19,7 @@ export function createJournalCommand(): SlashCommand {
         const vm = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
         await vm.init();
         const embedder = vm.getEmbedder();
-        if (!embedder) { ctx.addMessage("error", "Memory backend unavailable. Run `teamclaw setup`."); return; }
+        if (!embedder) { ctx.addMessage("error", "Memory backend unavailable. Run `openpawl setup`."); return; }
 
         const gmm = new GlobalMemoryManager();
         await gmm.init(embedder);

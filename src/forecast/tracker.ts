@@ -8,7 +8,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ForecastAccuracyEntry } from "./types.js";
 
-const STORE_DIR = path.join(os.homedir(), ".teamclaw", "memory");
+const STORE_DIR = path.join(os.homedir(), ".openpawl", "memory");
 const STORE_FILE = path.join(STORE_DIR, "forecast-accuracy.json");
 const MIN_ENTRIES_FOR_BIAS = 10;
 

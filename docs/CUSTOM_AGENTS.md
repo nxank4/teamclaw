@@ -1,6 +1,6 @@
 # Custom Agents SDK
 
-Define custom agent roles and plug them into TeamClaw's orchestration graph without modifying internals.
+Define custom agent roles and plug them into OpenPawl's orchestration graph without modifying internals.
 
 ## Quick Start
 
@@ -9,7 +9,7 @@ Define custom agent roles and plug them into TeamClaw's orchestration graph with
 Create a file (e.g. `my-agent.ts`):
 
 ```typescript
-import { defineAgent } from "@teamclaw/sdk";
+import { defineAgent } from "@openpawl/sdk";
 
 export default defineAgent({
   role: "code-reviewer",
@@ -35,7 +35,7 @@ export default defineAgent({
 ### 2. Register the agent
 
 ```bash
-teamclaw agent add ./my-agent.ts
+openpawl agent add ./my-agent.ts
 ```
 
 ### 3. Use it
@@ -43,7 +43,7 @@ teamclaw agent add ./my-agent.ts
 The agent participates in work sessions automatically. The coordinator assigns tasks to it based on task types and the composition rules determine when it's included.
 
 ```bash
-teamclaw work --goal "Review the authentication module for security issues"
+openpawl work --goal "Review the authentication module for security issues"
 ```
 
 ## API Reference
@@ -105,29 +105,29 @@ interface AgentContext {
 
 ```bash
 # Register from file
-teamclaw agent add ./my-agent.ts
+openpawl agent add ./my-agent.ts
 
 # Register all agents in a directory
-teamclaw agent add ./agents/
+openpawl agent add ./agents/
 
 # List registered agents
-teamclaw agent list
+openpawl agent list
 
 # Show agent details
-teamclaw agent show code-reviewer
+openpawl agent show code-reviewer
 
 # Remove an agent
-teamclaw agent remove code-reviewer
+openpawl agent remove code-reviewer
 
 # Validate without registering
-teamclaw agent validate ./my-agent.ts
+openpawl agent validate ./my-agent.ts
 ```
 
 ## How Custom Agents Work
 
 Custom agents are **worker-type agents**. They participate in the existing `worker_task -> confidence_router -> worker_collect` pipeline:
 
-1. **Registration**: `teamclaw agent add` validates, compiles (if TypeScript), and stores the definition in `~/.teamclaw/agents/`
+1. **Registration**: `openpawl agent add` validates, compiles (if TypeScript), and stores the definition in `~/.openpawl/agents/`
 2. **Loading**: At graph construction, `TeamOrchestration` loads registered agents and creates `WorkerBot` instances
 3. **Composition**: In autonomous mode, composition rules determine if the agent is included based on goal keywords
 4. **Dispatch**: The coordinator assigns tasks to custom agents based on task types. The dispatcher fans them out to `worker_task` nodes
@@ -173,7 +173,7 @@ Confidence is calculated as: `min(0.5 + matchCount * 0.15, 0.95)`
 Export an array for multiple agents in one file:
 
 ```typescript
-import { defineAgent } from "@teamclaw/sdk";
+import { defineAgent } from "@openpawl/sdk";
 
 export default [
   defineAgent({
@@ -199,18 +199,18 @@ Create a package with a default export:
 
 ```json
 {
-  "name": "teamclaw-agent-code-reviewer",
+  "name": "openpawl-agent-code-reviewer",
   "main": "dist/index.js",
   "type": "module",
   "peerDependencies": {
-    "@teamclaw/sdk": "^0.0.1"
+    "@openpawl/sdk": "^0.0.1"
   }
 }
 ```
 
 ```typescript
 // src/index.ts
-import { defineAgent } from "@teamclaw/sdk";
+import { defineAgent } from "@openpawl/sdk";
 
 export default defineAgent({
   role: "code-reviewer",
@@ -225,9 +225,9 @@ Custom agents appear in **Settings > Agents** tab in the web dashboard. You can 
 ## Storage
 
 Registered agents are stored at:
-- `~/.teamclaw/agents/registry.json` — Agent registry index
-- `~/.teamclaw/agents/custom/<role>.mjs` — Compiled agent modules
-- `~/.teamclaw/agents/custom/<role>.json` — Serialized definitions (without hooks)
+- `~/.openpawl/agents/registry.json` — Agent registry index
+- `~/.openpawl/agents/custom/<role>.mjs` — Compiled agent modules
+- `~/.openpawl/agents/custom/<role>.json` — Serialized definitions (without hooks)
 
 ## Constraints
 

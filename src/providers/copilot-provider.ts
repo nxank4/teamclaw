@@ -64,7 +64,7 @@ export class CopilotProvider implements StreamProvider {
       headers: {
         Authorization: `token ${this.githubToken}`,
         Accept: "application/json",
-        "User-Agent": "TeamClaw/1.0",
+        "User-Agent": "OpenPawl/1.0",
       },
       signal: AbortSignal.timeout(10_000),
     });

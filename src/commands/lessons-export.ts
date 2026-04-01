@@ -23,7 +23,7 @@ export async function runLessonsExport(args: string[]): Promise<void> {
   if (subCmd === "promote" || subCmd === "demote") {
     const patternId = args[1];
     if (!patternId) {
-      logger.error(`Usage: teamclaw lessons ${subCmd} <pattern-id>`);
+      logger.error(`Usage: openpawl lessons ${subCmd} <pattern-id>`);
       process.exit(1);
     }
 
@@ -116,7 +116,7 @@ export async function runLessonsExport(args: string[]): Promise<void> {
   if (showFailures) {
     const lessons = await vectorMemory.getCumulativeLessons();
     lines.push(
-      "# TeamClaw — Standard Operating Procedures",
+      "# OpenPawl — Standard Operating Procedures",
       "",
       "Lessons learned from prior work sessions. Use these to improve future runs.",
       "",

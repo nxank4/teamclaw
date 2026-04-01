@@ -46,7 +46,7 @@ async function ensureStore(): Promise<void> {
 }
 
 function isCacheEnabled(): boolean {
-  return process.env.TEAMCLAW_NO_CACHE !== "true";
+  return process.env.OPENPAWL_NO_CACHE !== "true";
 }
 
 function isCacheableRole(role: string): boolean {

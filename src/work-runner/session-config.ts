@@ -96,7 +96,7 @@ export function parseWorkArgs(args: string[]): ParsedWorkArgs {
         ) {
             if (!warnedInfraFlag) {
                 logger.warn(
-                    "Ignoring infrastructure override flags for `teamclaw work` (Pillar 2 zero-config). Run `teamclaw setup` or `teamclaw config` instead.",
+                    "Ignoring infrastructure override flags for `openpawl work` (Pillar 2 zero-config). Run `openpawl setup` or `openpawl config` instead.",
                 );
                 warnedInfraFlag = true;
             }

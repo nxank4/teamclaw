@@ -62,7 +62,7 @@ export async function buildAuditTrail(
       const lancedb = await import("@lancedb/lancedb");
       const os = await import("node:os");
       const path = await import("node:path");
-      const dbPath = path.default.join(os.default.homedir(), ".teamclaw", "memory", "global.db");
+      const dbPath = path.default.join(os.default.homedir(), ".openpawl", "memory", "global.db");
       const db = await lancedb.connect(dbPath);
       const store = new PersonalityEventStore();
       await store.init(db);

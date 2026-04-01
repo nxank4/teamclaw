@@ -41,11 +41,11 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("teamclaw status", () => {
+describe("openpawl status", () => {
   it("displays provider status", async () => {
     await runStatusCommand();
 
-    expect(intro).toHaveBeenCalledWith("TeamClaw Status");
+    expect(intro).toHaveBeenCalledWith("OpenPawl Status");
     expect(note).toHaveBeenCalledWith(
       expect.stringContaining("anthropic"),
       "Providers",

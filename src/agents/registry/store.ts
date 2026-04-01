@@ -1,7 +1,7 @@
 /**
  * Persistent storage for registered custom agents.
- * Registry lives at ~/.teamclaw/agents/registry.json.
- * Compiled agent modules stored at ~/.teamclaw/agents/custom/<role>.mjs.
+ * Registry lives at ~/.openpawl/agents/registry.json.
+ * Compiled agent modules stored at ~/.openpawl/agents/custom/<role>.mjs.
  */
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
@@ -10,7 +10,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ValidatedAgentDef } from "./validator.js";
 
-const AGENTS_DIR = path.join(os.homedir(), ".teamclaw", "agents");
+const AGENTS_DIR = path.join(os.homedir(), ".openpawl", "agents");
 const CUSTOM_DIR = path.join(AGENTS_DIR, "custom");
 const REGISTRY_FILE = path.join(AGENTS_DIR, "registry.json");
 
@@ -72,7 +72,7 @@ export class AgentRegistryStore {
     const defData = { ...def };
     // Strip hooks from JSON — they can't be serialized
     delete (defData as Record<string, unknown>).hooks;
-    delete (defData as Record<string, unknown>).__teamclaw_agent;
+    delete (defData as Record<string, unknown>).__openpawl_agent;
     await writeFile(defPath, JSON.stringify(defData, null, 2), "utf-8");
 
     const entry: RegisteredAgent = {

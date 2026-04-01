@@ -31,29 +31,29 @@ export function formatUnknownCommand(opts: UnknownCommandOptions): string {
             const hint = suggestion.confidence === "low" ? " (not sure?)" : "";
             return [
                 white(`Unknown command "${command}".`),
-                yellow(`Did you mean \`teamclaw ${suggestion.suggestion}\`?${hint}`),
+                yellow(`Did you mean \`openpawl ${suggestion.suggestion}\`?${hint}`),
                 "",
-                `Run \`teamclaw --help\` to see all commands.`,
+                `Run \`openpawl --help\` to see all commands.`,
             ].join("\n");
         }
         return [
             white(`Unknown command "${command}".`),
-            `Run \`teamclaw --help\` to see all commands.`,
+            `Run \`openpawl --help\` to see all commands.`,
         ].join("\n");
     }
 
     if (suggestion.suggestion) {
         return [
-            white(`Unknown subcommand "${subcommand}" for \`teamclaw ${command}\`.`),
-            yellow(`Did you mean \`teamclaw ${command} ${suggestion.suggestion}\`?`),
+            white(`Unknown subcommand "${subcommand}" for \`openpawl ${command}\`.`),
+            yellow(`Did you mean \`openpawl ${command} ${suggestion.suggestion}\`?`),
             "",
-            `Run \`teamclaw ${command} --help\` to see available subcommands.`,
+            `Run \`openpawl ${command} --help\` to see available subcommands.`,
         ].join("\n");
     }
 
     return [
-        white(`Unknown subcommand "${subcommand}" for \`teamclaw ${command}\`.`),
-        `Run \`teamclaw ${command} --help\` to see available subcommands.`,
+        white(`Unknown subcommand "${subcommand}" for \`openpawl ${command}\`.`),
+        `Run \`openpawl ${command} --help\` to see available subcommands.`,
     ].join("\n");
 }
 

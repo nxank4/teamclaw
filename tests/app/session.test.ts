@@ -10,7 +10,7 @@ import { SessionManager } from "../../src/app/session.js";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), "teamclaw-session-test-"));
+  tmpDir = mkdtempSync(path.join(os.tmpdir(), "openpawl-session-test-"));
 });
 
 describe("SessionManager", () => {

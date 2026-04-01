@@ -24,7 +24,7 @@ export async function autoExportAudit(
     const audit = await buildAuditTrail(sessionId, runIndex, finalState, startTime, Date.now(), team);
     const md = renderAuditMarkdown(audit);
     const { writeFile, mkdir } = await import("node:fs/promises");
-    const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
+    const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", sessionId);
     await mkdir(sessionDir, { recursive: true });
     await writeFile(path.join(sessionDir, "audit.md"), md, "utf-8");
   } catch {
@@ -96,7 +96,7 @@ export async function autoGenerateContext(
     await wf(outputPath, markdown, "utf-8");
 
     // Timestamped copy in session dir
-    const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
+    const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", sessionId);
     await mkd(sessionDir, { recursive: true });
     await wf(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
 

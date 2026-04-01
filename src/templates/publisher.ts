@@ -3,7 +3,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import type { TeamClawTemplate } from "./types.js";
+import type { OpenPawlTemplate } from "./types.js";
 import { DEFAULT_MARKETPLACE_CONFIG } from "./types.js";
 import { validateTemplate } from "./validator.js";
 
@@ -21,7 +21,7 @@ export class TemplatePublisher {
     this.repo = config?.repo ?? DEFAULT_MARKETPLACE_CONFIG.repo;
   }
 
-  getGhCommand(template: TeamClawTemplate): string {
+  getGhCommand(template: OpenPawlTemplate): string {
     return [
       "gh pr create",
       `--repo ${this.repo}`,

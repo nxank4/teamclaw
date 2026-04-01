@@ -72,7 +72,7 @@ describe("async think notifier", () => {
 
       // Header
       expect(blocks[0].type).toBe("header");
-      expect(blocks[0].text?.text).toContain("TeamClaw finished thinking");
+      expect(blocks[0].text?.text).toContain("OpenPawl finished thinking");
 
       // Context with job ID
       expect(blocks[1].type).toBe("context");

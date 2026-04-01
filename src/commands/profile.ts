@@ -1,5 +1,5 @@
 /**
- * CLI command: teamclaw profile <subcommand>
+ * CLI command: openpawl profile <subcommand>
  */
 
 import { CONFIG } from "../core/config.js";
@@ -71,7 +71,7 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   if (sub === "show") {
     const role = args[1];
     if (!role) {
-      logger.error("Usage: teamclaw profile show <role>");
+      logger.error("Usage: openpawl profile show <role>");
       process.exit(1);
     }
     try {
@@ -142,7 +142,7 @@ export async function runProfileCommand(args: string[]): Promise<void> {
           logger.error(`No profile found for role: ${role}`);
         }
       } else {
-        logger.error("Usage: teamclaw profile reset <role> | teamclaw profile reset --all");
+        logger.error("Usage: openpawl profile reset <role> | openpawl profile reset --all");
         process.exit(1);
       }
     } catch (err) {
@@ -153,6 +153,6 @@ export async function runProfileCommand(args: string[]): Promise<void> {
   }
 
   logger.error(`Unknown subcommand: profile ${sub}`);
-  logger.error("Usage: teamclaw profile [list | show <role> | reset <role> | reset --all]");
+  logger.error("Usage: openpawl profile [list | show <role> | reset <role> | reset --all]");
   process.exit(1);
 }

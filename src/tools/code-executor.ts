@@ -25,7 +25,7 @@ export function createAgentRuntime(workspacePath: string): NodeRuntime {
         fs: (req) => ({
           allow:
             req.path.startsWith(workspacePath) ||
-            req.path.startsWith("/tmp/teamclaw-"),
+            req.path.startsWith("/tmp/openpawl-"),
         }),
         network: () => ({ allow: false }),
         childProcess: (req) => ({

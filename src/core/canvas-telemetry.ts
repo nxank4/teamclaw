@@ -1,5 +1,5 @@
 /**
- * Canvas Telemetry - Pushes TeamClaw state changes to the Canvas UI.
+ * Canvas Telemetry - Pushes OpenPawl state changes to the Canvas UI.
  * Uses Gateway WebSocket to emit events that the Canvas UI can display.
  *
  * Note: Gateway telemetry is currently disabled.
@@ -42,10 +42,10 @@ export class CanvasTelemetry {
 
     send(event: TaskEvent): void {
         this.emitTelemetry({
-            event: "teamclaw_task_event",
+            event: "openpawl_task_event",
             ...event,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -61,63 +61,63 @@ export class CanvasTelemetry {
 
     sendCycleStart(cycle: number, totalTasks: number): void {
         this.emitTelemetry({
-            event: "teamclaw_cycle_start",
+            event: "openpawl_cycle_start",
             cycle,
             total_tasks: totalTasks,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
     sendSessionStart(goal: string): void {
         this.emitTelemetry({
-            event: "teamclaw_session_start",
+            event: "openpawl_session_start",
             goal,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
     sendPlanningComplete(goal: string, taskCount: number): void {
         this.emitTelemetry({
-            event: "teamclaw_planning_complete",
+            event: "openpawl_planning_complete",
             goal,
             task_count: taskCount,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
     sendRFCEvent(taskId: string, status: "created" | "approved" | "rejected", complexity: string): void {
         this.emitTelemetry({
-            event: status === "created" ? "teamclaw_rfc_created" : status === "approved" ? "teamclaw_rfc_approved" : "teamclaw_rfc_rejected",
+            event: status === "created" ? "openpawl_rfc_created" : status === "approved" ? "openpawl_rfc_approved" : "openpawl_rfc_rejected",
             task_id: taskId,
             complexity,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
     sendStandup(botId: string, taskId: string, content: string): void {
         this.emitTelemetry({
-            event: "teamclaw_standup",
+            event: "openpawl_standup",
             bot_id: botId,
             task_id: taskId,
             content,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
     sendMidSprint(completedCount: number, totalCount: number, remainingCount: number, vibe: string): void {
         this.emitTelemetry({
-            event: "teamclaw_mid_sprint",
+            event: "openpawl_mid_sprint",
             completed: completedCount,
             total: totalCount,
             remaining: remainingCount,
             vibe,
             timestamp: new Date().toISOString(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -128,7 +128,7 @@ export class CanvasTelemetry {
             bot_id: botId,
             chunk,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -140,7 +140,7 @@ export class CanvasTelemetry {
             error: error ? true : false,
             error_message: error?.message,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -150,7 +150,7 @@ export class CanvasTelemetry {
             task_id: taskId,
             message,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -162,7 +162,7 @@ export class CanvasTelemetry {
             cached_input_tokens: cachedInputTokens,
             model,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -173,7 +173,7 @@ export class CanvasTelemetry {
             bot_id: botId,
             reasoning,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -182,7 +182,7 @@ export class CanvasTelemetry {
             event: "NODE_ACTIVE",
             node: nodeName,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 
@@ -192,7 +192,7 @@ export class CanvasTelemetry {
             reason,
             elapsedMs,
             timestamp: Date.now(),
-            source: "teamclaw",
+            source: "openpawl",
         });
     }
 

@@ -105,11 +105,11 @@ describe("Config Manager Integration", () => {
   it("setConfigValue validates input", async () => {
     vi.mock("@/core/jsonConfigManager.js", () => {
       return {
-        readTeamclawConfig: () => ({
-          path: "/test/teamclaw.config.json",
+        readOpenpawlConfig: () => ({
+          path: "/test/openpawl.config.json",
           data: {},
         }),
-        writeTeamclawConfig: vi.fn(),
+        writeOpenpawlConfig: vi.fn(),
         getJsonKey: vi.fn((key: string, data: any) => data[key]),
         setJsonKey: vi.fn(),
         __esModule: true,

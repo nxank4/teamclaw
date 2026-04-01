@@ -50,7 +50,7 @@ function renderHeader(audit: AuditTrail): string {
   const duration = formatDuration(audit.durationMs);
 
   return [
-    "# TeamClaw Audit Trail",
+    "# OpenPawl Audit Trail",
     "",
     `**Session:** ${audit.sessionId}`,
     `**Goal:** ${audit.goal}`,
@@ -259,7 +259,7 @@ function renderProviderUsage(audit: AuditTrail): string {
 /** Render a multi-run summary as markdown. */
 export function renderMultiRunSummary(summary: MultiRunSummary): string {
   const lines = [
-    "# TeamClaw Multi-Run Summary",
+    "# OpenPawl Multi-Run Summary",
     "",
     `**Session:** ${summary.sessionId}`,
     `**Total Runs:** ${summary.totalRuns}`,

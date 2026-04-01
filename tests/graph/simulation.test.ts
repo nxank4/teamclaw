@@ -373,7 +373,7 @@ describe("simulation.ts — TeamOrchestration", () => {
     it("includes run start message", () => {
       const orch = createTeamOrchestration({ team: makeTeam() });
       const state = orch.getInitialState({ runId: 2 });
-      expect(state.messages).toContain("TeamClaw - Run 2 started");
+      expect(state.messages).toContain("OpenPawl - Run 2 started");
     });
 
     it("merges initialTasks into task_queue with correct IDs", () => {

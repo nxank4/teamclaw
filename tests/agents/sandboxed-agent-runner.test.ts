@@ -4,7 +4,7 @@ import path from "node:path";
 import { SandboxedAgentRunner } from "@/agents/registry/sandboxed-agent-runner.js";
 
 describe("SandboxedAgentRunner", () => {
-  const workspacePath = path.join("/tmp", `teamclaw-sar-test-${Date.now()}`);
+  const workspacePath = path.join("/tmp", `openpawl-sar-test-${Date.now()}`);
   let runner: SandboxedAgentRunner | null = null;
 
   afterEach(() => {

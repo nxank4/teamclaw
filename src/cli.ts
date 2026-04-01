@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * TeamClaw CLI entry point.
+ * OpenPawl CLI entry point.
  *
  * 4-Pillar Architecture:
- *   Pillar 1 — `teamclaw setup` / `teamclaw init`  : Dedicated setup phase
- *   Pillar 2 — `teamclaw work`                     : Zero-config execution
+ *   Pillar 1 — `openpawl setup` / `openpawl init`  : Dedicated setup phase
+ *   Pillar 2 — `openpawl work`                     : Zero-config execution
  *   Pillar 3 — Smart error recovery (inside work)  : Structured diagnostics
  *   Pillar 4 — Web Dashboard auto-start on `work`  : Background dashboard
  *
@@ -62,15 +62,15 @@ function printHelp(): void {
 
     const lines = [
         "",
-        pc.bold(pc.cyan("TeamClaw")) + " — Your AI team for shipping goals" + "  " + pc.dim(`v${version}`),
+        pc.bold(pc.cyan("OpenPawl")) + " — Your AI team for shipping goals" + "  " + pc.dim(`v${version}`),
         "",
         section("USAGE"),
-        "  teamclaw <command> [options]",
+        "  openpawl <command> [options]",
         "",
         section("GETTING STARTED"),
-        "  " + cmd(pad("setup")) + desc("Configure TeamClaw for the first time"),
+        "  " + cmd(pad("setup")) + desc("Configure OpenPawl for the first time"),
         "  " + cmd(pad("check")) + desc("Verify your setup is working"),
-        "  " + cmd(pad("demo")) + desc("See TeamClaw in action (no API key needed)"),
+        "  " + cmd(pad("demo")) + desc("See OpenPawl in action (no API key needed)"),
         "",
         section("DAILY WORKFLOW"),
         "  " + cmd(pad("work")) + desc("Start a sprint toward a goal"),
@@ -106,7 +106,7 @@ function printHelp(): void {
         "  " + cmd(pad("profile")) + desc("Agent performance profiles"),
         "  " + cmd(pad("web")) + desc("Start web dashboard"),
         "  " + cmd(pad("clean")) + desc("Remove session data"),
-        "  " + cmd(pad("update")) + desc("Self-update TeamClaw"),
+        "  " + cmd(pad("update")) + desc("Self-update OpenPawl"),
         "",
         section("OPTIONS"),
         "  " + cmd(pad("--help, -h")) + desc("Show this help"),
@@ -117,11 +117,11 @@ function printHelp(): void {
         "  " + cmd(pad("--mock-llm")) + desc("Use mock responses (testing)"),
         "",
         section("EXAMPLES"),
-        "  " + exCmd("teamclaw setup") + "                          " + desc("Get started"),
-        "  " + exCmd('teamclaw work --goal "Build a CLI"') + "      " + desc("Run with a goal"),
-        "  " + exCmd("teamclaw check") + "                          " + desc("Verify setup"),
+        "  " + exCmd("openpawl setup") + "                          " + desc("Get started"),
+        "  " + exCmd('openpawl work --goal "Build a CLI"') + "      " + desc("Run with a goal"),
+        "  " + exCmd("openpawl check") + "                          " + desc("Verify setup"),
         "",
-        desc("Run teamclaw <command> --help for details on any command."),
+        desc("Run openpawl <command> --help for details on any command."),
         "",
     ];
     console.log(lines.join("\n"));
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
     if (printIdx !== -1) {
         const prompt = args[printIdx + 1];
         if (!prompt) {
-            logger.error("Usage: teamclaw -p <prompt>");
+            logger.error("Usage: openpawl -p <prompt>");
             process.exit(1);
         }
         const { runPrintMode } = await import("./app/index.js");
@@ -183,7 +183,7 @@ async function main(): Promise<void> {
 
     // Unknown flag (starts with --)
     if (rawCmd.startsWith("--") || rawCmd.startsWith("-")) {
-        logger.error(`Unknown flag "${rawCmd}". Run \`teamclaw --help\` for usage.`);
+        logger.error(`Unknown flag "${rawCmd}". Run \`openpawl --help\` for usage.`);
         process.exit(1);
     }
 
@@ -191,14 +191,14 @@ async function main(): Promise<void> {
     const cmd = COMMANDS.find((c) => c === rawCmd.toLowerCase()) ?? rawCmd;
 
     // -------------------------------------------------------------------------
-    // Pillar 1: teamclaw setup
+    // Pillar 1: openpawl setup
     // -------------------------------------------------------------------------
     if (cmd === "setup" || cmd === "init") {
         const { runSetup } = await import("./commands/setup.js");
         await runSetup();
 
     // -------------------------------------------------------------------------
-    // Pillar 2 + 3 + 4: teamclaw work — zero-config, auto-web, smart recovery
+    // Pillar 2 + 3 + 4: openpawl work — zero-config, auto-web, smart recovery
     // -------------------------------------------------------------------------
     } else if (cmd === "work") {
         const commandArgs = args.slice(1);
@@ -216,7 +216,7 @@ async function main(): Promise<void> {
         if (canRenderSpinner) {
             const { isMockLlmEnabled } = await import("./core/mock-llm.js");
             const mockLabel = isMockLlmEnabled() ? " [mock mode]" : "";
-            intro(`TeamClaw Work Session${mockLabel}`);
+            intro(`OpenPawl Work Session${mockLabel}`);
         }
 
         const { runWork } = await import("./work-runner.js");
@@ -274,7 +274,7 @@ async function main(): Promise<void> {
                     logger.plain(`Daemon state says running on port ${result.webPort} but health check failed`);
                 }
             } else {
-                logger.plain("Not running — start with: teamclaw web start");
+                logger.plain("Not running — start with: openpawl web start");
             }
             return;
         }
@@ -321,7 +321,7 @@ async function main(): Promise<void> {
             process.stdout.isTTY && process.stderr.isTTY,
         );
         if (canRenderSpinner) {
-            intro("TeamClaw Web Server");
+            intro("OpenPawl Web Server");
         }
         const { runWeb } = await import("./web/server.js");
         await runWeb(args.slice(1));
@@ -352,7 +352,7 @@ async function main(): Promise<void> {
         if (sub === "get") {
             const key = args[2];
             if (!key) {
-                logger.error("Usage: teamclaw config get <KEY> [--raw]");
+                logger.error("Usage: openpawl config get <KEY> [--raw]");
                 process.exit(1);
             }
             const raw = args.includes("--raw");
@@ -370,12 +370,12 @@ async function main(): Promise<void> {
             const key = args[2];
             const value = args.slice(3).join(" ");
             if (!key || value.length === 0) {
-                logger.error("Usage: teamclaw config set <KEY> <VALUE>");
+                logger.error("Usage: openpawl config set <KEY> <VALUE>");
                 process.exit(1);
             }
             if (isSecretKey(key)) {
                 logger.warn(
-                    "This may leak into shell history; prefer `teamclaw config` interactive mode for secrets.",
+                    "This may leak into shell history; prefer `openpawl config` interactive mode for secrets.",
                 );
             }
             const res = setConfigValue(key, value);
@@ -390,7 +390,7 @@ async function main(): Promise<void> {
         if (sub === "unset") {
             const key = args[2];
             if (!key) {
-                logger.error("Usage: teamclaw config unset <KEY>");
+                logger.error("Usage: openpawl config unset <KEY>");
                 process.exit(1);
             }
             const res = unsetConfigKey(key);

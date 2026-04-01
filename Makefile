@@ -1,8 +1,8 @@
-# Makefile for TeamClaw
+# Makefile for OpenPawl
 .PHONY: help install install-hooks test test-commands test-e2e test-coverage test-coverage-report lint typecheck check test-full web work clean release
 
 help:
-	@echo "TeamClaw - Available Commands:"
+	@echo "OpenPawl - Available Commands:"
 	@echo ""
 	@echo "  Setup"
 	@echo "    make install       - Install pnpm dependencies"
@@ -98,27 +98,27 @@ clean:
 VERSION := $(shell node -p "require('./package.json').version")
 
 release:
-	@echo "Building TeamClaw v$(VERSION)..."
+	@echo "Building OpenPawl v$(VERSION)..."
 	pnpm run build
 	@echo ""
 	@echo "Creating release archives..."
 	@mkdir -p release
 	@# Package source-install tarball (includes built dist/)
-	tar -czf "release/teamclaw-$(VERSION)-source.tar.gz" \
+	tar -czf "release/openpawl-$(VERSION)-source.tar.gz" \
 		--exclude=node_modules --exclude=.git --exclude=release \
-		--exclude=coverage --exclude=data --exclude=.teamclaw \
+		--exclude=coverage --exclude=data --exclude=.openpawl \
 		-C . .
-	@echo "Created release/teamclaw-$(VERSION)-source.tar.gz"
+	@echo "Created release/openpawl-$(VERSION)-source.tar.gz"
 	@# Generate checksums
 	@cd release && shasum -a 256 *.tar.gz > SHA256SUMS
 	@echo "Generated release/SHA256SUMS"
 	@echo ""
 	@echo "Creating GitHub release v$(VERSION)..."
 	gh release create "v$(VERSION)" \
-		--title "TeamClaw v$(VERSION)" \
+		--title "OpenPawl v$(VERSION)" \
 		--generate-notes \
-		release/teamclaw-$(VERSION)-source.tar.gz \
+		release/openpawl-$(VERSION)-source.tar.gz \
 		release/SHA256SUMS
 	@echo ""
 	@echo "Release v$(VERSION) published!"
-	@echo "https://github.com/nxank4/teamclaw/releases/tag/v$(VERSION)"
+	@echo "https://github.com/nxank4/openpawl/releases/tag/v$(VERSION)"

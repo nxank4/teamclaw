@@ -1,5 +1,5 @@
 /**
- * Advanced settings sub-menu for `teamclaw config`.
+ * Advanced settings sub-menu for `openpawl config`.
  * Exposes creativity, max_cycles, webhooks, and webhook secret.
  */
 

@@ -11,13 +11,13 @@ export function generateResumeCommands(
     if (item.command) {
       commands.push(item.command);
     } else {
-      commands.push(`teamclaw work --goal "${item.description}"`);
+      commands.push(`openpawl work --goal "${item.description}"`);
     }
   }
 
   // Suggest journal review if many decisions
   if (decisionCount > 3) {
-    commands.push("teamclaw journal list");
+    commands.push("openpawl journal list");
   }
 
   // Suggest think mode for escalated items
@@ -25,7 +25,7 @@ export function generateResumeCommands(
   if (hasEscalated) {
     const escalated = leftToDo.find((i) => i.type === "escalated");
     if (escalated) {
-      commands.push(`teamclaw think "${escalated.description}"`);
+      commands.push(`openpawl think "${escalated.description}"`);
     }
   }
 

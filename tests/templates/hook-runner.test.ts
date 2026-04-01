@@ -4,7 +4,7 @@ import path from "node:path";
 import { runTemplateHook } from "@/templates/hook-runner.js";
 
 describe("runTemplateHook", () => {
-  const projectPath = path.join("/tmp", `teamclaw-hook-test-${Date.now()}`);
+  const projectPath = path.join("/tmp", `openpawl-hook-test-${Date.now()}`);
 
   test("runs hook code and returns success", async () => {
     fs.mkdirSync(projectPath, { recursive: true });

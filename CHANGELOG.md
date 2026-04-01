@@ -6,13 +6,13 @@
 - Multi-provider LLM support: Anthropic, OpenAI, OpenRouter, Ollama, DeepSeek, Groq, and custom endpoints
 - Provider fallback chain with automatic failover
 - Setup wizard with 7 provider options and API key configuration
-- `teamclaw check` validates provider health with latency reporting
-- `teamclaw providers list|test` for provider chain management
+- `openpawl check` validates provider health with latency reporting
+- `openpawl providers list|test` for provider chain management
 - Provider-prefixed model names (`anthropic/claude-sonnet-4-6`, `deepseek/deepseek-chat`)
 - Response caching with per-provider cache keys
 - Health monitor with periodic provider checks
 - Template marketplace: browse, install, publish, and update community templates
-- `teamclaw work --template <id>` for template-based team composition
+- `openpawl work --template <id>` for template-based team composition
 - Five seed templates: content-creator, indie-hacker, research-intelligence, business-ops, full-stack-sprint
 
 ### Core
@@ -22,20 +22,20 @@
 - Decision journal with supersession detection
 - Sprint retrospective with rework detection
 - Global memory promotion engine
-- Session briefing ("previously on TeamClaw")
+- Session briefing ("previously on OpenPawl")
 - CONTEXT.md handoff generation
 
 ### Solo Developer Tools
-- `teamclaw think` rubber duck mode with multi-round deliberation
-- `teamclaw standup` daily summary with streak tracking
-- `teamclaw clarity` goal analysis and rewriting
-- `teamclaw drift` goal-vs-decision conflict detection
-- `teamclaw score` vibe coding score and trends
-- `teamclaw forecast` cost estimation before runs
-- `teamclaw heatmap` agent utilization analysis
-- `teamclaw replay` session replay for debugging
-- `teamclaw audit` full decision trail export
-- `teamclaw diff` cross-run comparison
+- `openpawl think` rubber duck mode with multi-round deliberation
+- `openpawl standup` daily summary with streak tracking
+- `openpawl clarity` goal analysis and rewriting
+- `openpawl drift` goal-vs-decision conflict detection
+- `openpawl score` vibe coding score and trends
+- `openpawl forecast` cost estimation before runs
+- `openpawl heatmap` agent utilization analysis
+- `openpawl replay` session replay for debugging
+- `openpawl audit` full decision trail export
+- `openpawl diff` cross-run comparison
 
 ### Observability
 - Real-time WebSocket dashboard with Kanban, Eisenhower matrix, live graph

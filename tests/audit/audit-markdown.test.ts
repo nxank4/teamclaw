@@ -53,7 +53,7 @@ describe("renderAuditMarkdown", () => {
   it("produces valid CommonMark structure", () => {
     const md = renderAuditMarkdown(mockAudit);
 
-    expect(md).toContain("# TeamClaw Audit Trail");
+    expect(md).toContain("# OpenPawl Audit Trail");
     expect(md).toContain("## Sprint Summary");
     expect(md).toContain("## Decision Log");
     expect(md).toContain("## Approval History");
@@ -143,7 +143,7 @@ describe("renderMultiRunSummary", () => {
 
     const md = renderMultiRunSummary(summary);
 
-    expect(md).toContain("# TeamClaw Multi-Run Summary");
+    expect(md).toContain("# OpenPawl Multi-Run Summary");
     expect(md).toContain("**Total Runs:** 3");
     expect(md).toContain("## Confidence Trend");
     expect(md).toContain("Run 1:");

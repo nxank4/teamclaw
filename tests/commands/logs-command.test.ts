@@ -32,11 +32,11 @@ let tmpDir: string;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), "teamclaw-logs-test-"));
+  tmpDir = mkdtempSync(path.join(os.tmpdir(), "openpawl-logs-test-"));
   vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
 });
 
-describe("teamclaw logs", () => {
+describe("openpawl logs", () => {
   describe("no arguments — log index", () => {
     it("shows available log sources", async () => {
       await runLogs([]);
@@ -73,12 +73,12 @@ describe("teamclaw logs", () => {
   describe("reading log files", () => {
     it("reads last N lines from a gateway log file", async () => {
       // Create a fake gateway log in the expected location
-      const teamclawDir = path.join(os.homedir(), ".teamclaw");
-      const logPath = path.join(teamclawDir, "gateway.log");
+      const openpawlDir = path.join(os.homedir(), ".openpawl");
+      const logPath = path.join(openpawlDir, "gateway.log");
 
       // Only test if we can write to the directory
       try {
-        mkdirSync(teamclawDir, { recursive: true });
+        mkdirSync(openpawlDir, { recursive: true });
         writeFileSync(logPath, "line1\nline2\nline3\nline4\nline5\n");
 
         await runLogs(["gateway", "-n", "3"]);
@@ -92,9 +92,9 @@ describe("teamclaw logs", () => {
     });
 
     it("warns when log file does not exist", async () => {
-      // Point to a nonexistent log — gateway resolves to ~/.teamclaw/gateway.log
+      // Point to a nonexistent log — gateway resolves to ~/.openpawl/gateway.log
       // If it doesn't exist, should warn
-      const logPath = path.join(os.homedir(), ".teamclaw", "gateway.log");
+      const logPath = path.join(os.homedir(), ".openpawl", "gateway.log");
       try {
         const { unlinkSync } = await import("node:fs");
         if (require("node:fs").existsSync(logPath)) {
@@ -117,11 +117,11 @@ describe("teamclaw logs", () => {
 
   describe("--clear flag", () => {
     it("truncates log file when --clear is passed", async () => {
-      const teamclawDir = path.join(os.homedir(), ".teamclaw");
-      const logPath = path.join(teamclawDir, "gateway.log");
+      const openpawlDir = path.join(os.homedir(), ".openpawl");
+      const logPath = path.join(openpawlDir, "gateway.log");
 
       try {
-        mkdirSync(teamclawDir, { recursive: true });
+        mkdirSync(openpawlDir, { recursive: true });
         writeFileSync(logPath, "some log content\n");
 
         await runLogs(["gateway", "--clear"]);

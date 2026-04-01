@@ -161,7 +161,7 @@ describe("resolveModelForAgent", () => {
     expect(result).toBe("claude-haiku-4-5");
   });
 
-  it("uses per-agent config override from teamclaw.config.json", async () => {
+  it("uses per-agent config override from openpawl.config.json", async () => {
     const mod = await getResolver();
     mod.resetAgentModels();
     mod.setConfigAgentModels({ programmer: "claude-opus-4-6" });

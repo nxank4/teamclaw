@@ -1,6 +1,6 @@
 #!/bin/sh
-# TeamClaw Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/nxank4/teamclaw/main/install.sh | sh
+# OpenPawl Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/nxank4/openpawl/main/install.sh | sh
 #
 # Flags:
 #   --dry-run      Show what would be done without doing it
@@ -13,9 +13,9 @@
 set -e
 
 # --- Configuration ---
-GITHUB_REPO="nxank4/teamclaw"
+GITHUB_REPO="nxank4/openpawl"
 GITHUB_URL="https://github.com/${GITHUB_REPO}"
-INSTALL_DIR="${HOME}/.teamclaw"
+INSTALL_DIR="${HOME}/.openpawl"
 BIN_DIR="${INSTALL_DIR}/bin"
 SOURCE_DIR="${INSTALL_DIR}/source"
 
@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
             REQUESTED_VERSION="${1#--version=}"
             ;;
         --help|-h)
-            echo "TeamClaw Installer"
+            echo "OpenPawl Installer"
             echo ""
             echo "Usage: curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.sh | sh"
             echo "   or: sh install.sh [OPTIONS]"
@@ -204,7 +204,7 @@ detect_shell() {
 check_node() {
     if ! command_exists node; then
         error "Node.js is not installed."
-        error "TeamClaw requires Node.js >= 20."
+        error "OpenPawl requires Node.js >= 20."
         echo ""
         echo "  Install Node.js: https://nodejs.org"
         echo "  Or via nvm:      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
@@ -214,7 +214,7 @@ check_node() {
 
     NODE_VERSION=$(node --version 2>/dev/null)
     if ! version_gte "$NODE_VERSION" "20"; then
-        error "Node.js ${NODE_VERSION} is too old. TeamClaw requires >= 20."
+        error "Node.js ${NODE_VERSION} is too old. OpenPawl requires >= 20."
         echo ""
         echo "  Upgrade: https://nodejs.org"
         echo "  Or via nvm: nvm install 20"
@@ -308,21 +308,21 @@ try_npm_install() {
     info "Trying npm global install..."
 
     if [ "$DRY_RUN" = true ]; then
-        dry "npm install -g @teamclaw/cli@${VERSION}"
+        dry "npm install -g @openpawl/cli@${VERSION}"
         return 0
     fi
 
     # Check if the package exists on npm
-    _npm_view=$(npm view "@teamclaw/cli" version 2>/dev/null) || true
+    _npm_view=$(npm view "@openpawl/cli" version 2>/dev/null) || true
     if [ -z "$_npm_view" ]; then
-        info "Package @teamclaw/cli not found on npm, trying next method..."
+        info "Package @openpawl/cli not found on npm, trying next method..."
         return 1
     fi
 
     if [ "$VERSION" = "main" ]; then
-        npm install -g "@teamclaw/cli" 2>/dev/null || return 1
+        npm install -g "@openpawl/cli" 2>/dev/null || return 1
     else
-        npm install -g "@teamclaw/cli@${VERSION}" 2>/dev/null || return 1
+        npm install -g "@openpawl/cli@${VERSION}" 2>/dev/null || return 1
     fi
 
     INSTALL_METHOD="npm"
@@ -338,7 +338,7 @@ try_binary_install() {
     fi
 
     _release_tag="v${VERSION}"
-    _asset_name="teamclaw-${OS}-${ARCH}.tar.gz"
+    _asset_name="openpawl-${OS}-${ARCH}.tar.gz"
     _download_url="https://github.com/${GITHUB_REPO}/releases/download/${_release_tag}/${_asset_name}"
     _checksum_url="https://github.com/${GITHUB_REPO}/releases/download/${_release_tag}/SHA256SUMS"
 
@@ -358,7 +358,7 @@ try_binary_install() {
     if [ "$DRY_RUN" = true ]; then
         dry "Download ${_download_url}"
         dry "Verify checksum from ${_checksum_url}"
-        dry "Extract to ${BIN_DIR}/teamclaw"
+        dry "Extract to ${BIN_DIR}/openpawl"
         return 0
     fi
 
@@ -370,7 +370,7 @@ try_binary_install() {
     trap _cleanup_binary EXIT
 
     # Download binary
-    info "Downloading TeamClaw ${_release_tag}..."
+    info "Downloading OpenPawl ${_release_tag}..."
     if command_exists curl; then
         curl -fsSL "$_download_url" -o "${_tmp_dir}/${_asset_name}" || {
             error "Download failed"
@@ -421,21 +421,21 @@ try_binary_install() {
     }
 
     # Install binary
-    if [ -f "${_tmp_dir}/teamclaw" ]; then
-        mv "${_tmp_dir}/teamclaw" "${BIN_DIR}/teamclaw"
-    elif [ -f "${_tmp_dir}/bin/teamclaw" ]; then
-        mv "${_tmp_dir}/bin/teamclaw" "${BIN_DIR}/teamclaw"
+    if [ -f "${_tmp_dir}/openpawl" ]; then
+        mv "${_tmp_dir}/openpawl" "${BIN_DIR}/openpawl"
+    elif [ -f "${_tmp_dir}/bin/openpawl" ]; then
+        mv "${_tmp_dir}/bin/openpawl" "${BIN_DIR}/openpawl"
     else
         error "Binary not found in archive"
         return 1
     fi
 
-    chmod +x "${BIN_DIR}/teamclaw"
+    chmod +x "${BIN_DIR}/openpawl"
     trap - EXIT
     rm -rf "$_tmp_dir"
 
     INSTALL_METHOD="binary"
-    success "Installed to ${BIN_DIR}/teamclaw"
+    success "Installed to ${BIN_DIR}/openpawl"
     return 0
 }
 
@@ -448,7 +448,7 @@ try_source_install() {
     if [ "$DRY_RUN" = true ]; then
         dry "git clone ${GITHUB_URL} ${SOURCE_DIR}"
         dry "cd ${SOURCE_DIR} && pnpm install && pnpm run build"
-        dry "ln -sf ${SOURCE_DIR}/dist/cli.js ${BIN_DIR}/teamclaw"
+        dry "ln -sf ${SOURCE_DIR}/dist/cli.js ${BIN_DIR}/openpawl"
         return 0
     fi
 
@@ -504,14 +504,14 @@ try_source_install() {
     }
 
     # Create wrapper script that invokes node with the built CLI
-    cat > "${BIN_DIR}/teamclaw" << WRAPPER
+    cat > "${BIN_DIR}/openpawl" << WRAPPER
 #!/bin/sh
 exec node "${SOURCE_DIR}/dist/cli.js" "\$@"
 WRAPPER
-    chmod +x "${BIN_DIR}/teamclaw"
+    chmod +x "${BIN_DIR}/openpawl"
 
     INSTALL_METHOD="source"
-    success "Built and installed to ${BIN_DIR}/teamclaw"
+    success "Built and installed to ${BIN_DIR}/openpawl"
     return 0
 }
 
@@ -536,14 +536,14 @@ setup_path() {
             ;;
     esac
 
-    _path_line="export PATH=\"\$HOME/.teamclaw/bin:\$PATH\""
+    _path_line="export PATH=\"\$HOME/.openpawl/bin:\$PATH\""
 
     if [ "$DETECTED_SHELL" = "fish" ]; then
         if [ "$DRY_RUN" = true ]; then
             dry "fish: fish_add_path ${BIN_DIR}"
         else
             # Write to fish config
-            _fish_config="${HOME}/.config/fish/conf.d/teamclaw.fish"
+            _fish_config="${HOME}/.config/fish/conf.d/openpawl.fish"
             mkdir -p "$(dirname "$_fish_config")"
             echo "fish_add_path ${BIN_DIR}" > "$_fish_config"
             success "Added to PATH (${_fish_config})"
@@ -558,7 +558,7 @@ setup_path() {
     fi
 
     # Check if already in the profile
-    if [ -f "$SHELL_PROFILE" ] && grep -qF '.teamclaw/bin' "$SHELL_PROFILE" 2>/dev/null; then
+    if [ -f "$SHELL_PROFILE" ] && grep -qF '.openpawl/bin' "$SHELL_PROFILE" 2>/dev/null; then
         success "PATH already configured in ${SHELL_PROFILE}"
         return
     fi
@@ -567,7 +567,7 @@ setup_path() {
         dry "Append to ${SHELL_PROFILE}: ${_path_line}"
     else
         echo "" >> "$SHELL_PROFILE"
-        echo "# TeamClaw" >> "$SHELL_PROFILE"
+        echo "# OpenPawl" >> "$SHELL_PROFILE"
         echo "$_path_line" >> "$SHELL_PROFILE"
         success "Added to PATH (~/${SHELL_PROFILE##*/})"
     fi
@@ -576,26 +576,26 @@ setup_path() {
 # --- Post-install Verification ---
 verify_install() {
     if [ "$DRY_RUN" = true ]; then
-        dry "teamclaw --version"
+        dry "openpawl --version"
         return
     fi
 
-    # For npm installs, teamclaw should be in PATH already
+    # For npm installs, openpawl should be in PATH already
     if [ "$INSTALL_METHOD" = "npm" ]; then
-        if command_exists teamclaw; then
-            _installed_version=$(teamclaw --version 2>/dev/null) || true
+        if command_exists openpawl; then
+            _installed_version=$(openpawl --version 2>/dev/null) || true
             if [ -n "$_installed_version" ]; then
-                success "Verified: teamclaw v${_installed_version}"
+                success "Verified: openpawl v${_installed_version}"
             fi
         fi
         return
     fi
 
     # For binary/source installs, use full path
-    if [ -x "${BIN_DIR}/teamclaw" ]; then
-        _installed_version=$("${BIN_DIR}/teamclaw" --version 2>/dev/null) || true
+    if [ -x "${BIN_DIR}/openpawl" ]; then
+        _installed_version=$("${BIN_DIR}/openpawl" --version 2>/dev/null) || true
         if [ -n "$_installed_version" ]; then
-            success "Verified: teamclaw v${_installed_version}"
+            success "Verified: openpawl v${_installed_version}"
         else
             success "Installed (version check requires new shell)"
         fi
@@ -604,7 +604,7 @@ verify_install() {
 
 # --- Main ---
 main() {
-    printf "\n${BOLD}${CYAN}Installing TeamClaw...${RESET}\n\n"
+    printf "\n${BOLD}${CYAN}Installing OpenPawl...${RESET}\n\n"
 
     if [ "$DRY_RUN" = true ]; then
         warn "Dry run — no changes will be made"
@@ -652,9 +652,9 @@ main() {
 
     # Success message
     echo ""
-    printf "${BOLD}${GREEN}TeamClaw installed successfully!${RESET}\n"
+    printf "${BOLD}${GREEN}OpenPawl installed successfully!${RESET}\n"
     echo ""
-    echo "  Get started:  teamclaw setup"
+    echo "  Get started:  openpawl setup"
     echo "  Documentation: ${GITHUB_URL}"
     echo ""
 

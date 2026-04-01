@@ -139,13 +139,13 @@ export async function runWork(
 
     const pm = getGlobalProviderManager();
     if (pm.getProviders().length === 0) {
-        throw new Error("No LLM providers configured. Run `teamclaw setup` or set an API key env var.");
+        throw new Error("No LLM providers configured. Run `openpawl setup` or set an API key env var.");
     }
 
     setDebugMode(setupConfig.debugMode ?? CONFIG.debugMode ?? false);
 
     // ---------------------------------------------------------------------------
-    // Session briefing — show "previously on TeamClaw" before goal prompt
+    // Session briefing — show "previously on OpenPawl" before goal prompt
     // ---------------------------------------------------------------------------
     const briefingDisabledInConfig = (() => {
         try {
@@ -326,16 +326,16 @@ export async function runWork(
         let historyLog: string;
         try {
             sessionLog = await rotateAndCreateSessionLog({
-                logDir: path.join(os.homedir(), ".teamclaw", "logs"),
+                logDir: path.join(os.homedir(), ".openpawl", "logs"),
                 prefix: "work-session",
                 maxFiles: 10,
             });
         } catch {
-            sessionLog = path.join(CONFIG.workspaceDir, "teamclaw-debug.log");
+            sessionLog = path.join(CONFIG.workspaceDir, "openpawl-debug.log");
         }
         try {
             historyLog = await rotateAndCreateSessionLog({
-                logDir: path.join(os.homedir(), ".teamclaw", "logs"),
+                logDir: path.join(os.homedir(), ".openpawl", "logs"),
                 prefix: "work-history",
                 maxFiles: 20,
             });
@@ -553,7 +553,7 @@ export async function runWork(
                 // Keep web server running for callbacks
                 noWebFlag = false;
             } else if (asyncMode) {
-                log("warn", "--async requires webhookApproval.url and webhookApproval.secret in ~/.teamclaw/config.json");
+                log("warn", "--async requires webhookApproval.url and webhookApproval.secret in ~/.openpawl/config.json");
             }
 
             // Resolve team composition mode: CLI flag > config > default "manual"
@@ -782,7 +782,7 @@ export async function runWork(
                 for (const msg of executionMessages) {
                     // Skip verbose messages that clutter the TUI
                     if (msg.startsWith("🎤 STAND-UP")) continue;
-                    if (msg.startsWith("TeamClaw - Run")) continue;
+                    if (msg.startsWith("OpenPawl - Run")) continue;
                     if (msg.startsWith("Work session started")) continue;
                     if (msg.startsWith("🔄 Coder")) continue;
 
@@ -1121,7 +1121,7 @@ export async function runWork(
 
             if (isFatal) {
                 clearSessionConfig();
-                throw new FatalSessionError(`Fatal provider error: ${errMsg}\nRun \`teamclaw setup\` to reconfigure providers or \`teamclaw check\` to diagnose.`);
+                throw new FatalSessionError(`Fatal provider error: ${errMsg}\nRun \`openpawl setup\` to reconfigure providers or \`openpawl check\` to diagnose.`);
             }
 
             // Retryable errors: planning timeouts, decomposition failures, transient LLM errors
@@ -1275,7 +1275,7 @@ export async function runWork(
         getDashboardBridge().disconnect();
     } catch { /* bridge may not have been initialized */ }
     // Dashboard daemon is intentionally NOT stopped here — it persists
-    // across work sessions. Stop it explicitly with `teamclaw web stop`.
+    // across work sessions. Stop it explicitly with `openpawl web stop`.
 
     // ---------------------------------------------------------------------------
     // Post-session interactive menu
@@ -1311,7 +1311,7 @@ export async function runWork(
     // "exit" — clean exit
     if (canRenderSpinner) {
         const { outro } = await import("@clack/prompts");
-        outro("Done! Run teamclaw work whenever you're ready.");
+        outro("Done! Run openpawl work whenever you're ready.");
     }
   } catch (err) {
     if (err instanceof UserCancelError) {

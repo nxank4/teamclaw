@@ -1,5 +1,5 @@
 /**
- * TeamClaw check — comprehensive system check with actionable output.
+ * OpenPawl check — comprehensive system check with actionable output.
  */
 
 import { existsSync } from "node:fs";
@@ -17,9 +17,9 @@ export async function runCheck(_args: string[]): Promise<void> {
   const canRenderSpinner = Boolean(process.stdout.isTTY && process.stderr.isTTY);
 
   if (canRenderSpinner) {
-    intro("TeamClaw System Check");
+    intro("OpenPawl System Check");
   } else {
-    logger.plain("TeamClaw System Check\n");
+    logger.plain("OpenPawl System Check\n");
   }
 
   const issues: string[] = [];
@@ -36,7 +36,7 @@ export async function runCheck(_args: string[]): Promise<void> {
   }
 
   // Config file
-  const configPath = path.join(os.homedir(), ".teamclaw", "config.json");
+  const configPath = path.join(os.homedir(), ".openpawl", "config.json");
   if (existsSync(configPath)) {
     try {
       const { readFileSync } = await import("node:fs");
@@ -45,7 +45,7 @@ export async function runCheck(_args: string[]): Promise<void> {
       const result = validateConfig(raw);
       if (result.success) {
         const providerCount = result.data.providers?.length ?? 0;
-        lines.push(`  ${pc.green("✓")}  Config       ~/.teamclaw/config.json ${pc.dim(`(${providerCount} provider${providerCount !== 1 ? "s" : ""})`)}`);
+        lines.push(`  ${pc.green("✓")}  Config       ~/.openpawl/config.json ${pc.dim(`(${providerCount} provider${providerCount !== 1 ? "s" : ""})`)}`);
 
         // Show new config sections
         const d = result.data.dashboard;
@@ -63,23 +63,23 @@ export async function runCheck(_args: string[]): Promise<void> {
         const requestMs = t?.requestMs ?? 60000;
         lines.push(`  ${pc.green("✓")}  Timeouts     firstChunk: ${(firstChunk / 1000).toFixed(0)}s, request: ${(requestMs / 1000).toFixed(0)}s`);
       } else {
-        lines.push(`  ${pc.yellow("⚠")}  Config       ~/.teamclaw/config.json ${pc.yellow("(validation warnings)")}`);
+        lines.push(`  ${pc.yellow("⚠")}  Config       ~/.openpawl/config.json ${pc.yellow("(validation warnings)")}`);
         for (const err of result.errors.slice(0, 3)) {
           lines.push(`    ${pc.dim("  " + err)}`);
         }
       }
     } catch {
-      lines.push(`  ${pc.yellow("⚠")}  Config       ~/.teamclaw/config.json ${pc.yellow("(could not parse)")}`);
+      lines.push(`  ${pc.yellow("⚠")}  Config       ~/.openpawl/config.json ${pc.yellow("(could not parse)")}`);
     }
   } else {
     lines.push(`  ${pc.red("✗")}  Config       ${pc.dim("Not found")}`);
-    issues.push("No config file. Run: teamclaw setup");
+    issues.push("No config file. Run: openpawl setup");
   }
 
   // Memory directory
-  const memoryDir = path.join(os.homedir(), ".teamclaw", "memory");
+  const memoryDir = path.join(os.homedir(), ".openpawl", "memory");
   if (existsSync(memoryDir)) {
-    lines.push(`  ${pc.green("✓")}  Memory DB    ~/.teamclaw/memory/`);
+    lines.push(`  ${pc.green("✓")}  Memory DB    ~/.openpawl/memory/`);
   } else {
     lines.push(`  ${pc.dim("-")}  Memory DB    ${pc.dim("Not initialized (created on first run)")}`);
   }
@@ -93,7 +93,7 @@ export async function runCheck(_args: string[]): Promise<void> {
 
   if (providers.length === 0) {
     lines.push(`    ${pc.red("✗")}  No providers configured`);
-    issues.push("No AI provider configured\n     Fix: Run teamclaw setup\n       Or: export ANTHROPIC_API_KEY=sk-ant-...");
+    issues.push("No AI provider configured\n     Fix: Run openpawl setup\n       Or: export ANTHROPIC_API_KEY=sk-ant-...");
   } else {
     const s = canRenderSpinner ? spinner() : null;
     if (s) s.start(randomPhrase("network"));
@@ -172,7 +172,7 @@ export async function runCheck(_args: string[]): Promise<void> {
     lines.push(`  ${pc.green("✓")}  Ready to use`);
     lines.push("");
     lines.push(`  Quick start:`);
-    lines.push(`    ${pc.cyan('teamclaw work --goal "your goal here"')}`);
+    lines.push(`    ${pc.cyan('openpawl work --goal "your goal here"')}`);
   } else {
     lines.push(`  ${pc.red("✗")}  Not ready — ${issues.length} issue(s) found`);
     lines.push("");

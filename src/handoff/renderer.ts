@@ -11,7 +11,7 @@ export function renderContextMarkdown(data: HandoffData): string {
   const lines: string[] = [];
 
   // Header
-  lines.push("# TeamClaw Project Context");
+  lines.push("# OpenPawl Project Context");
   lines.push(`**Generated:** ${date}`);
   lines.push(`**Session:** ${data.sessionId}`);
   lines.push(`**Project:** ${data.projectPath}`);

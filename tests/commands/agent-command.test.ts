@@ -51,7 +51,7 @@ beforeEach(() => {
   vi.mocked(statSync).mockReturnValue({ isDirectory: () => false } as ReturnType<typeof statSync>);
 });
 
-describe("teamclaw agent", () => {
+describe("openpawl agent", () => {
   describe("argument parsing", () => {
     it("--help prints usage", async () => {
       // agent command uses console.log directly for help

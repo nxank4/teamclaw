@@ -1,6 +1,6 @@
 /**
  * TUI session manager — JSONL-based message persistence.
- * Sessions are stored at ~/.teamclaw/sessions/tui-<timestamp>/messages.jsonl
+ * Sessions are stored at ~/.openpawl/sessions/tui-<timestamp>/messages.jsonl
  */
 
 import { mkdirSync, appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -37,7 +37,7 @@ export class SessionManager {
   constructor(sessionsDir?: string) {
     this.startedAt = Date.now();
     this.sessionId = `tui-${this.startedAt}-${++sessionCounter}`;
-    const baseDir = sessionsDir ?? path.join(os.homedir(), ".teamclaw", "sessions");
+    const baseDir = sessionsDir ?? path.join(os.homedir(), ".openpawl", "sessions");
     this.sessionDir = path.join(baseDir, this.sessionId);
     mkdirSync(this.sessionDir, { recursive: true });
     this.filePath = path.join(this.sessionDir, "messages.jsonl");
@@ -87,7 +87,7 @@ export class SessionManager {
 
   /** List recent TUI sessions from the sessions directory. */
   static getRecent(limit = 10, sessionsDir?: string): Array<{ sessionId: string; startedAt: number; messageCount: number }> {
-    const baseDir = sessionsDir ?? path.join(os.homedir(), ".teamclaw", "sessions");
+    const baseDir = sessionsDir ?? path.join(os.homedir(), ".openpawl", "sessions");
     try {
       const dirs = readdirSync(baseDir)
         .filter((d) => d.startsWith("tui-"))

@@ -11,7 +11,7 @@ import { CommandRegistry } from "../../src/tui/index.js";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), "teamclaw-autocomplete-test-"));
+  tmpDir = mkdtempSync(path.join(os.tmpdir(), "openpawl-autocomplete-test-"));
   writeFileSync(path.join(tmpDir, "README.md"), "# Hello");
   writeFileSync(path.join(tmpDir, "index.ts"), "export {}");
 });

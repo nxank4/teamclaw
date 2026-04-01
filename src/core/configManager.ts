@@ -1,19 +1,19 @@
 /**
- * Config manager: routes all keys to teamclaw.config.json.
+ * Config manager: routes all keys to openpawl.config.json.
  * 
  * Project-scoped settings like template, goal, creativity, max_cycles
- * are stored in teamclaw.config.json in the project directory.
+ * are stored in openpawl.config.json in the project directory.
  */
 
 import {
-  readTeamclawConfig,
-  writeTeamclawConfig,
+  readOpenpawlConfig,
+  writeOpenpawlConfig,
   getJsonKey,
   setJsonKey,
   unsetJsonKey,
 } from "./jsonConfigManager.js";
 
-export type ConfigSource = "teamclaw.config.json";
+export type ConfigSource = "openpawl.config.json";
 
 const DEFAULT_GOAL = "Build a small 2D game with sprite assets and sound effects";
 
@@ -71,11 +71,11 @@ export function getConfigValue(
   const cwd = options?.cwd ?? process.cwd();
   const raw = options?.raw ?? false;
 
-  const { data } = readTeamclawConfig(cwd);
+  const { data } = readOpenpawlConfig(cwd);
   const v = getJsonKey(key, data);
   const str = v === undefined ? null : String(v);
   const shouldMask = !raw && str != null && isSecretKey(key);
-  return { key, value: shouldMask && str != null ? maskSecret(str) : str, source: "teamclaw.config.json", masked: shouldMask };
+  return { key, value: shouldMask && str != null ? maskSecret(str) : str, source: "openpawl.config.json", masked: shouldMask };
 }
 
 export function setConfigValue(
@@ -85,12 +85,12 @@ export function setConfigValue(
 ): { source: ConfigSource } | { error: string; source: ConfigSource } {
   const cwd = options?.cwd ?? process.cwd();
 
-  const { path, data } = readTeamclawConfig(cwd);
+  const { path, data } = readOpenpawlConfig(cwd);
   const coerced = coerceJsonValue(key, value);
-  if (!coerced.ok) return { error: coerced.error, source: "teamclaw.config.json" };
+  if (!coerced.ok) return { error: coerced.error, source: "openpawl.config.json" };
   const next = setJsonKey(key, coerced.value, data);
-  writeTeamclawConfig(path, next);
-  return { source: "teamclaw.config.json" };
+  writeOpenpawlConfig(path, next);
+  return { source: "openpawl.config.json" };
 }
 
 export function unsetConfigKey(
@@ -99,8 +99,8 @@ export function unsetConfigKey(
 ): { source: ConfigSource } {
   const cwd = options?.cwd ?? process.cwd();
 
-  const { path, data } = readTeamclawConfig(cwd);
+  const { path, data } = readOpenpawlConfig(cwd);
   const next = unsetJsonKey(key, data);
-  writeTeamclawConfig(path, next);
-  return { source: "teamclaw.config.json" };
+  writeOpenpawlConfig(path, next);
+  return { source: "openpawl.config.json" };
 }

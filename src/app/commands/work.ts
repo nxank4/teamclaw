@@ -55,7 +55,7 @@ export function createWorkCommand(layout: AppLayout): SlashCommand {
 
         streamingActive = false;
         ctx.addMessage("system", "Work session complete.");
-        layout.statusBar.setLeft("TeamClaw", "Done");
+        layout.statusBar.setLeft("OpenPawl", "Done");
       } catch (err) {
         streamingActive = false;
         const msg = err instanceof Error ? err.message : String(err);
@@ -68,7 +68,7 @@ export function createWorkCommand(layout: AppLayout): SlashCommand {
       } finally {
         workerEvents.off("stream-chunk", onChunk);
         workerEvents.off("reasoning", onReasoning);
-        layout.statusBar.setLeft("TeamClaw", "Ready");
+        layout.statusBar.setLeft("OpenPawl", "Ready");
         layout.tui.requestRender();
       }
     },

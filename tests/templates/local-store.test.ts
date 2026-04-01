@@ -4,14 +4,14 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TEST_DIR = path.join(os.tmpdir(), "teamclaw-test-store-" + Date.now());
+const TEST_DIR = path.join(os.tmpdir(), "openpawl-test-store-" + Date.now());
 
 // Override homedir for tests
 const originalHomedir = os.homedir;
 
 describe("LocalTemplateStore", () => {
   beforeEach(() => {
-    // Use a temp directory to avoid polluting real ~/.teamclaw
+    // Use a temp directory to avoid polluting real ~/.openpawl
     process.env.HOME = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -39,7 +39,7 @@ describe("LocalTemplateStore", () => {
 
     const templatePath = path.join(
       TEST_DIR,
-      ".teamclaw",
+      ".openpawl",
       "templates",
       "installed",
       "test-template",

@@ -62,7 +62,7 @@ export async function showPostSessionMenu(opts: {
         });
 
         if (isCancel(choice)) {
-            outro("Done! Run teamclaw work whenever you're ready.");
+            outro("Done! Run openpawl work whenever you're ready.");
             return { choice: "exit" };
         }
 

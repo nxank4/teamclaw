@@ -69,7 +69,7 @@ beforeEach(() => {
   mockVectorMemory.getDb.mockReturnValue({});
 });
 
-describe("teamclaw lessons", () => {
+describe("openpawl lessons", () => {
   describe("promote subcommand", () => {
     it("promotes a pattern by ID", async () => {
       mockPromotionEngine.promoteById.mockResolvedValue(true);

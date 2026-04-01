@@ -21,7 +21,7 @@ async function compileTs(filePath: string): Promise<string> {
     format: "esm",
     target: "node20",
   });
-  const tmpDir = path.join(os.tmpdir(), "teamclaw-agent-compile");
+  const tmpDir = path.join(os.tmpdir(), "openpawl-agent-compile");
   await mkdir(tmpDir, { recursive: true });
   const outFile = path.join(tmpDir, `${path.basename(filePath, path.extname(filePath))}-${Date.now()}.mjs`);
   await writeFile(outFile, result.code, "utf-8");
@@ -112,7 +112,7 @@ export async function loadAgentsFromDirectory(dirPath: string): Promise<Validate
 
 /** Load an agent from an npm package name. */
 export async function loadAgentFromNpm(packageName: string): Promise<ValidatedAgentDef[]> {
-  const agentDir = path.join(os.homedir(), ".teamclaw", "agents");
+  const agentDir = path.join(os.homedir(), ".openpawl", "agents");
   await mkdir(agentDir, { recursive: true });
 
   // Install the package into the agent directory

@@ -1,10 +1,10 @@
 # Security Policy
 
-TeamClaw is a Node.js / TypeScript application that orchestrates AI agent teams using LangGraph, Fastify + WebSocket, LanceDB, and configurable LLM providers. This document covers how we handle security and how to report issues responsibly.
+OpenPawl is a Node.js / TypeScript application that orchestrates AI agent teams using LangGraph, Fastify + WebSocket, LanceDB, and configurable LLM providers. This document covers how we handle security and how to report issues responsibly.
 
 ## Supported Versions
 
-TeamClaw is in early development (pre-1.0). Security fixes target the latest code on the default branch only.
+OpenPawl is in early development (pre-1.0). Security fixes target the latest code on the default branch only.
 
 | Version | Status        |
 | ------: | ------------- |
@@ -37,7 +37,7 @@ We prefer to coordinate responsible disclosure so users have time to upgrade bef
 
 ## Threat Model
 
-TeamClaw has several trust boundaries worth understanding:
+OpenPawl has several trust boundaries worth understanding:
 
 ### LLM Provider Communication
 
@@ -53,7 +53,7 @@ Agents process untrusted content (user goals, external data fetched during tasks
 
 ### Configuration and Secrets
 
-TeamClaw stores configuration in a JSON file (`~/.teamclaw/config.json`). This file may contain API tokens. Ensure it has restrictive file permissions (`600`) and is never committed to version control. The `.env.example` file documents required variables; use `.env` for local overrides.
+OpenPawl stores configuration in a JSON file (`~/.openpawl/config.json`). This file may contain API tokens. Ensure it has restrictive file permissions (`600`) and is never committed to version control. The `.env.example` file documents required variables; use `.env` for local overrides.
 
 ### LanceDB (Embedded)
 
@@ -64,7 +64,7 @@ LanceDB runs in-process with no network listener. The vector store files live on
 - **Runtime:** use Node.js >= 20 and keep dependencies current via `pnpm update`. Review advisories with `pnpm audit`.
 - **Secrets:** never commit real API keys or tokens. Use `.env` or environment variables.
 - **Network:** bind the Fastify/WebSocket server to `127.0.0.1` or a trusted subnet. Do not expose it to the public internet without adding authentication and TLS.
-- **Least privilege:** run TeamClaw under a dedicated, unprivileged user account with minimal filesystem access.
+- **Least privilege:** run OpenPawl under a dedicated, unprivileged user account with minimal filesystem access.
 - **Containers:** prefer containerized or sandboxed deployments to limit blast radius.
 - **Monitoring:** watch logs for unusual activity; configure rate-limiting at your ingress layer if exposing any endpoint externally.
 
@@ -72,6 +72,6 @@ LanceDB runs in-process with no network listener. The vector store files live on
 
 - Vulnerabilities in third-party dependencies without a published fix (we track and patch once available).
 - Attacks requiring physical access to the host or social engineering of maintainers/users.
-- Misconfigurations in your own infrastructure (cloud provider, Kubernetes, CI/CD) unrelated to defects in TeamClaw's code.
+- Misconfigurations in your own infrastructure (cloud provider, Kubernetes, CI/CD) unrelated to defects in OpenPawl's code.
 
 If unsure whether something qualifies, submit a private report anyway — we will let you know.

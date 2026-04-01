@@ -64,7 +64,7 @@ describe("GlobalMemoryManager", () => {
 
   it("should separate global DB path from session DB", () => {
     const sessionPath = "data/vector_store/lancedb";
-    const globalPath = "~/.teamclaw/memory/global.db";
+    const globalPath = "~/.openpawl/memory/global.db";
     expect(sessionPath).not.toBe(globalPath);
   });
 

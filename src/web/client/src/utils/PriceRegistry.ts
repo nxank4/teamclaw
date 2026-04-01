@@ -19,7 +19,7 @@ interface CachedEntry {
   timestamp: number;
 }
 
-const CACHE_KEY = "teamclaw_price_data";
+const CACHE_KEY = "openpawl_price_data";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const DEFAULT_PRICING: PriceData = {

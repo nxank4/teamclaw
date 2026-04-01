@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseContextMarkdown, isDuplicateDecision } from "@/handoff/importer.js";
 
-const SAMPLE_CONTEXT = `# TeamClaw Project Context
+const SAMPLE_CONTEXT = `# OpenPawl Project Context
 **Generated:** 2026-03-17 14:32:00 UTC
 **Session:** sess_abc123
 **Project:** /home/user/myapp
@@ -79,7 +79,7 @@ describe("parseContextMarkdown", () => {
   });
 
   it("works on minimal CONTEXT.md with only header", () => {
-    const minimal = `# TeamClaw Project Context
+    const minimal = `# OpenPawl Project Context
 **Generated:** 2026-03-17 14:32:00 UTC
 **Session:** sess_min
 **Project:** /tmp/test
@@ -93,7 +93,7 @@ describe("parseContextMarkdown", () => {
   });
 
   it("handles missing sections gracefully", () => {
-    const partial = `# TeamClaw Project Context
+    const partial = `# OpenPawl Project Context
 **Generated:** 2026-03-17 14:32:00 UTC
 **Session:** sess_partial
 **Project:** /tmp/partial

@@ -53,7 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("teamclaw drift", () => {
+describe("openpawl drift", () => {
   describe("argument parsing", () => {
     it("--help shows usage with example commands", async () => {
       await runDriftCommand(["--help"]);

@@ -35,7 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("teamclaw cache", () => {
+describe("openpawl cache", () => {
   describe("argument parsing", () => {
     it("--help prints usage without touching cache store", async () => {
       await runCacheCommand(["--help"]);
@@ -222,7 +222,7 @@ describe("teamclaw cache", () => {
       try { await runCacheCommand(["foo"]); } catch { /* expected */ }
 
       const errors = mockLogger.error.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-      expect(errors).toContain("teamclaw cache --help");
+      expect(errors).toContain("openpawl cache --help");
 
       exitSpy.mockRestore();
     });

@@ -13,8 +13,8 @@ describe("formatUnknownCommand", () => {
             };
             const msg = formatUnknownCommand({ command: "modals", suggestion });
             expect(msg).toContain('Unknown command "modals"');
-            expect(msg).toContain("Did you mean `teamclaw model`?");
-            expect(msg).toContain("teamclaw --help");
+            expect(msg).toContain("Did you mean `openpawl model`?");
+            expect(msg).toContain("openpawl --help");
             expect(msg).not.toContain("(not sure?)");
         });
 
@@ -27,7 +27,7 @@ describe("formatUnknownCommand", () => {
             };
             const msg = formatUnknownCommand({ command: "xyz", suggestion });
             expect(msg).toContain('Unknown command "xyz"');
-            expect(msg).toContain("teamclaw --help");
+            expect(msg).toContain("openpawl --help");
             expect(msg).not.toContain("Did you mean");
         });
 
@@ -40,7 +40,7 @@ describe("formatUnknownCommand", () => {
             };
             const msg = formatUnknownCommand({ command: "chk", suggestion });
             expect(msg).toContain("(not sure?)");
-            expect(msg).toContain("Did you mean `teamclaw check`?");
+            expect(msg).toContain("Did you mean `openpawl check`?");
         });
     });
 
@@ -57,9 +57,9 @@ describe("formatUnknownCommand", () => {
                 subcommand: "gett",
                 suggestion,
             });
-            expect(msg).toContain('Unknown subcommand "gett" for `teamclaw config`');
-            expect(msg).toContain("Did you mean `teamclaw config get`?");
-            expect(msg).toContain("teamclaw config --help");
+            expect(msg).toContain('Unknown subcommand "gett" for `openpawl config`');
+            expect(msg).toContain("Did you mean `openpawl config get`?");
+            expect(msg).toContain("openpawl config --help");
         });
 
         it("renders subcommand without suggestion", () => {
@@ -74,9 +74,9 @@ describe("formatUnknownCommand", () => {
                 subcommand: "zzz",
                 suggestion,
             });
-            expect(msg).toContain('Unknown subcommand "zzz" for `teamclaw config`');
+            expect(msg).toContain('Unknown subcommand "zzz" for `openpawl config`');
             expect(msg).not.toContain("Did you mean");
-            expect(msg).toContain("teamclaw config --help");
+            expect(msg).toContain("openpawl config --help");
         });
     });
 
@@ -106,7 +106,7 @@ describe("formatUnknownCommand", () => {
             const hasAnsi = /\x1b\[/.test(msg);
             expect(hasAnsi).toBe(false);
             expect(msg).toContain('Unknown command "modals"');
-            expect(msg).toContain("Did you mean `teamclaw model`?");
+            expect(msg).toContain("Did you mean `openpawl model`?");
         });
     });
 });

@@ -1,13 +1,13 @@
 /**
  * Mock LLM mode — intercepts all LLM calls and returns realistic fake responses.
- * Activated by TEAMCLAW_MOCK_LLM=true env var.
+ * Activated by OPENPAWL_MOCK_LLM=true env var.
  */
 
 /**
  * Check if mock LLM mode is active.
  */
 export function isMockLlmEnabled(): boolean {
-  return process.env.TEAMCLAW_MOCK_LLM === "true" || process.env.TEAMCLAW_MOCK_LLM === "1";
+  return process.env.OPENPAWL_MOCK_LLM === "true" || process.env.OPENPAWL_MOCK_LLM === "1";
 }
 
 /**
@@ -39,13 +39,13 @@ export function generateMockResponse(prompt: string, botId: string): string {
   }
 
   // Think / rubber duck perspectives
-  if (lower.includes("you are teamclaw's tech lead") || lower.includes("tech lead perspective") || lower.includes("as a tech lead")) {
+  if (lower.includes("you are openpawl's tech lead") || lower.includes("tech lead perspective") || lower.includes("as a tech lead")) {
     return mockTechLeadPerspective(prompt);
   }
-  if (lower.includes("you are teamclaw's rfc author") || lower.includes("rfc author perspective") || lower.includes("as an rfc author")) {
+  if (lower.includes("you are openpawl's rfc author") || lower.includes("rfc author perspective") || lower.includes("as an rfc author")) {
     return mockRfcAuthorPerspective(prompt);
   }
-  if (lower.includes("you are teamclaw's coordinator") || lower.includes("synthesize") || lower.includes("now synthesize")) {
+  if (lower.includes("you are openpawl's coordinator") || lower.includes("synthesize") || lower.includes("now synthesize")) {
     return mockCoordinatorSynthesis(prompt);
   }
 

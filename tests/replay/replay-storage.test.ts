@@ -13,7 +13,7 @@ import {
 } from "@/replay/storage.js";
 import type { SessionIndexEntry } from "@/replay/types.js";
 
-const TEST_HOME = path.join(os.tmpdir(), "teamclaw-replay-test-" + Date.now());
+const TEST_HOME = path.join(os.tmpdir(), "openpawl-replay-test-" + Date.now());
 
 // Override the sessions dir for testing
 vi.mock("node:os", async () => {
@@ -42,7 +42,7 @@ function makeEntry(sessionId: string, createdAt: number, tag?: string): SessionI
 
 describe("replay storage", () => {
   beforeEach(() => {
-    mkdirSync(path.join(TEST_HOME, ".teamclaw", "sessions"), { recursive: true });
+    mkdirSync(path.join(TEST_HOME, ".openpawl", "sessions"), { recursive: true });
   });
 
   afterEach(() => {

@@ -7,7 +7,7 @@ import { SecurityError } from "@/core/sandbox.js";
 
 describe("workspace-fs", () => {
   test("write/read/list within workspace", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "teamclaw-ws-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "openpawl-ws-"));
     try {
       const ws = path.join(root, "ws");
       await ensureWorkspaceDir(ws);
@@ -22,7 +22,7 @@ describe("workspace-fs", () => {
   });
 
   test("blocks escape attempts", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "teamclaw-ws-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "openpawl-ws-"));
     try {
       const ws = path.join(root, "ws");
       await ensureWorkspaceDir(ws);

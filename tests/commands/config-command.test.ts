@@ -4,7 +4,7 @@
  * The interactive dashboard (runConfigDashboard, 737 LOC) is heavily
  * coupled to @clack/prompts loops. This file tests the non-interactive
  * config get/set/unset logic via configManager.ts, which is what the
- * CLI dispatches to for `teamclaw config get|set|unset`.
+ * CLI dispatches to for `openpawl config get|set|unset`.
  *
  * Refactoring needed for full dashboard testability:
  * - Extract loadDashboardState() into a testable pure function
@@ -16,8 +16,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // --- Mocks ---
 const { mockJsonConfigManager } = vi.hoisted(() => ({
   mockJsonConfigManager: {
-    readTeamclawConfig: vi.fn().mockReturnValue({ data: {}, path: "/tmp/test/teamclaw.config.json" }),
-    writeTeamclawConfig: vi.fn(),
+    readOpenpawlConfig: vi.fn().mockReturnValue({ data: {}, path: "/tmp/test/openpawl.config.json" }),
+    writeOpenpawlConfig: vi.fn(),
     getJsonKey: vi.fn(),
     setJsonKey: vi.fn(),
     unsetJsonKey: vi.fn(),
@@ -33,23 +33,23 @@ beforeEach(() => {
 
 describe("configManager", () => {
   describe("getConfigValue", () => {
-    it("reads a key from teamclaw.config.json", () => {
-      mockJsonConfigManager.readTeamclawConfig.mockReturnValue({
+    it("reads a key from openpawl.config.json", () => {
+      mockJsonConfigManager.readOpenpawlConfig.mockReturnValue({
         data: { creativity: 0.7 },
-        path: "/tmp/test/teamclaw.config.json",
+        path: "/tmp/test/openpawl.config.json",
       });
       mockJsonConfigManager.getJsonKey.mockReturnValue(0.7);
 
       const result = getConfigValue("creativity", { cwd: "/tmp/test" });
 
       expect(result.value).toBe("0.7");
-      expect(result.source).toBe("teamclaw.config.json");
+      expect(result.source).toBe("openpawl.config.json");
     });
 
     it("returns null for missing key", () => {
-      mockJsonConfigManager.readTeamclawConfig.mockReturnValue({
+      mockJsonConfigManager.readOpenpawlConfig.mockReturnValue({
         data: {},
-        path: "/tmp/test/teamclaw.config.json",
+        path: "/tmp/test/openpawl.config.json",
       });
       mockJsonConfigManager.getJsonKey.mockReturnValue(undefined);
 
@@ -59,9 +59,9 @@ describe("configManager", () => {
     });
 
     it("masks secret keys by default", () => {
-      mockJsonConfigManager.readTeamclawConfig.mockReturnValue({
+      mockJsonConfigManager.readOpenpawlConfig.mockReturnValue({
         data: { ANTHROPIC_API_KEY: "sk-ant-api03-very-long-key-here" },
-        path: "/tmp/test/teamclaw.config.json",
+        path: "/tmp/test/openpawl.config.json",
       });
       mockJsonConfigManager.getJsonKey.mockReturnValue("sk-ant-api03-very-long-key-here");
 
@@ -73,9 +73,9 @@ describe("configManager", () => {
     });
 
     it("returns raw secret value with raw option", () => {
-      mockJsonConfigManager.readTeamclawConfig.mockReturnValue({
+      mockJsonConfigManager.readOpenpawlConfig.mockReturnValue({
         data: { API_KEY: "sk-secret-123" },
-        path: "/tmp/test/teamclaw.config.json",
+        path: "/tmp/test/openpawl.config.json",
       });
       mockJsonConfigManager.getJsonKey.mockReturnValue("sk-secret-123");
 

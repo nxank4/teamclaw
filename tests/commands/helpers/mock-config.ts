@@ -41,7 +41,7 @@ export function emptyGlobalConfig() {
   };
 }
 
-/** Minimal valid teamclaw.json fixture. */
+/** Minimal valid openpawl.json fixture. */
 export function validTeamConfig() {
   return {
     name: "test-project",
@@ -55,7 +55,7 @@ export function validTeamConfig() {
   };
 }
 
-/** Empty/missing teamclaw config. */
+/** Empty/missing openpawl config. */
 export function emptyTeamConfig() {
   return null;
 }

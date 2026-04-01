@@ -1,6 +1,6 @@
 /**
- * TeamClaw TUI application entry point.
- * Launched when user runs `teamclaw` with no subcommand.
+ * OpenPawl TUI application entry point.
+ * Launched when user runs `openpawl` with no subcommand.
  */
 
 import { createLayout } from "./layout.js";
@@ -95,7 +95,7 @@ async function handleNaturalInput(
   workerEvents.on("stream-chunk", onChunk);
   workerEvents.on("reasoning", onReasoning);
 
-  layout.statusBar.setLeft("TeamClaw", "Working...");
+  layout.statusBar.setLeft("OpenPawl", "Working...");
   layout.tui.requestRender();
 
   // Suppress @clack/prompts stdout output — it conflicts with the TUI renderer.
@@ -150,7 +150,7 @@ async function handleNaturalInput(
     restoreStdout();
     workerEvents.off("stream-chunk", onChunk);
     workerEvents.off("reasoning", onReasoning);
-    layout.statusBar.setLeft("TeamClaw", "Ready");
+    layout.statusBar.setLeft("OpenPawl", "Ready");
     layout.tui.requestRender();
   }
 }
@@ -260,10 +260,10 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   }
   layout.messages.addMessage({
     role: "system",
-    content: `TeamClaw v${versionStr} — just type what you want to build. /help for commands.`,
+    content: `OpenPawl v${versionStr} — just type what you want to build. /help for commands.`,
     timestamp: new Date(),
   });
-  layout.statusBar.setLeft("TeamClaw", "Ready");
+  layout.statusBar.setLeft("OpenPawl", "Ready");
   layout.statusBar.setRight("/help");
 
   // Graceful shutdown on any exit
@@ -317,7 +317,7 @@ export async function runPrintMode(prompt: string): Promise<void> {
     return;
   }
 
-  console.log("Usage: teamclaw -p <prompt>");
-  console.log('  teamclaw -p "/work build auth"');
-  console.log('  teamclaw -p "build auth"');
+  console.log("Usage: openpawl -p <prompt>");
+  console.log('  openpawl -p "/work build auth"');
+  console.log('  openpawl -p "build auth"');
 }

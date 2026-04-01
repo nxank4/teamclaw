@@ -31,22 +31,22 @@ async function collectChunks(gen: AsyncGenerator<StreamChunk, void, undefined>):
 }
 
 describe("cache interceptor", () => {
-  const originalEnv = process.env.TEAMCLAW_NO_CACHE;
+  const originalEnv = process.env.OPENPAWL_NO_CACHE;
 
   beforeEach(() => {
-    delete process.env.TEAMCLAW_NO_CACHE;
+    delete process.env.OPENPAWL_NO_CACHE;
   });
 
   afterEach(() => {
     if (originalEnv !== undefined) {
-      process.env.TEAMCLAW_NO_CACHE = originalEnv;
+      process.env.OPENPAWL_NO_CACHE = originalEnv;
     } else {
-      delete process.env.TEAMCLAW_NO_CACHE;
+      delete process.env.OPENPAWL_NO_CACHE;
     }
   });
 
-  it("TEAMCLAW_NO_CACHE=true bypasses all cache logic", async () => {
-    process.env.TEAMCLAW_NO_CACHE = "true";
+  it("OPENPAWL_NO_CACHE=true bypasses all cache logic", async () => {
+    process.env.OPENPAWL_NO_CACHE = "true";
 
     // Re-import to get fresh module state
     const { streamWithCache, resetSessionCacheStats, getSessionCacheStats } = await import("../src/cache/cache-interceptor.js");

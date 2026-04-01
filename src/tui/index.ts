@@ -1,5 +1,5 @@
 /**
- * TeamClaw TUI Framework — public API.
+ * OpenPawl TUI Framework — public API.
  *
  * A standalone, zero-dependency terminal UI library.
  * Uses line-based retained-mode rendering with CSI 2026 synchronized output.

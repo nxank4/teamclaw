@@ -10,7 +10,7 @@ import { resolveFileRef } from "../../src/app/file-ref.js";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), "teamclaw-fileref-test-"));
+  tmpDir = mkdtempSync(path.join(os.tmpdir(), "openpawl-fileref-test-"));
 });
 
 describe("resolveFileRef", () => {

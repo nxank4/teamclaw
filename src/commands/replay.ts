@@ -1,14 +1,14 @@
 /**
  * CLI commands for session replay.
  *
- * teamclaw replay list [--limit N]
- * teamclaw replay <sessionId> [--run N] [--from <node>] [--fast] [--speed N] [--patch <file>] [--live-after]
- * teamclaw replay diff <sessionIdA> <sessionIdB>
- * teamclaw replay export <sessionId>
- * teamclaw replay tag <sessionId> <label>
- * teamclaw replay untag <sessionId>
- * teamclaw replay prune
- * teamclaw replay clean
+ * openpawl replay list [--limit N]
+ * openpawl replay <sessionId> [--run N] [--from <node>] [--fast] [--speed N] [--patch <file>] [--live-after]
+ * openpawl replay diff <sessionIdA> <sessionIdB>
+ * openpawl replay export <sessionId>
+ * openpawl replay tag <sessionId> <label>
+ * openpawl replay untag <sessionId>
+ * openpawl replay prune
+ * openpawl replay clean
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -79,7 +79,7 @@ export async function runReplayCommand(args: string[]): Promise<void> {
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw replay") + " — Replay and inspect past sessions",
+    pc.bold("openpawl replay") + " — Replay and inspect past sessions",
     "",
     pc.bold("Commands:"),
     "  " + pc.green("list") + "                          List recorded sessions",
@@ -101,10 +101,10 @@ function printHelp(): void {
     "  " + pc.green("--web") + "           Open dashboard during replay",
     "",
     "Examples:",
-    pc.dim("  teamclaw replay list"),
-    pc.dim("  teamclaw replay sess_abc123 --fast"),
-    pc.dim("  teamclaw replay sess_abc123 --from coordinator --speed 2"),
-    pc.dim("  teamclaw replay diff sess_abc123 sess_def456"),
+    pc.dim("  openpawl replay list"),
+    pc.dim("  openpawl replay sess_abc123 --fast"),
+    pc.dim("  openpawl replay sess_abc123 --from coordinator --speed 2"),
+    pc.dim("  openpawl replay diff sess_abc123 sess_def456"),
     "",
   ];
   console.log(lines.join("\n"));
@@ -145,7 +145,7 @@ function runList(limit?: number): void {
 async function runReplay(args: string[]): Promise<void> {
   const sessionId = args[0];
   if (!sessionId) {
-    logger.error("Usage: teamclaw replay <sessionId>");
+    logger.error("Usage: openpawl replay <sessionId>");
     process.exit(1);
   }
 
@@ -196,7 +196,7 @@ async function runReplay(args: string[]): Promise<void> {
 
 async function runDiff(idA?: string, idB?: string): Promise<void> {
   if (!idA || !idB) {
-    logger.error("Usage: teamclaw replay diff <sessionId1> <sessionId2>");
+    logger.error("Usage: openpawl replay diff <sessionId1> <sessionId2>");
     process.exit(1);
   }
 
@@ -231,7 +231,7 @@ function printDiff(diff: SessionDiff): void {
 
 async function runExport(sessionId?: string): Promise<void> {
   if (!sessionId) {
-    logger.error("Usage: teamclaw replay export <sessionId>");
+    logger.error("Usage: openpawl replay export <sessionId>");
     process.exit(1);
   }
 
@@ -246,7 +246,7 @@ async function runExport(sessionId?: string): Promise<void> {
 
 function runTag(sessionId?: string, label?: string): void {
   if (!sessionId || !label?.trim()) {
-    logger.error("Usage: teamclaw replay tag <sessionId> <label>");
+    logger.error("Usage: openpawl replay tag <sessionId> <label>");
     process.exit(1);
   }
   if (tagSession(sessionId, label.trim())) {
@@ -259,7 +259,7 @@ function runTag(sessionId?: string, label?: string): void {
 
 function runUntag(sessionId?: string): void {
   if (!sessionId) {
-    logger.error("Usage: teamclaw replay untag <sessionId>");
+    logger.error("Usage: openpawl replay untag <sessionId>");
     process.exit(1);
   }
   if (untagSession(sessionId)) {

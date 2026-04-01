@@ -29,11 +29,11 @@ let tmpDir: string;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), "teamclaw-clean-test-"));
+  tmpDir = mkdtempSync(path.join(os.tmpdir(), "openpawl-clean-test-"));
   vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
 });
 
-describe("teamclaw clean", () => {
+describe("openpawl clean", () => {
   describe("session data cleanup", () => {
     it("removes dist/ and data/vector_store/ when they exist", async () => {
       // Create test directories

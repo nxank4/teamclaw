@@ -21,7 +21,7 @@ export function createStatusCommand(): SlashCommand {
         lines.push(`  ${p.name}: ${p.isAvailable() ? "available" : "unavailable"} | health=${ok ? "ok" : "fail"}`);
       }
       if (providers.length === 0) {
-        lines.push("  No providers configured. Run `teamclaw setup`.");
+        lines.push("  No providers configured. Run `openpawl setup`.");
       }
 
       const tc = await loadTeamConfig().catch(() => null);

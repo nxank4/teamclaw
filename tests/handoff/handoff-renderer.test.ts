@@ -39,7 +39,7 @@ function makeHandoffData(overrides: Partial<HandoffData> = {}): HandoffData {
     teamPerformance: [
       { agentRole: "Worker Bot", trend: "improving", avgConfidence: 0.85, note: "strong on implementation" },
     ],
-    resumeCommands: ['teamclaw work --goal "Add rate limiting"'],
+    resumeCommands: ['openpawl work --goal "Add rate limiting"'],
     ...overrides,
   };
 }
@@ -106,7 +106,7 @@ describe("renderContextMarkdown", () => {
   it("renders resume commands as code", () => {
     const md = renderContextMarkdown(makeHandoffData());
     expect(md).toContain("```");
-    expect(md).toContain('teamclaw work --goal "Add rate limiting"');
+    expect(md).toContain('openpawl work --goal "Add rate limiting"');
   });
 
   it("omits Team Performance section when no profiles", () => {

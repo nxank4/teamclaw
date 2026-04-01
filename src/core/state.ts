@@ -1,5 +1,5 @@
 /**
- * Work session state for TeamClaw.
+ * Work session state for OpenPawl.
  * Central state passed between all LangGraph nodes.
  */
 
@@ -85,7 +85,7 @@ export function initializeGameState(
     cycle_count: 0,
     session_active: true,
     last_action: "Work session started",
-    messages: [`TeamClaw - Run ${generationId} started`],
+    messages: [`OpenPawl - Run ${generationId} started`],
     last_quality_score: 0,
     death_reason: null,
     generation_id: generationId,

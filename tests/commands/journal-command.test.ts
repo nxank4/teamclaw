@@ -76,7 +76,7 @@ const sampleDecision = {
   tags: ["database", "persistence"],
 };
 
-describe("teamclaw journal", () => {
+describe("openpawl journal", () => {
   describe("argument parsing", () => {
     it("--help shows usage with all subcommands", async () => {
       await runJournalCommand(["--help"]);

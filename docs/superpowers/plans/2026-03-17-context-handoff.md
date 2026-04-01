@@ -4,7 +4,7 @@
 
 **Goal:** Auto-generate a human-readable CONTEXT.md handoff file at session end that captures full project state for solo devs switching machines or collaborators onboarding.
 
-**Architecture:** New `src/handoff/` module with collector, renderer, state-deriver, resume-generator, and importer. Triggered async after post-mortem in work-runner. CLI `teamclaw handoff` command for manual generation/import. Dashboard HandoffPanel for web UI. Handoff config added to global config under `handoff` key.
+**Architecture:** New `src/handoff/` module with collector, renderer, state-deriver, resume-generator, and importer. Triggered async after post-mortem in work-runner. CLI `openpawl handoff` command for manual generation/import. Dashboard HandoffPanel for web UI. Handoff config added to global config under `handoff` key.
 
 **Tech Stack:** TypeScript (ESM), Node.js fs/promises, Fastify (web endpoints), React (dashboard panel), Vitest (tests).
 
@@ -16,7 +16,7 @@
 |--------|------|----------------|
 | Create | `src/handoff/types.ts` | HandoffData, LeftToDoItem, HandoffConfig types |
 | Create | `src/handoff/state-deriver.ts` | Convert task descriptions to past-tense state bullets |
-| Create | `src/handoff/resume-generator.ts` | Generate teamclaw commands from leftToDo items |
+| Create | `src/handoff/resume-generator.ts` | Generate openpawl commands from leftToDo items |
 | Create | `src/handoff/collector.ts` | Assemble HandoffData from GraphState + stores |
 | Create | `src/handoff/renderer.ts` | Render HandoffData → CommonMark CONTEXT.md |
 | Create | `src/handoff/importer.ts` | Parse CONTEXT.md, import decisions, show briefing |
@@ -29,7 +29,7 @@
 | Create | `tests/handoff-importer.test.ts` | Importer tests |
 | Modify | `src/cli/fuzzy-matcher.ts:8-49` | Add "handoff" to COMMANDS and SUBCOMMANDS |
 | Modify | `src/cli.ts:378` | Add handoff command routing |
-| Modify | `src/core/global-config.ts:5-38` | Add handoff to TeamClawGlobalConfig |
+| Modify | `src/core/global-config.ts:5-38` | Add handoff to OpenPawlGlobalConfig |
 | Modify | `src/work-runner.ts:1396-1399` | Trigger auto-generation after audit export |
 | Modify | `src/briefing/collector.ts:18-28` | Check for CONTEXT.md in cwd |
 | Modify | `src/web/server.ts` | Add /api/handoff endpoints |
@@ -282,13 +282,13 @@ export function generateResumeCommands(
     if (item.command) {
       commands.push(item.command);
     } else {
-      commands.push(`teamclaw work --goal "${item.description}"`);
+      commands.push(`openpawl work --goal "${item.description}"`);
     }
   }
 
   // Suggest journal review if many decisions
   if (decisionCount > 3) {
-    commands.push("teamclaw journal list");
+    commands.push("openpawl journal list");
   }
 
   // Suggest think mode for escalated items
@@ -296,7 +296,7 @@ export function generateResumeCommands(
   if (hasEscalated) {
     const escalated = leftToDo.find((i) => i.type === "escalated");
     if (escalated) {
-      commands.push(`teamclaw think "${escalated.description}"`);
+      commands.push(`openpawl think "${escalated.description}"`);
     }
   }
 
@@ -512,7 +512,7 @@ function deriveLeftToDo(
       description: `Execute ${title}`,
       type: "approved_rfc",
       priority: "medium",
-      command: `teamclaw work --goal "Execute ${title}"`,
+      command: `openpawl work --goal "Execute ${title}"`,
     });
   }
 
@@ -662,8 +662,8 @@ function makeHandoffData(overrides: Partial<HandoffData> = {}): HandoffData {
       { agentRole: "Worker Bot", trend: "improving", avgConfidence: 0.85, note: "improving (+0.08 this week) — strong on implementation" },
     ],
     resumeCommands: [
-      'teamclaw work --goal "Execute caching layer RFC"',
-      "teamclaw journal list",
+      'openpawl work --goal "Execute caching layer RFC"',
+      "openpawl journal list",
     ],
     ...overrides,
   };
@@ -729,7 +729,7 @@ describe("renderContextMarkdown", () => {
 
   it("renders resume commands as code", () => {
     const md = renderContextMarkdown(makeHandoffData());
-    expect(md).toContain("teamclaw work --goal");
+    expect(md).toContain("openpawl work --goal");
   });
 
   it("omits Team Performance section when no profiles", () => {
@@ -769,7 +769,7 @@ export function renderContextMarkdown(data: HandoffData): string {
   const lines: string[] = [];
 
   // Header
-  lines.push("# TeamClaw Project Context");
+  lines.push("# OpenPawl Project Context");
   lines.push(`**Generated:** ${formatDate(data.generatedAt)}`);
   lines.push(`**Session:** ${data.sessionId}`);
   lines.push(`**Project:** ${data.projectPath}`);
@@ -856,7 +856,7 @@ export function renderContextMarkdown(data: HandoffData): string {
   lines.push("");
   lines.push("## How To Resume");
   lines.push("```bash");
-  lines.push("teamclaw work");
+  lines.push("openpawl work");
   lines.push("```");
   lines.push("The team will brief you automatically on everything above.");
   if (data.resumeCommands.length > 0) {
@@ -901,7 +901,7 @@ git commit -m "feat(handoff): add CONTEXT.md renderer with 6-section layout"
 import { describe, it, expect } from "vitest";
 import { parseContextMarkdown } from "../src/handoff/importer.js";
 
-const SAMPLE_CONTEXT = `# TeamClaw Project Context
+const SAMPLE_CONTEXT = `# OpenPawl Project Context
 **Generated:** 2026-03-17 14:32:00 UTC
 **Session:** sess_abc123
 **Project:** /home/user/myapp
@@ -951,7 +951,7 @@ Lessons from this session (added to global memory):
 
 ## How To Resume
 \`\`\`bash
-teamclaw work
+openpawl work
 \`\`\`
 `;
 
@@ -981,7 +981,7 @@ describe("parseContextMarkdown", () => {
   });
 
   it("works on minimal CONTEXT.md with only header", () => {
-    const minimal = `# TeamClaw Project Context\n**Generated:** 2026-03-17\n**Session:** sess_min\n**Project:** /tmp\n`;
+    const minimal = `# OpenPawl Project Context\n**Generated:** 2026-03-17\n**Session:** sess_min\n**Project:** /tmp\n`;
     const parsed = parseContextMarkdown(minimal);
     expect(parsed.sessionId).toBe("sess_min");
     expect(parsed.decisions).toEqual([]);
@@ -989,7 +989,7 @@ describe("parseContextMarkdown", () => {
   });
 
   it("handles missing sections gracefully", () => {
-    const partial = `# TeamClaw Project Context
+    const partial = `# OpenPawl Project Context
 **Generated:** 2026-03-17
 **Session:** sess_partial
 **Project:** /tmp
@@ -1363,7 +1363,7 @@ async function handleGenerate(
   logger.success(`CONTEXT.md written to ${outPath}`);
 
   // Write timestamped copy to session dir
-  const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", targetSessionId);
+  const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", targetSessionId);
   await mkdir(sessionDir, { recursive: true });
   await writeFile(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
 
@@ -1386,7 +1386,7 @@ async function gitCommitContext(contextPath: string): Promise<void> {
     // Check if in a git repo
     execSync("git rev-parse --is-inside-work-tree", { stdio: "ignore" });
     execSync(`git add "${contextPath}"`, { stdio: "ignore" });
-    execSync('git commit -m "chore: update TeamClaw context [auto]"', { stdio: "ignore" });
+    execSync('git commit -m "chore: update OpenPawl context [auto]"', { stdio: "ignore" });
     logger.success("CONTEXT.md committed to git.");
   } catch {
     // Not a git repo or commit failed — silent
@@ -1431,7 +1431,7 @@ async function handleImport(): Promise<void> {
     }
   }
 
-  console.log(pc.green("\nReady. Run: teamclaw work"));
+  console.log(pc.green("\nReady. Run: openpawl work"));
 }
 ```
 
@@ -1549,7 +1549,7 @@ async function autoGenerateContext(
     // Write timestamped copy to session dir
     const keepHistory = handoffCfg?.keepHistory !== false;
     if (keepHistory) {
-      const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
+      const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", sessionId);
       await mkdir(sessionDir, { recursive: true });
       await writeFile(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
     }
@@ -1560,7 +1560,7 @@ async function autoGenerateContext(
         const { execSync } = await import("node:child_process");
         execSync("git rev-parse --is-inside-work-tree", { cwd: workspacePath, stdio: "ignore" });
         execSync(`git add "${projectContextPath}"`, { cwd: workspacePath, stdio: "ignore" });
-        execSync('git commit -m "chore: update TeamClaw context [auto]"', { cwd: workspacePath, stdio: "ignore" });
+        execSync('git commit -m "chore: update OpenPawl context [auto]"', { cwd: workspacePath, stdio: "ignore" });
       } catch {
         // Git commit is optional — silent failure
       }
@@ -1633,7 +1633,7 @@ git commit -m "feat(handoff): detect CONTEXT.md in briefing collector"
 **Files:**
 - Modify: `src/core/global-config.ts:5-38`
 
-- [ ] **Step 1: Add handoff to TeamClawGlobalConfig interface**
+- [ ] **Step 1: Add handoff to OpenPawlGlobalConfig interface**
 
 In `src/core/global-config.ts`, add to the interface (after `proxy`):
 ```typescript
@@ -1783,7 +1783,7 @@ fastify.post("/api/handoff/generate", async (_req, reply) => {
     await writeFile(outPath, markdown, "utf-8");
 
     // Write session copy
-    const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", last.sessionId);
+    const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", last.sessionId);
     await mkdir(sessionDir, { recursive: true });
     await writeFile(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
 

@@ -14,7 +14,7 @@ import { VectorMemory } from "../core/knowledge-base.js";
 import { CONFIG } from "../core/config.js";
 import { UserCancelError } from "./types.js";
 
-export const WORKSPACE_PROTECTED = new Set([".git", "teamclaw.config.json"]);
+export const WORKSPACE_PROTECTED = new Set([".git", "openpawl.config.json"]);
 
 /** Word-wrap text to a max column width, breaking on spaces. */
 export function wrapText(text: string, maxWidth = 80): string {

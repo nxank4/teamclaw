@@ -133,7 +133,7 @@ export class SprintPlanningNode {
       const lancedb = await import("@lancedb/lancedb");
       const os = await import("node:os");
       const path = await import("node:path");
-      const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+      const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
       const db = await lancedb.connect(dbPath);
       const decStore = new DecisionStore();
       await decStore.init(db);

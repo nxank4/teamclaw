@@ -3,7 +3,7 @@
  *
  * These tests launch the actual launchTUI() function with a VirtualTerminal,
  * simulate user input, and assert on rendered output. LLM providers are
- * mocked via TEAMCLAW_MOCK_LLM=true to avoid real API calls.
+ * mocked via OPENPAWL_MOCK_LLM=true to avoid real API calls.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TUIHarness } from "./helpers/tui-harness.js";
@@ -71,9 +71,9 @@ describe("TUI E2E", () => {
       harness = new TUIHarness();
       await harness.start();
 
-      await harness.waitFor("TeamClaw", 5000);
+      await harness.waitFor("OpenPawl", 5000);
       const output = harness.getVisibleOutput();
-      expect(output).toContain("TeamClaw");
+      expect(output).toContain("OpenPawl");
     });
 
     it("shows /help hint in welcome", async () => {

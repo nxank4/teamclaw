@@ -1,4 +1,4 @@
-# TeamClaw Agent Guidelines
+# OpenPawl Agent Guidelines
 
 **Version**: 1.0  
 **Last Updated**: 2026-03-13  

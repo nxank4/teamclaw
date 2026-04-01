@@ -5,7 +5,7 @@ import { getGlobalProviderManager } from "../providers/provider-factory.js";
 
 
 export async function runStatusCommand(): Promise<void> {
-  intro("TeamClaw Status");
+  intro("OpenPawl Status");
 
   // Provider status
   const mgr = getGlobalProviderManager();
@@ -16,7 +16,7 @@ export async function runStatusCommand(): Promise<void> {
     providerLines.push(`${p.name}: ${p.isAvailable() ? "available" : "unavailable"} | health=${healthy ? "ok" : "fail"}`);
   }
   if (providerLines.length === 0) {
-    providerLines.push("No providers configured. Run `teamclaw setup` or set an API key env var.");
+    providerLines.push("No providers configured. Run `openpawl setup` or set an API key env var.");
   }
   note(providerLines.join("\n"), "Providers");
 

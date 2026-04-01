@@ -1,5 +1,5 @@
 /**
- * Register TeamClaw TUI slash commands.
+ * Register OpenPawl TUI slash commands.
  *
  * Only CONTROL actions are slash commands. Natural language input
  * (goals, questions) goes directly to the agent pipeline.

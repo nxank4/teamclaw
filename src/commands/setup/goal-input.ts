@@ -14,7 +14,7 @@ import pc from "picocolors";
 import os from "node:os";
 import path from "node:path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { readTeamclawConfig } from "../../core/jsonConfigManager.js";
+import { readOpenpawlConfig } from "../../core/jsonConfigManager.js";
 import { getDefaultGoal } from "../../core/configManager.js";
 import { handleCancel, type WizardState } from "./connection.js";
 import { randomPhrase } from "../../utils/spinner-phrases.js";
@@ -337,7 +337,7 @@ async function refineGoalWithAI(state: WizardState, draft: string): Promise<stri
 }
 
 export async function stepGoal(state: WizardState): Promise<void> {
-    const tc = readTeamclawConfig();
+    const tc = readOpenpawlConfig();
     const existingGoal = (tc.data as Record<string, unknown>).goal as string | undefined;
     const defaultGoal = existingGoal?.trim() || getDefaultGoal();
 

@@ -26,13 +26,13 @@ function makeBriefingData(overrides: Partial<BriefingData> = {}): BriefingData {
 describe("renderBriefing", () => {
   it("shows welcome message when lastSession is null", () => {
     const output = renderBriefing({ ...makeBriefingData(), lastSession: null });
-    expect(output).toContain("Welcome to TeamClaw");
+    expect(output).toContain("Welcome to OpenPawl");
     expect(output).toContain("No previous sessions found");
   });
 
-  it("shows Previously on TeamClaw for returning users", () => {
+  it("shows Previously on OpenPawl for returning users", () => {
     const output = renderBriefing(makeBriefingData());
-    expect(output).toContain("Previously on TeamClaw");
+    expect(output).toContain("Previously on OpenPawl");
   });
 
   it("shows what was built", () => {
@@ -112,7 +112,7 @@ describe("renderBriefing", () => {
 describe("renderWelcome", () => {
   it("shows welcome message", () => {
     const output = renderWelcome();
-    expect(output).toContain("Welcome to TeamClaw");
+    expect(output).toContain("Welcome to OpenPawl");
     expect(output).toContain("No previous sessions found");
     expect(output).toContain("remembers everything");
   });

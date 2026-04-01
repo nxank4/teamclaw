@@ -230,7 +230,7 @@ export async function collectStandupData(window: StandupTimeWindow): Promise<Sta
   try {
     const { StreakTracker } = await import("./streak.js");
     const lancedbMod = await import("@lancedb/lancedb");
-    const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+    const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
     const db = await lancedbMod.connect(dbPath);
     const tracker = new StreakTracker();
     await tracker.init(db);
@@ -430,7 +430,7 @@ export async function collectWeeklySummary(): Promise<WeeklySummary> {
   try {
     const { StreakTracker } = await import("./streak.js");
     const lancedbMod = await import("@lancedb/lancedb");
-    const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+    const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
     const db = await lancedbMod.connect(dbPath);
     const tracker = new StreakTracker();
     await tracker.init(db);

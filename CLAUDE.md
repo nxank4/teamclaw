@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TeamClaw orchestrates AI agent teams via LangGraph. Users define goals and teams; agents collaborate to complete them. Multi-run mode learns from failed runs via RAG (LanceDB). Pure team coordination, no economics.
+OpenPawl orchestrates AI agent teams via LangGraph. Users define goals and teams; agents collaborate to complete them. Multi-run mode learns from failed runs via RAG (LanceDB). Pure team coordination, no economics.
 
 ## Commands
 
@@ -76,7 +76,7 @@ Fastify + SSE for real-time dashboard updates. Single active orchestration at a 
 - TypeScript (ESM, built with tsup). Strict typing; no `any`, no `@ts-nocheck`.
 - Brief comments for non-obvious logic only.
 - Keep files under ~700 LOC; extract helpers over duplicating.
-- Naming: **TeamClaw** in docs/headings; `teamclaw` for CLI/package.
+- Naming: **OpenPawl** in docs/headings; `openpawl` for CLI/package.
 
 ## Testing
 

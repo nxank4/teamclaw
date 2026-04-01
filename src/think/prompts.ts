@@ -21,7 +21,7 @@ export function buildTechLeadPrompt(
   question: string,
   decisions: Decision[],
 ): string {
-  const prompt = `You are TeamClaw's Tech Lead. Your role is to give a pragmatic, implementation-focused perspective on this question.
+  const prompt = `You are OpenPawl's Tech Lead. Your role is to give a pragmatic, implementation-focused perspective on this question.
 
 Past decisions relevant to this question:
 ${formatDecisionContext(decisions)}
@@ -38,7 +38,7 @@ export function buildRfcAuthorPrompt(
   question: string,
   decisions: Decision[],
 ): string {
-  const prompt = `You are TeamClaw's RFC Author. Your role is to consider longer-term architectural implications and edge cases.
+  const prompt = `You are OpenPawl's RFC Author. Your role is to consider longer-term architectural implications and edge cases.
 
 Past decisions relevant to this question:
 ${formatDecisionContext(decisions)}
@@ -55,7 +55,7 @@ export function buildCoordinatorPrompt(
   techLeadPerspective: string,
   rfcAuthorPerspective: string,
 ): string {
-  const prompt = `You are TeamClaw's Coordinator. Two experts have weighed in:
+  const prompt = `You are OpenPawl's Coordinator. Two experts have weighed in:
 
 Tech Lead: ${techLeadPerspective}
 

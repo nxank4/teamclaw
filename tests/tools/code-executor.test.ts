@@ -4,7 +4,7 @@ import path from "node:path";
 import { createCodeExecutorTool } from "@/tools/code-executor.js";
 
 describe("CodeExecutorTool", () => {
-  const workspacePath = path.join("/tmp", `teamclaw-test-${Date.now()}`);
+  const workspacePath = path.join("/tmp", `openpawl-test-${Date.now()}`);
   let executor: ReturnType<typeof createCodeExecutorTool>;
 
   beforeAll(() => {
