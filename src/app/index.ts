@@ -18,15 +18,58 @@ import { executeShell } from "./shell.js";
 
 import type { AppLayout } from "./layout.js";
 
-/**
- * Handle natural language input — route to the work pipeline.
- * This is the primary interaction: user types goals/questions, agent works on them.
- */
+// ---------------------------------------------------------------------------
+// Intent classification — decide if user input is a work goal or casual chat
+// ---------------------------------------------------------------------------
+
+type Intent = "work" | "chat";
+
+function classifyIntent(prompt: string): Intent {
+  const trimmed = prompt.trim();
+  const lower = trimmed.toLowerCase();
+  const wordCount = trimmed.split(/\s+/).length;
+
+  // Too short to be a real work goal
+  if (wordCount < 4) return "chat";
+
+  // Greetings / casual
+  if (/^(hi|hey|hello|sup|yo|what'?s up|how are you|good morning|good evening)/i.test(lower)) return "chat";
+  if (/^(thanks|thank you|ok|okay|sure|cool|nice|great|awesome|got it)/i.test(lower)) return "chat";
+  if (/^(test|testing|just testing|ping)/i.test(lower)) return "chat";
+  if (/^(who are you|what are you|what can you do)/i.test(lower)) return "chat";
+
+  // Has action verbs → likely a work goal
+  if (/\b(build|create|implement|add|fix|refactor|update|write|design|setup|configure|deploy|migrate|optimize|remove|delete|change|move|integrate|convert|generate|scaffold|extract)\b/i.test(lower)) return "work";
+
+  // Questions → chat for now (think mode future)
+  if (/^(what|how|why|when|where|should|could|would|can|is|are|do|does)\b/i.test(lower)) return "chat";
+
+  // Long enough and not caught above → treat as work goal
+  if (wordCount >= 8) return "work";
+
+  return "chat";
+}
+
+// ---------------------------------------------------------------------------
+// Handle natural language input — route based on intent
+// ---------------------------------------------------------------------------
+
 async function handleNaturalInput(
   text: string,
   layout: AppLayout,
   ctx: { addMessage: (role: string, content: string) => void },
 ): Promise<void> {
+  const intent = classifyIntent(text);
+
+  if (intent === "chat") {
+    ctx.addMessage("system",
+      "I'm ready to work! Describe what you want to build.\n" +
+      "Example: \"Build a REST API for user authentication with JWT tokens\"",
+    );
+    return;
+  }
+
+  // intent === "work" → start the agent pipeline
   const { workerEvents } = await import("../core/worker-events.js");
 
   let streamingActive = false;
@@ -55,9 +98,44 @@ async function handleNaturalInput(
   layout.statusBar.setLeft("TeamClaw", "Working...");
   layout.tui.requestRender();
 
+  // Suppress @clack/prompts stdout output — it conflicts with the TUI renderer.
+  // We capture clack's terminal writes and route them to Messages instead.
+  const origStdoutWrite = process.stdout.write.bind(process.stdout);
+  const origStderrWrite = process.stderr.write.bind(process.stderr);
+  const suppressClack = () => {
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      const str = typeof chunk === "string" ? chunk : chunk.toString();
+      // Clack output contains box-drawing chars (◇│├└┌┐) — redirect to messages
+      if (/[◇│├└┌┐◆●○◒◐◓◑]/.test(str) || str.includes("\x1b[2K")) {
+        // Strip ANSI, trim, skip empty
+        const clean = str.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").trim();
+        if (clean) {
+          layout.messages.addMessage({ role: "system", content: clean, timestamp: new Date() });
+          layout.tui.requestRender();
+        }
+        return true;
+      }
+      return origStdoutWrite(chunk);
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      const str = typeof chunk === "string" ? chunk : chunk.toString();
+      if (/[◇│├└┌┐◆●○◒◐◓◑]/.test(str) || str.includes("\x1b[2K")) {
+        return true; // suppress spinner updates
+      }
+      return origStderrWrite(chunk);
+    }) as typeof process.stderr.write;
+  };
+  const restoreStdout = () => {
+    process.stdout.write = origStdoutWrite;
+    process.stderr.write = origStderrWrite;
+  };
+
+  suppressClack();
+
   try {
     const { runWork } = await import("../work-runner.js");
-    await runWork({ goal: text.trim(), noWeb: true, args: [] });
+    // Pass noWeb + noInteractive to skip clack interactive prompts
+    await runWork({ goal: text.trim(), noWeb: true, args: ["--no-interactive"] });
     streamingActive = false;
     ctx.addMessage("system", "Done.");
   } catch (err) {
@@ -69,6 +147,7 @@ async function handleNaturalInput(
       ctx.addMessage("error", `Failed: ${msg}`);
     }
   } finally {
+    restoreStdout();
     workerEvents.off("stream-chunk", onChunk);
     workerEvents.off("reasoning", onReasoning);
     layout.statusBar.setLeft("TeamClaw", "Ready");

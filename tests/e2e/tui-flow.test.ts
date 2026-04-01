@@ -145,18 +145,31 @@ describe("TUI E2E", () => {
   });
 
   describe("natural language input", () => {
-    it("routes natural language to agent pipeline (not /work required)", async () => {
+    it("classifies casual input as chat (no pipeline trigger)", async () => {
       harness = new TUIHarness();
       await harness.start();
 
-      harness.submit("Build an auth system");
-      // Should show user message and start working (or show error if no providers)
-      await harness.waitFor("Build an auth system", 5000);
+      harness.submit("hello");
+      await harness.waitFor("ready to work", 5000);
 
       const output = harness.getVisibleOutput();
-      // Should NOT show "Use /work" guidance — natural language goes to agent
-      expect(output).not.toContain("Use /work");
-      expect(output).toContain("Build an auth system");
+      // Short casual message → chat response, NOT work pipeline
+      expect(output).toContain("ready to work");
+      expect(output).not.toContain("Working...");
+    });
+
+    it("classifies work goal as work intent", async () => {
+      harness = new TUIHarness();
+      await harness.start();
+
+      harness.submit("Build a REST API with authentication and JWT tokens");
+      // Should show user message and attempt work (may fail with mock providers, that's ok)
+      await harness.waitFor("Build a REST API", 5000);
+
+      const output = harness.getVisibleOutput();
+      // Should NOT show "ready to work" chat response
+      expect(output).not.toContain("ready to work");
+      expect(output).toContain("Build a REST API");
     });
   });
 
