@@ -43,12 +43,13 @@ const mockIndex: TemplateIndex = {
 
 describe("MarketplaceClient", () => {
   beforeEach(() => {
-    process.env.HOME = TEST_DIR;
+    // Mock os.homedir to return test dir (works on all platforms)
+    os.homedir = () => TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    process.env.HOME = originalHomedir();
+    os.homedir = originalHomedir;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

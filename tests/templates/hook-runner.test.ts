@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { canUseIsolate } from "../helpers/can-use-isolate.js";
 import { runTemplateHook } from "@/templates/hook-runner.js";
 
-describe("runTemplateHook", () => {
+describe.skipIf(!canUseIsolate())("runTemplateHook", () => {
   const projectPath = path.join("/tmp", `openpawl-hook-test-${Date.now()}`);
 
   test("runs hook code and returns success", async () => {

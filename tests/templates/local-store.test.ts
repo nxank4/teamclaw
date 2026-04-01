@@ -6,18 +6,18 @@ import path from "node:path";
 
 const TEST_DIR = path.join(os.tmpdir(), "openpawl-test-store-" + Date.now());
 
-// Override homedir for tests
+// Override homedir for tests — mock os.homedir to work cross-platform
 const originalHomedir = os.homedir;
 
 describe("LocalTemplateStore", () => {
   beforeEach(() => {
-    // Use a temp directory to avoid polluting real ~/.openpawl
-    process.env.HOME = TEST_DIR;
+    // Mock os.homedir to return test dir (works on all platforms)
+    os.homedir = () => TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    process.env.HOME = originalHomedir();
+    os.homedir = originalHomedir;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }

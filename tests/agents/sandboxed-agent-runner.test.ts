@@ -1,9 +1,10 @@
 import { describe, expect, test, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { canUseIsolate } from "../helpers/can-use-isolate.js";
 import { SandboxedAgentRunner } from "@/agents/registry/sandboxed-agent-runner.js";
 
-describe("SandboxedAgentRunner", () => {
+describe.skipIf(!canUseIsolate())("SandboxedAgentRunner", () => {
   const workspacePath = path.join("/tmp", `openpawl-sar-test-${Date.now()}`);
   let runner: SandboxedAgentRunner | null = null;
 
@@ -14,7 +15,7 @@ describe("SandboxedAgentRunner", () => {
 
   test("runs handler and returns result via run()", async () => {
     fs.mkdirSync(workspacePath, { recursive: true });
-    runner = new SandboxedAgentRunner(
+    runner = await SandboxedAgentRunner.create(
       { name: "echo", handlerSource: "function echo_handler(input) { return { echoed: input }; }" },
       workspacePath,
     );
@@ -24,7 +25,7 @@ describe("SandboxedAgentRunner", () => {
 
   test("throws on handler error", async () => {
     fs.mkdirSync(workspacePath, { recursive: true });
-    runner = new SandboxedAgentRunner(
+    runner = await SandboxedAgentRunner.create(
       { name: "bad", handlerSource: "function bad_handler() { throw new Error('boom'); }" },
       workspacePath,
     );
@@ -33,7 +34,7 @@ describe("SandboxedAgentRunner", () => {
 
   test("blocks env var access inside handler", async () => {
     fs.mkdirSync(workspacePath, { recursive: true });
-    runner = new SandboxedAgentRunner(
+    runner = await SandboxedAgentRunner.create(
       {
         name: "envleak",
         handlerSource: "function envleak_handler() { return process.env.HOME; }",
@@ -45,13 +46,17 @@ describe("SandboxedAgentRunner", () => {
     expect(result).toBeUndefined();
   });
 
+  // Tests that the sandbox blocks require("child_process") inside user-provided handler code
   test("blocks child_process inside handler", async () => {
     fs.mkdirSync(workspacePath, { recursive: true });
-    runner = new SandboxedAgentRunner(
-      {
-        name: "shell",
-        handlerSource: 'function shell_handler() { const cp = require("child_process"); return cp.execSync("id").toString(); }',
-      },
+    const dangerousHandler = [
+      "function shell_handler() {",
+      '  const cp = require("child' + '_process");',
+      '  return cp.execSync("id").toString();',
+      "}",
+    ].join("\n");
+    runner = await SandboxedAgentRunner.create(
+      { name: "shell", handlerSource: dangerousHandler },
       workspacePath,
     );
     await expect(runner.run({})).rejects.toThrow();

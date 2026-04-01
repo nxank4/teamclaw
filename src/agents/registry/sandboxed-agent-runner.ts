@@ -2,13 +2,10 @@
  * Runs custom agent handlers inside a secure-exec V8 isolate.
  * Handlers cannot close over external scope, access network,
  * spawn processes, or read env vars.
+ *
+ * secure-exec is loaded dynamically so missing prebuilt binaries
+ * only fail at construction time, not at import time.
  */
-
-import {
-  NodeRuntime,
-  createNodeDriver,
-  createNodeRuntimeDriverFactory,
-} from "secure-exec";
 
 export interface SandboxedAgentDef {
   name: string;
@@ -16,17 +13,25 @@ export interface SandboxedAgentDef {
 }
 
 export class SandboxedAgentRunner {
-  private runtime: NodeRuntime;
+  private runtime: { run: (code: string) => Promise<{ code: number; exports?: unknown; errorMessage?: string }>; dispose: () => void };
   private readonly agentName: string;
   private readonly handlerSource: string;
 
-  constructor(def: SandboxedAgentDef, workspacePath: string) {
+  private constructor(
+    def: SandboxedAgentDef,
+    runtime: SandboxedAgentRunner["runtime"],
+  ) {
     this.agentName = def.name;
     this.handlerSource = def.handlerSource;
-    this.runtime = new NodeRuntime({
+    this.runtime = runtime;
+  }
+
+  static async create(def: SandboxedAgentDef, workspacePath: string): Promise<SandboxedAgentRunner> {
+    const { NodeRuntime, createNodeDriver, createNodeRuntimeDriverFactory } = await import("secure-exec");
+    const runtime = new NodeRuntime({
       systemDriver: createNodeDriver({
         permissions: {
-          fs: (req) => ({ allow: req.path.startsWith(workspacePath) }),
+          fs: (req: { path: string }) => ({ allow: req.path.startsWith(workspacePath) }),
           network: () => ({ allow: false }),
           childProcess: () => ({ allow: false }),
           env: () => ({ allow: false }),
@@ -36,10 +41,10 @@ export class SandboxedAgentRunner {
       memoryLimit: 64,
       cpuTimeLimitMs: 10_000,
     });
+    return new SandboxedAgentRunner(def, runtime);
   }
 
   async run(input: unknown): Promise<unknown> {
-    // Prepend handler source, then invoke it
     const fullCode = `
       ${this.handlerSource}
       const handler = ${this.agentName}_handler;
