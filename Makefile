@@ -1,5 +1,5 @@
 # Makefile for TeamClaw
-.PHONY: help install install-hooks test test-commands test-coverage test-coverage-report lint typecheck check test-full web work clean release
+.PHONY: help install install-hooks test test-commands test-e2e test-coverage test-coverage-report lint typecheck check test-full web work clean release
 
 help:
 	@echo "TeamClaw - Available Commands:"
@@ -44,6 +44,10 @@ test:
 test-commands:
 	@echo "Running command integration tests..."
 	pnpm exec vitest run --config vitest.config.commands.ts
+
+test-e2e:
+	@echo "Running E2E tests..."
+	pnpm exec vitest run --config vitest.config.e2e.ts
 
 test-coverage:
 	@echo "Running tests with coverage..."

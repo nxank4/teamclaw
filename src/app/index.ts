@@ -8,6 +8,7 @@ import {
   CommandRegistry,
   parseInput,
   createBuiltinCommands,
+  type Terminal,
 } from "../tui/index.js";
 import { registerAllCommands } from "./commands/index.js";
 import { SessionManager } from "./session.js";
@@ -15,14 +16,21 @@ import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
 
+export interface LaunchOptions {
+  /** Custom terminal for testing (VirtualTerminal). */
+  terminal?: Terminal;
+  /** Custom sessions directory for testing. */
+  sessionsDir?: string;
+}
+
 /**
  * Launch the interactive TUI.
  * Blocks until the user exits (Ctrl+C, /quit, Ctrl+D).
  */
-export async function launchTUI(): Promise<void> {
-  const layout = createLayout();
+export async function launchTUI(opts?: LaunchOptions): Promise<void> {
+  const layout = createLayout(opts?.terminal);
   const registry = new CommandRegistry();
-  const session = new SessionManager();
+  const session = new SessionManager(opts?.sessionsDir);
 
   // Register built-in commands (/help, /clear, /quit)
   for (const cmd of createBuiltinCommands(() => registry)) {
