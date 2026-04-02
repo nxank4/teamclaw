@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { DiffRenderer } from "../../../src/tui/core/renderer.js";
 import { VirtualTerminal } from "../../../src/tui/core/terminal.js";
-import { syncStart, syncEnd, clearLine, cursorUp } from "../../../src/tui/core/ansi.js";
+import { syncStart, syncEnd, clearLine, cursorTo } from "../../../src/tui/core/ansi.js";
 
 describe("DiffRenderer", () => {
   let renderer: DiffRenderer;
@@ -42,8 +42,8 @@ describe("DiffRenderer", () => {
 
     const output = term.getRawOutput();
     expect(output).toContain("CHANGED");
-    // Should contain cursor up to move to the changed line
-    expect(output).toContain(cursorUp(2)); // move up 2 from end to line 2
+    // Should use absolute positioning to move to the changed line (row 2)
+    expect(output).toContain(cursorTo(2, 1));
   });
 
   it("handles appending new lines", () => {

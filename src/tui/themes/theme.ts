@@ -50,4 +50,17 @@ export interface Theme {
     link: StyleFn;
     blockquote: StyleFn;
   };
+
+  // Chat bubble styles
+  userBubble: StyleFn;
+  agentName: StyleFn;
+
+  // Status bar
+  statusBarBg: StyleFn;
+  statusMode: StyleFn;
+  statusWorking: StyleFn;
+
+  // Logo / splash
+  logo: StyleFn;
+  logoBorder: StyleFn;
 }

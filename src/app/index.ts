@@ -15,61 +15,91 @@ import { SessionManager } from "./session.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
+import { detectConfig, showConfigWarning } from "./config-check.js";
+import { setLoggerMuted } from "../core/logger.js";
+import { defaultTheme } from "../tui/themes/default.js";
 
 import type { AppLayout } from "./layout.js";
 
 // ---------------------------------------------------------------------------
-// Intent classification — decide if user input is a work goal or casual chat
+// Intent classification — decide if user input should invoke the work pipeline
 // ---------------------------------------------------------------------------
 
-type Intent = "work" | "chat";
-
-function classifyIntent(prompt: string): Intent {
+function isWorkGoal(prompt: string): boolean {
   const trimmed = prompt.trim();
   const lower = trimmed.toLowerCase();
   const wordCount = trimmed.split(/\s+/).length;
 
-  // Too short to be a real work goal
-  if (wordCount < 4) return "chat";
-
-  // Greetings / casual
-  if (/^(hi|hey|hello|sup|yo|what'?s up|how are you|good morning|good evening)/i.test(lower)) return "chat";
-  if (/^(thanks|thank you|ok|okay|sure|cool|nice|great|awesome|got it)/i.test(lower)) return "chat";
-  if (/^(test|testing|just testing|ping)/i.test(lower)) return "chat";
-  if (/^(who are you|what are you|what can you do)/i.test(lower)) return "chat";
+  if (wordCount < 4) return false;
 
   // Has action verbs → likely a work goal
-  if (/\b(build|create|implement|add|fix|refactor|update|write|design|setup|configure|deploy|migrate|optimize|remove|delete|change|move|integrate|convert|generate|scaffold|extract)\b/i.test(lower)) return "work";
-
-  // Questions → chat for now (think mode future)
-  if (/^(what|how|why|when|where|should|could|would|can|is|are|do|does)\b/i.test(lower)) return "chat";
+  if (/\b(build|create|implement|add|fix|refactor|update|write|design|setup|configure|deploy|migrate|optimize|remove|delete|change|move|integrate|convert|generate|scaffold|extract)\b/i.test(lower)) return true;
 
   // Long enough and not caught above → treat as work goal
-  if (wordCount >= 8) return "work";
+  if (wordCount >= 8) return true;
 
-  return "chat";
+  return false;
 }
 
 // ---------------------------------------------------------------------------
 // Handle natural language input — route based on intent
 // ---------------------------------------------------------------------------
 
+async function handleChat(
+  text: string,
+  layout: AppLayout,
+  ctx: { addMessage: (role: string, content: string) => void },
+): Promise<void> {
+  layout.statusBar.updateSegment(3, "thinking...", defaultTheme.statusWorking);
+  layout.tui.requestRender();
+
+  try {
+    const { callLLM } = await import("../engine/llm.js");
+    layout.messages.addMessage({ role: "assistant", content: "", timestamp: new Date() });
+
+    await callLLM(text, {
+      systemPrompt: "You are OpenPawl, a helpful AI assistant running in a terminal. " +
+        "Respond naturally and concisely. Use markdown formatting when helpful.",
+      onChunk: (chunk: string) => {
+        layout.messages.appendToLast(chunk);
+        layout.tui.requestRender();
+      },
+    });
+  } catch (err) {
+    const { translateError } = await import("../engine/errors.js");
+    const { setLastError } = await import("./commands/error.js");
+    const opError = translateError(err);
+    setLastError(opError);
+
+    const lines: string[] = [`\u2717 ${opError.userMessage}`];
+    if (opError.quickFixes.length > 0) {
+      lines.push("");
+      for (const fix of opError.quickFixes) {
+        if (fix.command) lines.push(`  ${fix.command.padEnd(35)} ${fix.description}`);
+        else lines.push(`  \u2022 ${fix.description}`);
+      }
+    }
+    lines.push("");
+    lines.push("  Type /error for technical details");
+    ctx.addMessage("error", lines.join("\n"));
+  } finally {
+    layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
+    layout.tui.requestRender();
+  }
+}
+
 async function handleNaturalInput(
   text: string,
   layout: AppLayout,
   ctx: { addMessage: (role: string, content: string) => void },
 ): Promise<void> {
-  const intent = classifyIntent(text);
-
-  if (intent === "chat") {
-    ctx.addMessage("system",
-      "I'm ready to work! Describe what you want to build.\n" +
-      "Example: \"Build a REST API for user authentication with JWT tokens\"",
-    );
+  // Non-work inputs → direct LLM chat response
+  if (!isWorkGoal(text)) {
+    await handleChat(text, layout, ctx);
     return;
   }
 
-  // intent === "work" → start the agent pipeline
+  // Work goal → start the agent pipeline
   const { workerEvents } = await import("../core/worker-events.js");
 
   let streamingActive = false;
@@ -95,7 +125,7 @@ async function handleNaturalInput(
   workerEvents.on("stream-chunk", onChunk);
   workerEvents.on("reasoning", onReasoning);
 
-  layout.statusBar.setLeft("OpenPawl", "Working...");
+  layout.statusBar.updateSegment(3, "working", defaultTheme.statusWorking);
   layout.tui.requestRender();
 
   // Suppress @clack/prompts stdout output — it conflicts with the TUI renderer.
@@ -150,7 +180,7 @@ async function handleNaturalInput(
     restoreStdout();
     workerEvents.off("stream-chunk", onChunk);
     workerEvents.off("reasoning", onReasoning);
-    layout.statusBar.setLeft("OpenPawl", "Ready");
+    layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
     layout.tui.requestRender();
   }
 }
@@ -169,6 +199,9 @@ export interface LaunchOptions {
  * Blocks until the user exits (Ctrl+C, /quit, Ctrl+D).
  */
 export async function launchTUI(opts?: LaunchOptions): Promise<void> {
+  // Suppress logger during TUI — all messages go through layout.showSystemMessage
+  setLoggerMuted(true);
+
   const layout = createLayout(opts?.terminal);
   const registry = new CommandRegistry();
   const session = new SessionManager(opts?.sessionsDir);
@@ -206,10 +239,15 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         session.close();
         layout.tui.stop();
       },
+      tui: layout.tui,
     };
 
     switch (parsed.type) {
       case "command": {
+        if (!parsed.name) {
+          ctx.addMessage("error", "Type a command name after /. Try /help for a list.");
+          break;
+        }
         const result = registry.lookup(`/${parsed.name} ${parsed.args}`);
         if (result) {
           await result.command.execute(result.args, ctx);
@@ -248,7 +286,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     }
   };
 
-  // Welcome message
+  // Welcome message — appears as the first chat message, scrolls away naturally
   let versionStr = "0.0.1";
   try {
     const { createRequire } = await import("node:module");
@@ -260,16 +298,50 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   }
   layout.messages.addMessage({
     role: "system",
-    content: `OpenPawl v${versionStr} — just type what you want to build. /help for commands.`,
+    content: [
+      `\u2726  O P E N P A W L  v${versionStr}`,
+      "",
+      "Terminal-native AI workspace. Just type what you want to build.",
+      "",
+      "  /help       Show commands",
+      "  /settings   Configure provider & model",
+      "  /status     Check connection",
+      "  !command    Run a shell command",
+      "  @file       Reference a file",
+    ].join("\n"),
     timestamp: new Date(),
   });
-  layout.statusBar.setLeft("OpenPawl", "Ready");
-  layout.statusBar.setRight("/help");
+  // Detect provider configuration and update status bar
+  layout.statusBar.setSegments([
+    { text: "no provider", color: defaultTheme.dim },
+    { text: "\u25cb not configured", color: defaultTheme.error },
+    { text: "auto", color: defaultTheme.statusMode },
+    { text: "idle", color: defaultTheme.dim },
+    { text: "$0.00", color: defaultTheme.success },
+  ]);
+  layout.statusBar.setRightText("/help");
 
-  // Graceful shutdown on any exit
+  const configState = await detectConfig();
+  if (configState.hasProvider) {
+    layout.statusBar.updateSegment(0, configState.providerName);
+    if (configState.isConnected) {
+      layout.statusBar.updateSegment(1, "\u25cf connected", defaultTheme.success);
+    } else {
+      layout.statusBar.updateSegment(1, "\u25cb disconnected", defaultTheme.error);
+    }
+  }
+  showConfigWarning(configState, layout);
+
+  // TUI callbacks
+  layout.tui.onSystemMessage = (msg: string) => {
+    layout.messages.addMessage({ role: "system", content: msg, timestamp: new Date() });
+    layout.tui.requestRender();
+  };
+
   const cleanup = () => {
     session.close();
     layout.tui.stop();
+    setLoggerMuted(false);
   };
   layout.tui.onExit = cleanup;
 

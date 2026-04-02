@@ -30,6 +30,12 @@ export class EditorComponent implements Component {
   private borderColor: (s: string) => string;
   private focused = false;
 
+  // Autocomplete state
+  private acSuggestions: AutocompleteSuggestion[] = [];
+  private acSelectedIndex = 0;
+  private acActive = false;
+  private acMaxVisible = 8;
+
   onSubmit?: (text: string) => void;
   onChange?: (text: string) => void;
   autocompleteProvider?: AutocompleteProvider;
@@ -43,6 +49,31 @@ export class EditorComponent implements Component {
   render(width: number): string[] {
     const result: string[] = [];
     const innerWidth = width - 4; // borders + padding
+
+    // Autocomplete popup (rendered above editor box)
+    if (this.acActive && this.acSuggestions.length > 0) {
+      const start = Math.max(0, this.acSelectedIndex - this.acMaxVisible + 1);
+      const end = Math.min(this.acSuggestions.length, start + this.acMaxVisible);
+      const visible = this.acSuggestions.slice(start, end);
+
+      if (start > 0) {
+        result.push(defaultTheme.dim("  ↑ " + start + " more"));
+      }
+      for (let i = 0; i < visible.length; i++) {
+        const item = visible[i]!;
+        const globalIdx = start + i;
+        const isSelected = globalIdx === this.acSelectedIndex;
+        const prefix = isSelected ? defaultTheme.primary("❯ ") : "  ";
+        let line = prefix + (isSelected ? defaultTheme.bold(item.label) : item.label);
+        if (item.description) {
+          line += "  " + defaultTheme.dim(item.description);
+        }
+        result.push(line);
+      }
+      if (end < this.acSuggestions.length) {
+        result.push(defaultTheme.dim("  ↓ " + (this.acSuggestions.length - end) + " more"));
+      }
+    }
 
     // Top border
     const border = this.focused ? this.borderColor : defaultTheme.dim;
@@ -67,6 +98,48 @@ export class EditorComponent implements Component {
   }
 
   onKey(event: KeyEvent): boolean {
+    // Autocomplete navigation (when popup is active)
+    if (this.acActive) {
+      if (event.type === "arrow" && event.direction === "up") {
+        this.acSelectedIndex = Math.max(0, this.acSelectedIndex - 1);
+        return true;
+      }
+      if (event.type === "arrow" && event.direction === "down") {
+        this.acSelectedIndex = Math.min(this.acSuggestions.length - 1, this.acSelectedIndex + 1);
+        return true;
+      }
+      if (event.type === "enter") {
+        // Enter: select highlighted item AND submit
+        const selected = this.acSuggestions[this.acSelectedIndex];
+        if (selected) {
+          const text = selected.insertText.trim();
+          this.dismissAutocomplete();
+          this.pushHistory(text);
+          this.onSubmit?.(text);
+          this.clear();
+        } else {
+          this.dismissAutocomplete();
+        }
+        return true;
+      }
+      if (event.type === "tab") {
+        // Tab: fill in suggestion, stay in editor (user can add args)
+        const selected = this.acSuggestions[this.acSelectedIndex];
+        if (selected) {
+          this.setText(selected.insertText);
+          this.cursorCol = selected.insertText.length;
+        }
+        this.dismissAutocomplete();
+        return true;
+      }
+      if (event.type === "escape") {
+        this.dismissAutocomplete();
+        return true;
+      }
+      // Other keys: dismiss autocomplete and fall through to normal handling
+      this.dismissAutocomplete();
+    }
+
     // Enter → submit (unless shift held for newline)
     if (event.type === "enter") {
       const text = this.getText();
@@ -93,6 +166,7 @@ export class EditorComponent implements Component {
         this.cursorRow--;
       }
       this.onChange?.(this.getText());
+      this.triggerAutocomplete();
       return true;
     }
 
@@ -188,6 +262,7 @@ export class EditorComponent implements Component {
     if (event.type === "char" && !event.ctrl && !event.alt) {
       this.insertChar(event.char);
       this.onChange?.(this.getText());
+      this.triggerAutocomplete();
       return true;
     }
 
@@ -236,6 +311,79 @@ export class EditorComponent implements Component {
 
   setAutocompleteProvider(provider: AutocompleteProvider): void {
     this.autocompleteProvider = provider;
+  }
+
+  /** Set cursor column from a click position (1-based terminal column). */
+  /** Check if autocomplete popup is currently visible. */
+  isAutocompleteActive(): boolean {
+    return this.acActive && this.acSuggestions.length > 0;
+  }
+
+  setCursorFromClick(termCol: number): void {
+    const contentCol = Math.max(0, termCol - 3);
+    const lineLen = this.lines[this.cursorRow]?.length ?? 0;
+    this.cursorCol = Math.min(contentCol, lineLen);
+  }
+
+  /** Select the word at cursor (double-click). */
+  selectWordAtCursor(): void {
+    const line = this.lines[this.cursorRow] ?? "";
+    const pos = this.cursorCol;
+    const wordChar = /[\w\-\.@\/]/;
+    let end = pos;
+    while (end < line.length && wordChar.test(line[end]!)) end++;
+    this.cursorCol = end;
+  }
+
+  /** Move cursor to end (triple-click selects all conceptually). */
+  selectAllText(): void {
+    this.cursorRow = this.lines.length - 1;
+    this.cursorCol = this.lines[this.cursorRow]?.length ?? 0;
+  }
+
+  getCursorPosition(): { row: number; col: number } | null {
+    if (!this.focused) return null;
+    // Calculate how many autocomplete lines are above the editor box
+    const acLines = this.getAutocompleteLineCount();
+    // row: acLines + 1 for top border + cursorRow (1-based)
+    // col: 2 for "│ " border+padding + cursorCol (1-based)
+    return {
+      row: acLines + 1 + this.cursorRow + 1,
+      col: this.cursorCol + 3,
+    };
+  }
+
+  private getAutocompleteLineCount(): number {
+    if (!this.acActive || this.acSuggestions.length === 0) return 0;
+    const start = Math.max(0, this.acSelectedIndex - this.acMaxVisible + 1);
+    const end = Math.min(this.acSuggestions.length, start + this.acMaxVisible);
+    let count = end - start;
+    if (start > 0) count++; // "↑ N more"
+    if (end < this.acSuggestions.length) count++; // "↓ N more"
+    return count;
+  }
+
+  private triggerAutocomplete(): void {
+    if (!this.autocompleteProvider) return;
+    const text = this.getText();
+    const cursorPos = this.cursorCol;
+    if (text.startsWith("/") || text.includes("@")) {
+      const suggestions = this.autocompleteProvider.getSuggestions(text, cursorPos);
+      if (suggestions.length > 0) {
+        this.acSuggestions = suggestions;
+        this.acSelectedIndex = 0;
+        this.acActive = true;
+        return;
+      }
+    }
+    this.dismissAutocomplete();
+  }
+
+  /** Dismiss the autocomplete popup. */
+  dismissAutocomplete(): void {
+    this.acActive = false;
+    this.acSuggestions = [];
+    this.acSelectedIndex = 0;
   }
 
   private insertChar(char: string): void {

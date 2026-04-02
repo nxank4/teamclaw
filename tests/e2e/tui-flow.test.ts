@@ -71,9 +71,9 @@ describe("TUI E2E", () => {
       harness = new TUIHarness();
       await harness.start();
 
-      await harness.waitFor("OpenPawl", 5000);
+      await harness.waitFor("O P E N P A W L", 5000);
       const output = harness.getVisibleOutput();
-      expect(output).toContain("OpenPawl");
+      expect(output).toContain("O P E N P A W L");
     });
 
     it("shows /help hint in welcome", async () => {
@@ -83,7 +83,7 @@ describe("TUI E2E", () => {
       await harness.waitFor("/help", 5000);
       const output = harness.getVisibleOutput();
       expect(output).toContain("/help");
-      expect(output).toContain("just type");
+      expect(output).toContain("Just type");
     });
   });
 
@@ -98,7 +98,7 @@ describe("TUI E2E", () => {
       const output = harness.getVisibleOutput();
       // Control commands should be listed
       expect(output).toContain("/status");
-      expect(output).toContain("/config");
+      expect(output).toContain("/settings");
       expect(output).toContain("/quit");
       // /work should NOT be a slash command anymore
       expect(output).not.toMatch(/\/work\b/);
@@ -145,17 +145,17 @@ describe("TUI E2E", () => {
   });
 
   describe("natural language input", () => {
-    it("classifies casual input as chat (no pipeline trigger)", async () => {
+    it("casual input gets LLM response (not canned message)", async () => {
       harness = new TUIHarness();
       await harness.start();
 
       harness.submit("hello");
-      await harness.waitFor("ready to work", 5000);
+      await harness.waitFor("mock response", 5000);
 
       const output = harness.getVisibleOutput();
-      // Short casual message → chat response, NOT work pipeline
-      expect(output).toContain("ready to work");
-      expect(output).not.toContain("Working...");
+      // Short casual message → real LLM response, not canned text
+      expect(output).toContain("mock response");
+      expect(output).not.toContain("ready to work");
     });
 
     it("classifies work goal as work intent", async () => {
@@ -173,17 +173,28 @@ describe("TUI E2E", () => {
     });
   });
 
-  describe("/config command", () => {
-    it("shows usage when called without args", async () => {
+  describe("/settings command", () => {
+    it("shows settings overview when called without args", async () => {
       harness = new TUIHarness();
       await harness.start();
 
-      harness.command("config help");
-      await harness.waitFor("Usage", 5000);
+      harness.command("settings");
+      await harness.waitFor("Settings", 5000);
 
       const output = harness.getVisibleOutput();
-      expect(output).toContain("/config get");
-      expect(output).toContain("/config set");
+      expect(output).toContain("Settings");
+      expect(output).toContain("model");
+    });
+
+    it("/config alias works", async () => {
+      harness = new TUIHarness();
+      await harness.start();
+
+      harness.command("config");
+      await harness.waitFor("Settings", 5000);
+
+      const output = harness.getVisibleOutput();
+      expect(output).toContain("Settings");
     });
   });
 

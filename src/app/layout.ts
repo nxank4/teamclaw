@@ -1,5 +1,11 @@
 /**
- * TUI application layout — composes StatusBar + Messages + Editor.
+ * TUI application layout — composes Messages + Divider + Editor + StatusBar.
+ *
+ * Uses split-region rendering:
+ *   messages area  (scrollable, fills remaining rows)
+ *   ──────────────  divider      ─┐
+ *   │ editor │      input box     │ fixed at bottom
+ *   status bar      segments     ─┘
  */
 import {
   TUI,
@@ -9,6 +15,7 @@ import {
   DividerComponent,
   type Terminal,
 } from "../tui/index.js";
+import { defaultTheme } from "../tui/themes/default.js";
 
 export interface AppLayout {
   tui: TUI;
@@ -20,15 +27,20 @@ export interface AppLayout {
 export function createLayout(terminal?: Terminal): AppLayout {
   const tui = new TUI(terminal);
 
-  const statusBar = new StatusBarComponent("status");
-  const messages = new MessagesComponent("messages");
+  // maxHeight = very large so Messages returns ALL lines (TUI manages viewport)
+  const messages = new MessagesComponent("messages", 1_000_000);
   const divider = new DividerComponent("divider");
-  const editor = new EditorComponent("editor", "Type a message, /command, @file, or !shell...");
+  const editor = new EditorComponent("editor", "Type a prompt, /command, @file, or !shell...");
+  const statusBar = new StatusBarComponent("status", defaultTheme.statusBarBg);
 
-  tui.addChild(statusBar);
-  tui.addChild(messages);
-  tui.addChild(divider);
-  tui.addChild(editor);
+  // Scrollable region (fills remaining space above fixed bottom)
+  tui.setScrollableContent(messages);
+
+  // Fixed at bottom (order: divider, editor, status bar)
+  tui.addFixedBottom(divider);
+  tui.addFixedBottom(editor);
+  tui.addFixedBottom(statusBar);
+
   tui.setFocus(editor);
 
   return { tui, statusBar, messages, editor };

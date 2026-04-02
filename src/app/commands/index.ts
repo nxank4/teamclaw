@@ -7,19 +7,24 @@
 import type { CommandRegistry } from "../../tui/index.js";
 import type { SessionManager } from "../session.js";
 import { createStatusCommand } from "./status.js";
-import { createConfigCommand } from "./config.js";
+import { createSettingsCommand } from "./settings.js";
 import { createModelCommand } from "./model.js";
+import { createModeCommand } from "./mode.js";
 import { createCostCommand } from "./cost.js";
 import { createSessionsCommand } from "./sessions.js";
+import { createHotkeysCommand } from "./hotkeys.js";
+import { createErrorCommand } from "./error.js";
 
 export function registerAllCommands(
   registry: CommandRegistry,
   session: SessionManager,
 ): void {
-  // Control commands only — natural language handled by prompt-handler
   registry.register(createStatusCommand());
-  registry.register(createConfigCommand());
+  registry.register(createSettingsCommand());
   registry.register(createModelCommand());
+  registry.register(createModeCommand());
   registry.register(createCostCommand(session));
   registry.register(createSessionsCommand());
+  registry.register(createHotkeysCommand());
+  registry.register(createErrorCommand());
 }

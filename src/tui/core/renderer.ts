@@ -1,9 +1,13 @@
 /**
  * Differential renderer — compares previous vs current frame line-by-line,
- * only rewriting changed lines. Uses CSI 2026 synchronized output to prevent flicker.
+ * only rewriting changed lines. Uses absolute cursor positioning and
+ * CSI 2026 synchronized output to prevent flicker.
+ *
+ * Absolute positioning (\x1b[row;colH) avoids scrollback issues that
+ * plague relative cursorUp() when output exceeds the terminal viewport.
  */
 import type { Terminal } from "./terminal.js";
-import { syncStart, syncEnd, clearLine, cursorUp } from "./ansi.js";
+import { syncStart, syncEnd, clearLine, cursorTo } from "./ansi.js";
 
 export class DiffRenderer {
   private prevLines: string[] = [];
@@ -15,9 +19,8 @@ export class DiffRenderer {
    * Strategy:
    * 1. If width changed → full re-render (wrapping affects all lines)
    * 2. Find first line that differs from previous frame
-   * 3. Move cursor to that line
-   * 4. Rewrite from that line through the end
-   * 5. Clear any remaining old lines if output got shorter
+   * 3. Rewrite from that line through the end using absolute positioning
+   * 4. Clear any remaining old lines if output got shorter
    */
   render(terminal: Terminal, newLines: string[]): void {
     const width = terminal.columns;
@@ -46,27 +49,14 @@ export class DiffRenderer {
     // Wrap in synchronized output
     terminal.write(syncStart);
 
-    // Move cursor to the first changed line.
-    // Cursor is currently at the end of the previous frame (after last line).
-    const linesFromEnd = this.prevLines.length - firstChanged;
-    if (linesFromEnd > 0) {
-      terminal.write(cursorUp(linesFromEnd));
-    }
-    terminal.write("\r"); // move to column 0
-
-    // Rewrite from firstChanged through end of newLines
+    // Rewrite from firstChanged through end of newLines (absolute positioning)
     for (let i = firstChanged; i < newLines.length; i++) {
-      terminal.write(clearLine + (newLines[i] ?? "") + "\n");
+      terminal.write(cursorTo(i + 1, 1) + clearLine + (newLines[i] ?? ""));
     }
 
     // If new output is shorter, clear remaining old lines
-    if (newLines.length < this.prevLines.length) {
-      const extraLines = this.prevLines.length - newLines.length;
-      for (let i = 0; i < extraLines; i++) {
-        terminal.write(clearLine + "\n");
-      }
-      // Move cursor back up to end of actual content
-      terminal.write(cursorUp(extraLines));
+    for (let i = newLines.length; i < this.prevLines.length; i++) {
+      terminal.write(cursorTo(i + 1, 1) + clearLine);
     }
 
     terminal.write(syncEnd);
@@ -78,23 +68,14 @@ export class DiffRenderer {
   private fullRender(terminal: Terminal, lines: string[], width: number): void {
     terminal.write(syncStart);
 
-    // If we had previous content, move to start and clear
-    if (this.prevLines.length > 0) {
-      terminal.write(cursorUp(this.prevLines.length));
-      terminal.write("\r");
+    // Write all lines using absolute positioning
+    for (let i = 0; i < lines.length; i++) {
+      terminal.write(cursorTo(i + 1, 1) + clearLine + lines[i]);
     }
 
-    for (const line of lines) {
-      terminal.write(clearLine + line + "\n");
-    }
-
-    // Clear any extra old lines
-    if (lines.length < this.prevLines.length) {
-      const extra = this.prevLines.length - lines.length;
-      for (let i = 0; i < extra; i++) {
-        terminal.write(clearLine + "\n");
-      }
-      terminal.write(cursorUp(extra));
+    // Clear any extra old lines below
+    for (let i = lines.length; i < this.prevLines.length; i++) {
+      terminal.write(cursorTo(i + 1, 1) + clearLine);
     }
 
     terminal.write(syncEnd);

@@ -33,6 +33,9 @@ export interface Component {
 
   /** Called when the component is removed from the tree. */
   onUnmount?(): void;
+
+  /** Return cursor position relative to this component's rendered output (1-based row/col). */
+  getCursorPosition?(): { row: number; col: number } | null;
 }
 
 /**

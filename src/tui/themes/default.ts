@@ -53,4 +53,17 @@ export const defaultTheme: Theme = {
     link: (s) => underline(cyan(s)),
     blockquote: (s) => dim(`│ ${s}`),
   },
+
+  // Chat bubbles
+  userBubble: (s) => `\x1b[97;48;2;35;65;115m${s}\x1b[0m`,    // white on dark blue
+  agentName: (s) => `\x1b[1;38;2;100;210;210m${s}\x1b[0m`,     // bold teal
+
+  // Status bar
+  statusBarBg: (s) => `\x1b[48;2;25;25;35m${s}\x1b[0m`,       // very dark bg
+  statusMode: (s) => `\x1b[38;2;100;200;220m${s}\x1b[0m`,     // cyan
+  statusWorking: (s) => `\x1b[38;2;240;200;80m${s}\x1b[0m`,   // warm yellow
+
+  // Logo / splash
+  logo: (s) => `\x1b[38;2;80;200;200m${s}\x1b[0m`,            // teal
+  logoBorder: (s) => `\x1b[38;2;50;50;70m${s}\x1b[0m`,        // dim border
 };

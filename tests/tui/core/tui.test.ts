@@ -157,12 +157,28 @@ describe("TUI", () => {
   });
 
   describe("lifecycle", () => {
-    it("Ctrl+C triggers onExit", async () => {
+    it("double Ctrl+C triggers onExit", async () => {
       const exitHandler = vi.fn();
       tui.onExit = exitHandler;
       tui.start();
 
-      term.simulateInput(Buffer.from([0x03])); // Ctrl+C
+      // First Ctrl+C — shows warning, does NOT exit
+      term.simulateInput(Buffer.from([0x03]));
+      await new Promise(r => process.nextTick(r));
+      expect(exitHandler).not.toHaveBeenCalled();
+
+      // Second Ctrl+C — exits
+      term.simulateInput(Buffer.from([0x03]));
+      await new Promise(r => process.nextTick(r));
+      expect(exitHandler).toHaveBeenCalled();
+    });
+
+    it("Ctrl+D triggers onExit immediately", async () => {
+      const exitHandler = vi.fn();
+      tui.onExit = exitHandler;
+      tui.start();
+
+      term.simulateInput(Buffer.from([0x04])); // Ctrl+D
       await new Promise(r => process.nextTick(r));
 
       expect(exitHandler).toHaveBeenCalled();

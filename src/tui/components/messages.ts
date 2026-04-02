@@ -5,6 +5,7 @@
 import type { Component } from "../core/component.js";
 import type { KeyEvent } from "../core/input.js";
 import { wrapText } from "../utils/wrap.js";
+import { visibleWidth } from "../utils/text-width.js";
 import { defaultTheme } from "../themes/default.js";
 
 export interface ChatMessage {
@@ -33,19 +34,59 @@ export class MessagesComponent implements Component {
 
   render(width: number): string[] {
     const allLines: string[] = [];
+    const maxBubbleWidth = Math.min(Math.floor(width * 0.70), width - 8);
 
     for (const msg of this.messages) {
-      const prefix = this.getPrefix(msg);
-      const contentLines = wrapText(msg.content || "", width - 2);
-
-      if (prefix) {
-        allLines.push(prefix);
+      switch (msg.role) {
+        case "user": {
+          // RIGHT aligned, colored background bubble
+          const wrapped = wrapText(msg.content || "", maxBubbleWidth - 2);
+          const contentWidth = wrapped.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
+          const bubbleWidth = contentWidth + 2; // 1 char padding each side
+          for (const line of wrapped) {
+            const padRight = contentWidth - visibleWidth(line);
+            const padded = ` ${line}${" ".repeat(padRight)} `;
+            const bubble = defaultTheme.userBubble(padded);
+            const leftPad = " ".repeat(Math.max(0, width - bubbleWidth - 1));
+            allLines.push(leftPad + bubble);
+          }
+          break;
+        }
+        case "assistant":
+        case "agent": {
+          // LEFT aligned, with agent name label
+          const nameLabel = msg.agentName ?? msg.role;
+          const nameFn = msg.agentColor ?? defaultTheme.agentName;
+          allLines.push("  " + nameFn(nameLabel));
+          const wrapped = wrapText(msg.content || "", maxBubbleWidth);
+          for (const line of wrapped) {
+            allLines.push("  " + line);
+          }
+          break;
+        }
+        case "error": {
+          // LEFT aligned, red with prefix
+          const wrapped = wrapText(msg.content || "", maxBubbleWidth - 2);
+          for (const line of wrapped) {
+            allLines.push("  " + defaultTheme.error("✗ " + line));
+          }
+          break;
+        }
+        case "tool": {
+          // LEFT aligned, dim monospace
+          allLines.push("  " + defaultTheme.dim("⚙ " + (msg.content || "")));
+          break;
+        }
+        default: {
+          // system and others — LEFT aligned, dim
+          const wrapped = wrapText(msg.content || "", maxBubbleWidth);
+          for (const line of wrapped) {
+            allLines.push("  " + defaultTheme.dim(line));
+          }
+          break;
+        }
       }
-
-      for (const line of contentLines) {
-        allLines.push("  " + line);
-      }
-      allLines.push(""); // blank line between messages
+      allLines.push(""); // spacing between messages
     }
 
     // Apply scroll viewport
@@ -140,21 +181,4 @@ export class MessagesComponent implements Component {
     }, 0);
   }
 
-  private getPrefix(msg: ChatMessage): string {
-    const name = msg.agentName ?? msg.role;
-    const colorFn = msg.agentColor ?? this.getRoleStyle(msg);
-    return colorFn(defaultTheme.bold(name));
-  }
-
-  private getRoleStyle(msg: ChatMessage): (s: string) => string {
-    switch (msg.role) {
-      case "user": return defaultTheme.primary;
-      case "assistant": return defaultTheme.success;
-      case "agent": return msg.agentColor ?? defaultTheme.secondary;
-      case "tool": return defaultTheme.dim;
-      case "system": return defaultTheme.dim;
-      case "error": return defaultTheme.error;
-      default: return (s: string) => s;
-    }
-  }
 }

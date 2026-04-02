@@ -9,6 +9,8 @@ export interface CommandContext {
   requestRender: () => void;
   /** Access to the TUI stop function. */
   exit: () => void;
+  /** Access to the TUI instance (for interactive views). */
+  tui?: import("../core/tui.js").TUI;
 }
 
 export interface SlashCommand {

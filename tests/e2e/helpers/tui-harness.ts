@@ -98,8 +98,8 @@ export class TUIHarness {
   async stop(): Promise<void> {
     this.command("quit");
     await this.tick(100);
-    // If TUI is still running, force stop
-    this.interrupt();
+    // If TUI is still running, force stop with Ctrl+D
+    this.terminal.simulateInput(Buffer.from([0x04])); // Ctrl+D
     await this.tick(50);
   }
 
