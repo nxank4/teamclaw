@@ -18,6 +18,7 @@ export type KeyEvent =
   | { type: "scroll_up" }
   | { type: "scroll_down" }
   | { type: "mouse_click"; button: "left" | "middle" | "right"; col: number; row: number }
+  | { type: "mouse_move"; col: number; row: number }
   | { type: "mouse_drag"; col: number; row: number }
   | { type: "mouse_release"; col: number; row: number }
   | { type: "paste"; text: string }
@@ -220,8 +221,14 @@ export class InputParser {
       // Release
       if (!pressed) { this.onEvent({ type: "mouse_release", col, row }); return i + 1; }
 
-      // Drag (button 32-35)
-      if (button >= 32 && button <= 35) {
+      // Motion with no button (button 35) = hover/move
+      if (button === 35) {
+        this.onEvent({ type: "mouse_move", col, row });
+        return i + 1;
+      }
+
+      // Drag (button 32-34 = left/middle/right + motion)
+      if (button >= 32 && button <= 34) {
         this.onEvent({ type: "mouse_drag", col, row });
         return i + 1;
       }

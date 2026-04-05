@@ -16,6 +16,8 @@ import { SelectionManager } from "./selection.js";
 import { KeybindingManager, type KeyContext } from "../keyboard/keybindings.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
+import { HitTester } from "../mouse/hit-test.js";
+import { HoverManager } from "../mouse/hover-manager.js";
 
 export class TUI {
   readonly keybindings: KeybindingManager;
@@ -39,6 +41,8 @@ export class TUI {
 
   // Mouse selection + region tracking
   private selectionManager = new SelectionManager();
+  private hitTester = new HitTester();
+  private hoverManager = new HoverManager();
   private lastScreenLines: string[] = [];
   private contentRowEnd = 0;   // last row of messages content region (1-based)
   private editorRowStart = 0;  // first row of editor region (1-based)
@@ -80,6 +84,7 @@ export class TUI {
     this.root = new Container("__root__");
     this.inputParser = new InputParser();
     this.inputParser.onEvent = this.handleEvent.bind(this);
+    this.hoverManager.onRequestRender = () => this.requestRender();
   }
 
   // ── Lifecycle ───────────────────────────────────────────
@@ -216,6 +221,16 @@ export class TUI {
     return this.interactiveStartRow;
   }
 
+  /** Get the hit tester for registering interactive elements. */
+  getHitTester(): HitTester {
+    return this.hitTester;
+  }
+
+  /** Get the hover manager for checking hover state. */
+  getHoverManager(): HoverManager {
+    return this.hoverManager;
+  }
+
   // ── Legacy child API (backward compatible) ──────────────
 
   addChild(component: Component): void {
@@ -299,6 +314,9 @@ export class TUI {
   }
 
   private doRender(): void {
+    // Clear interactive element regions before re-render
+    this.hitTester.clear();
+
     if (this.overlayComponent) {
       this.renderOverlay();
       return;
@@ -459,7 +477,7 @@ export class TUI {
 
   private handleEvent(event: KeyEvent): void {
     // Mouse events — separate path
-    if (event.type === "mouse_click" || event.type === "mouse_drag" || event.type === "mouse_release") {
+    if (event.type === "mouse_click" || event.type === "mouse_move" || event.type === "mouse_drag" || event.type === "mouse_release") {
       this.handleMouse(event);
       return;
     }
@@ -682,7 +700,18 @@ export class TUI {
   }
 
   private handleMouse(event: KeyEvent): void {
+    // Mouse move → hover detection
+    if (event.type === "mouse_move" && "col" in event) {
+      this.hoverManager.onMouseMove(event.col, event.row, this.hitTester);
+      return;
+    }
+
     if (event.type === "mouse_click" && "button" in event) {
+      // Try hit tester first for interactive elements
+      if (event.button === "left" && this.hoverManager.onClick(event.col, event.row, this.hitTester)) {
+        this.requestRender();
+        return;
+      }
       if (event.button !== "left") return;
 
       // Multi-click detection
