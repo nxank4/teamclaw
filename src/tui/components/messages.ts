@@ -35,29 +35,32 @@ export class MessagesComponent implements Component {
     for (const msg of this.messages) {
       switch (msg.role) {
         case "user": {
-          // RIGHT aligned, colored background bubble
-          const wrapped = wrapText(msg.content || "", maxBubbleWidth - 2);
+          // RIGHT aligned bordered bubble
+          const userMaxWidth = Math.min(Math.floor(width * 0.5), maxBubbleWidth);
+          const wrapped = wrapText(msg.content || "", userMaxWidth - 4);
           const contentWidth = wrapped.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
-          const bubbleWidth = contentWidth + 2; // 1 char padding each side
+          const boxWidth = contentWidth + 4; // border + padding each side
+          const leftPad = " ".repeat(Math.max(0, width - boxWidth));
+
+          allLines.push(leftPad + ctp.surface1("┌" + "─".repeat(boxWidth - 2) + "┐"));
           for (const line of wrapped) {
             const padRight = contentWidth - visibleWidth(line);
-            const padded = ` ${line}${" ".repeat(padRight)} `;
-            const bubble = defaultTheme.userBubble(padded);
-            const leftPad = " ".repeat(Math.max(0, width - bubbleWidth - 1));
-            allLines.push(leftPad + bubble);
+            allLines.push(leftPad + ctp.surface1("│") + " " + ctp.text(line) + " ".repeat(padRight) + " " + ctp.surface1("│"));
           }
+          allLines.push(leftPad + ctp.surface1("└" + "─".repeat(boxWidth - 2) + "┘"));
           break;
         }
         case "assistant":
         case "agent": {
-          // LEFT aligned, colored label + markdown-rendered body
+          // LEFT aligned with colored accent border + markdown body
           const nameLabel = msg.agentName ?? msg.role;
           const nameFn = msg.agentColor ?? defaultTheme.agentName;
-          allLines.push("  " + nameFn(`[${nameLabel}]`));
-          // Render markdown for agent/assistant responses
-          const mdLines = renderMarkdown(msg.content || "", maxBubbleWidth);
+          const accentBorder = msg.agentColor ?? ctp.overlay2;
+
+          allLines.push("  " + accentBorder("┃") + " " + nameFn(`[${nameLabel}]`));
+          const mdLines = renderMarkdown(msg.content || "", maxBubbleWidth - 4);
           for (const line of mdLines) {
-            allLines.push("  " + line);
+            allLines.push("  " + accentBorder("┃") + " " + line);
           }
           break;
         }
@@ -106,6 +109,15 @@ export class MessagesComponent implements Component {
   replaceLast(content: string): void {
     if (this.messages.length > 0) {
       this.messages[this.messages.length - 1]!.content = content;
+    }
+  }
+
+  /** Replace the last message entirely (e.g., swap thinking for agent message). */
+  replaceLastWith(msg: ChatMessage): void {
+    if (this.messages.length > 0) {
+      this.messages[this.messages.length - 1] = msg;
+    } else {
+      this.messages.push(msg);
     }
   }
 

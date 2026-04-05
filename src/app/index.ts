@@ -99,12 +99,10 @@ function wireRouterEvents(
   const onAgentStart = (_sessionId: string, agentId: string) => {
     streamingForAgent = agentId;
 
-    // Start thinking indicator
-    thinking.start(agentDisplayName(agentId), getAgentColorFn(agentId));
+    // Show thinking indicator — no agent label yet (avoids duplicate)
+    thinking.start(); // no agent name — just "◐ thinking..."
     layout.messages.addMessage({
-      role: "agent",
-      agentName: agentDisplayName(agentId),
-      agentColor: getAgentColorFn(agentId),
+      role: "system",
       content: thinking.getCurrentText(),
       timestamp: new Date(),
     });
@@ -115,12 +113,18 @@ function wireRouterEvents(
   };
 
   const onAgentToken = (_sessionId: string, agentId: string, token: string) => {
-    // Stop thinking indicator on first token
+    // Stop thinking indicator on first token — replace with agent message
     if (thinking.isVisible()) {
       thinking.stop();
       thinkingMsgAdded = false;
-      // Clear the thinking message content — real tokens will follow
-      layout.messages.replaceLast("");
+      // Replace thinking message with the real agent message (with label)
+      layout.messages.replaceLastWith({
+        role: "agent",
+        agentName: agentDisplayName(agentId),
+        agentColor: getAgentColorFn(agentId),
+        content: "",
+        timestamp: new Date(),
+      });
       layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} working...`, ctp.teal);
     }
     if (streamingForAgent !== agentId) {
@@ -802,21 +806,58 @@ async function initSessionRouter(
   });
   await ctx.sessionMgr.initialize();
 
-  // Create LLM-backed agent runner with token streaming.
-  // The onToken callback emits dispatch:agent:token on the router,
-  // which wireRouterEvents() picks up for real-time TUI display.
+  // Create LLM-backed agent runner with token streaming and tool support.
   const tokenEmitter = { emit: (_agentId: string, _token: string) => {} };
-  const agentRunner = createLLMAgentRunner((agentId, token) => {
-    tokenEmitter.emit(agentId, token);
+  const toolEmitter = { emit: (_agentId: string, _tool: string, _status: string) => {} };
+
+  // Lazy-load tool registry and executor for tool support
+  let toolRegistry: import("../tools/registry.js").ToolRegistry | null = null;
+  let toolExecutor: import("../tools/executor.js").ToolExecutor | null = null;
+
+  try {
+    const { ToolRegistry } = await import("../tools/registry.js");
+    const { ToolExecutor } = await import("../tools/executor.js");
+    const { PermissionResolver } = await import("../tools/permissions.js");
+    const { registerBuiltInTools } = await import("../tools/built-in/index.js");
+
+    const reg = new ToolRegistry();
+    registerBuiltInTools(reg);
+    toolRegistry = reg;
+    toolExecutor = new ToolExecutor(reg, new PermissionResolver());
+  } catch {
+    // Tools not available — run without tools
+  }
+
+  const agentRunner = createLLMAgentRunner({
+    onToken: (agentId, token) => tokenEmitter.emit(agentId, token),
+    onToolCall: (agentId, toolName, status) => toolEmitter.emit(agentId, toolName, status),
+    getToolSchemas: toolRegistry
+      ? (toolNames) => toolRegistry!.exportForLLM(toolNames)
+      : undefined,
+    executeTool: toolExecutor
+      ? async (toolName, args) => {
+          const result = await toolExecutor!.execute(toolName, args, {
+            sessionId: ctx.chatSession?.id ?? "",
+            agentId: "agent",
+            workingDirectory: process.cwd(),
+          });
+          if (result.isOk()) {
+            return result.value.summary || JSON.stringify(result.value.data);
+          }
+          return `Error: ${result.error.type}`;
+        }
+      : undefined,
   });
 
   ctx.router = new RouterClass({}, ctx.sessionMgr, null, agentRunner);
   await ctx.router.initialize();
 
-  // Now that the router exists, wire the token emitter to it.
-  // The router forwards dispatch:agent:token events from the Dispatcher.
+  // Now that the router exists, wire the emitters to it.
   tokenEmitter.emit = (agentId: string, token: string) => {
     ctx.router?.emit("dispatch:agent:token", ctx.chatSession?.id ?? "", agentId, token);
+  };
+  toolEmitter.emit = (agentId: string, toolName: string, status: string) => {
+    ctx.router?.emit("dispatch:agent:tool", ctx.chatSession?.id ?? "", agentId, toolName, status);
   };
 
   // Create or resume session
