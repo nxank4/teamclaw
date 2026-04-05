@@ -132,12 +132,31 @@ async function main(): Promise<void> {
 
     // ── TUI entry points (before any commander parsing) ──────────────────
 
-    // No args → launch interactive TUI
+    // No args → first-run check, then launch interactive TUI
     if (args.length === 0) {
         if (!process.stdin.isTTY) {
             printHelp();
             return;
         }
+
+        // Check if first-run setup is needed
+        const { existsSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const { homedir } = await import("node:os");
+        const configPath = join(homedir(), ".openpawl", "config.json");
+
+        if (!existsSync(configPath)) {
+            const { handleFirstRun } = await import("./onboard/index.js");
+            const result = await handleFirstRun();
+            if (result.isErr()) {
+                if (result.error.type === "cancelled") return;
+                logger.error(result.error.type === "not_interactive"
+                    ? result.error.message
+                    : `Setup failed: ${result.error.type}`);
+                return;
+            }
+        }
+
         const { launchTUI } = await import("./app/index.js");
         await launchTUI();
         return;
@@ -194,8 +213,22 @@ async function main(): Promise<void> {
     // Pillar 1: openpawl setup
     // -------------------------------------------------------------------------
     if (cmd === "setup" || cmd === "init") {
-        const { runSetup } = await import("./commands/setup.js");
-        await runSetup();
+        // --reset flag: delete existing config, start fresh
+        if (args.includes("--reset")) {
+            const { existsSync, unlinkSync } = await import("node:fs");
+            const { join } = await import("node:path");
+            const { homedir } = await import("node:os");
+            const configPath = join(homedir(), ".openpawl", "config.json");
+            if (existsSync(configPath)) {
+                unlinkSync(configPath);
+                logger.success("Config reset.");
+            }
+        }
+        const { handleFirstRun } = await import("./onboard/index.js");
+        const result = await handleFirstRun();
+        if (result.isErr() && result.error.type !== "cancelled") {
+            logger.error(`Setup failed: ${result.error.type}`);
+        }
 
     // -------------------------------------------------------------------------
     // Pillar 2 + 3 + 4: openpawl work — zero-config, auto-web, smart recovery
