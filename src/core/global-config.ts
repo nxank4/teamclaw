@@ -121,6 +121,20 @@ export interface OpenPawlGlobalConfig {
     path?: string;
     logLevel?: "debug" | "info" | "warn" | "error" | "fatal" | "trace" | "silent";
   };
+  session?: {
+    idleTimeoutMinutes?: number;
+    checkpointIntervalMs?: number;
+    autoArchiveDays?: number;
+    maxHistoryMessages?: number;
+  };
+  router?: {
+    defaultAgent?: string;
+    maxParallelAgents?: number;
+    confirmationThresholdUSD?: number;
+    autoFollowUp?: boolean;
+    showRoutingDecision?: boolean;
+    customAgentsDir?: string;
+  };
 }
 
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";

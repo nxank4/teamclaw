@@ -499,6 +499,14 @@ async function main(): Promise<void> {
         const { runProvidersCommand } = await import("./commands/providers.js");
         await runProvidersCommand(args.slice(1));
 
+    } else if (cmd === "sessions" || cmd === "session") {
+        const { runSessionsCommand } = await import("./commands/sessions.js");
+        await runSessionsCommand(args.slice(1));
+
+    } else if (cmd === "chat") {
+        const { runChatCommand } = await import("./commands/chat.js");
+        await runChatCommand(args.slice(1));
+
     } else if (cmd === "demo") {
         const { runDemo } = await import("./commands/demo.js");
         await runDemo(args.slice(1));
