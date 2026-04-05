@@ -17,8 +17,8 @@ interface SettingField {
 }
 
 const FIELDS: SettingField[] = [
-  { key: "provider", label: "provider", description: "LLM provider", type: "select", options: ["anthropic", "openai", "openrouter", "bedrock", "ollama", "deepseek"] },
-  { key: "model", label: "model", description: "Model name (depends on provider)", type: "text" },
+  { key: "provider", label: "provider", description: "LLM provider", type: "select", options: ["ollama", "anthropic", "openai", "openrouter", "deepseek", "groq"] },
+  { key: "model", label: "model", description: "Active model", type: "select", options: [] },
   { key: "apikey", label: "apikey", description: "API key", type: "password" },
   { key: "mode", label: "mode", description: "Default execution mode", type: "select", options: ["auto", "ask", "build", "brainstorm", "loop-hell"] },
   { key: "maxCycles", label: "maxCycles", description: "Max cycles per task", type: "number", validate: (v) => { const n = parseInt(v); return isNaN(n) || n < 1 || n > 50 ? "Must be 1-50" : null; } },
@@ -85,6 +85,13 @@ export class SettingsView extends InteractiveView {
       this.render();
       return;
     }
+
+    // Dynamic model discovery — load real models for the model field
+    if (field.key === "model") {
+      void this.loadAndEditModels(field);
+      return;
+    }
+
     this.editing = true;
     this.editError = null;
 
@@ -98,6 +105,36 @@ export class SettingsView extends InteractiveView {
       this.editCursor = this.editBuffer.length;
     }
     this.render();
+  }
+
+  private async loadAndEditModels(field: SettingField): Promise<void> {
+    this.editError = "Loading models...";
+    this.render();
+
+    try {
+      const { discoverModels } = await import("../../providers/model-discovery.js");
+      const result = await discoverModels(true); // force refresh
+      const available = result.models.filter((m) => m.status === "available" || m.status === "configured");
+
+      if (available.length === 0) {
+        this.editError = "No models found. Is your provider running?";
+        this.render();
+        return;
+      }
+
+      // Set options dynamically from discovered models
+      field.options = available.map((m) => m.model);
+      this.editing = true;
+      this.editError = null;
+
+      const current = this.values.get("model") ?? "";
+      this.selectIndex = field.options.indexOf(current);
+      if (this.selectIndex < 0) this.selectIndex = 0;
+      this.render();
+    } catch {
+      this.editError = "Failed to discover models";
+      this.render();
+    }
   }
 
   private handleEditKey(event: KeyEvent): boolean {
@@ -294,6 +331,14 @@ export class SettingsView extends InteractiveView {
             this.values.set("model", defaultModel);
           }
         }
+      }
+
+      // Update ActiveProviderState when model changes
+      if (key === "model" && value) {
+        try {
+          const { getActiveProviderState } = await import("../../providers/active-state.js");
+          getActiveProviderState().setModel(value);
+        } catch { /* */ }
       }
 
       if (key === "provider" || key === "apikey") {
