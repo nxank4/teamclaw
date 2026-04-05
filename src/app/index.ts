@@ -86,6 +86,14 @@ function wireRouterEvents(
 
   const onAgentStart = (_sessionId: string, agentId: string) => {
     streamingForAgent = agentId;
+    // Create the initial empty message for this agent — tokens will be appended to it
+    layout.messages.addMessage({
+      role: "agent",
+      agentName: agentDisplayName(agentId),
+      agentColor: getAgentColorFn(agentId),
+      content: "",
+      timestamp: new Date(),
+    });
     layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} working...`, defaultTheme.statusWorking);
     layout.tui.requestRender();
   };
@@ -205,13 +213,17 @@ async function handleWithRouter(
 
   const dispatch = result.value;
 
-  // Display results (for non-streaming agents or placeholder runner)
+  // Display results — only for system messages and results that weren't streamed.
+  // When tokens were streamed via dispatch:agent:token events, the message already
+  // exists in the TUI. We skip non-system results that have token usage (indicating
+  // they came from the real LLM and were streamed).
   for (const agentResult of dispatch.agentResults) {
     if (!agentResult.response) continue;
 
     if (agentResult.agentId === "system") {
       ctx.addMessage("system", agentResult.response);
-    } else {
+    } else if (agentResult.inputTokens === 0 && agentResult.outputTokens === 0) {
+      // No token usage = placeholder/non-LLM result, display it
       layout.messages.addMessage({
         role: "agent",
         agentName: agentDisplayName(agentResult.agentId),
@@ -221,6 +233,7 @@ async function handleWithRouter(
       });
       layout.tui.requestRender();
     }
+    // else: response was already streamed token-by-token via dispatch:agent:token
   }
 
   layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
@@ -745,14 +758,29 @@ async function initSessionRouter(
 ): Promise<void> {
   const { createSessionManager } = await import("../session/index.js");
   const { PromptRouter: RouterClass } = await import("../router/index.js");
+  const { createLLMAgentRunner } = await import("../router/llm-agent-runner.js");
 
   ctx.sessionMgr = createSessionManager({
     sessionsDir: opts?.sessionsDir,
   });
   await ctx.sessionMgr.initialize();
 
-  ctx.router = new RouterClass({}, ctx.sessionMgr);
+  // Create LLM-backed agent runner with token streaming.
+  // The onToken callback emits dispatch:agent:token on the router,
+  // which wireRouterEvents() picks up for real-time TUI display.
+  const tokenEmitter = { emit: (_agentId: string, _token: string) => {} };
+  const agentRunner = createLLMAgentRunner((agentId, token) => {
+    tokenEmitter.emit(agentId, token);
+  });
+
+  ctx.router = new RouterClass({}, ctx.sessionMgr, null, agentRunner);
   await ctx.router.initialize();
+
+  // Now that the router exists, wire the token emitter to it.
+  // The router forwards dispatch:agent:token events from the Dispatcher.
+  tokenEmitter.emit = (agentId: string, token: string) => {
+    ctx.router?.emit("dispatch:agent:token", ctx.chatSession?.id ?? "", agentId, token);
+  };
 
   // Create or resume session
   if (opts?.resume) {

@@ -48,6 +48,7 @@ export interface AgentRunner {
   ): Promise<AgentResult>;
 }
 
+
 // ─── Placeholder Agent Runner ────────────────────────────────────────────────
 
 /**
@@ -84,6 +85,7 @@ export class PlaceholderAgentRunner implements AgentRunner {
 
 export class Dispatcher extends EventEmitter {
   private abortControllers = new Map<string, AbortController>();
+  private currentSessionId = "";
 
   constructor(
     private registry: AgentRegistry,
@@ -92,11 +94,17 @@ export class Dispatcher extends EventEmitter {
     super();
   }
 
+  /** Expose the emitter so the LLM runner can emit token events during streaming. */
+  emitToken(agentId: string, token: string): void {
+    this.emit("dispatch:agent:token", this.currentSessionId, agentId, token);
+  }
+
   async dispatch(
     sessionId: string,
     prompt: string,
     decision: RouteDecision,
   ): Promise<Result<DispatchResult, RouterError>> {
+    this.currentSessionId = sessionId;
     this.emit("dispatch:start", sessionId, decision);
 
     const controller = new AbortController();
