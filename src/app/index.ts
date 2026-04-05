@@ -1,6 +1,10 @@
 /**
  * OpenPawl TUI application entry point.
  * Launched when user runs `openpawl` with no subcommand.
+ *
+ * Wires the existing TUI framework (src/tui/) to:
+ *   - SessionManager (src/session/) for persistent session state
+ *   - PromptRouter (src/router/) for intent classification + agent dispatch
  */
 
 import { createLayout } from "./layout.js";
@@ -11,7 +15,7 @@ import {
   type Terminal,
 } from "../tui/index.js";
 import { registerAllCommands } from "./commands/index.js";
-import { SessionManager } from "./session.js";
+import { SessionManager as TuiSessionManager } from "./session.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
@@ -21,31 +25,213 @@ import { defaultTheme } from "../tui/themes/default.js";
 
 import type { AppLayout } from "./layout.js";
 
+// Session + Router imports (lazy to keep startup fast)
+import type { SessionManager } from "../session/session-manager.js";
+import type { Session } from "../session/session.js";
+import type { PromptRouter } from "../router/prompt-router.js";
+
 // ---------------------------------------------------------------------------
-// Intent classification — decide if user input should invoke the work pipeline
+// Agent color helper — maps agent IDs to theme.agentColors deterministically
 // ---------------------------------------------------------------------------
 
-function isWorkGoal(prompt: string): boolean {
-  const trimmed = prompt.trim();
-  const lower = trimmed.toLowerCase();
-  const wordCount = trimmed.split(/\s+/).length;
+const AGENT_COLOR_MAP: Record<string, number> = {
+  coder: 0,
+  reviewer: 1,
+  planner: 4,
+  tester: 3,
+  debugger: 2,
+  researcher: 5,
+  assistant: 7,
+};
 
-  if (wordCount < 4) return false;
+function getAgentColorFn(agentId: string): (s: string) => string {
+  const colors = defaultTheme.agentColors;
+  const idx = AGENT_COLOR_MAP[agentId];
+  if (idx !== undefined) return colors[idx % colors.length]!;
+  // Hash-based fallback for custom agents
+  let hash = 0;
+  for (let i = 0; i < agentId.length; i++) {
+    hash = ((hash << 5) - hash + agentId.charCodeAt(i)) | 0;
+  }
+  return colors[Math.abs(hash) % colors.length]!;
+}
 
-  // Has action verbs → likely a work goal
-  if (/\b(build|create|implement|add|fix|refactor|update|write|design|setup|configure|deploy|migrate|optimize|remove|delete|change|move|integrate|convert|generate|scaffold|extract)\b/i.test(lower)) return true;
-
-  // Long enough and not caught above → treat as work goal
-  if (wordCount >= 8) return true;
-
-  return false;
+function agentDisplayName(agentId: string): string {
+  const names: Record<string, string> = {
+    coder: "Coder",
+    reviewer: "Reviewer",
+    planner: "Planner",
+    tester: "Tester",
+    debugger: "Debugger",
+    researcher: "Researcher",
+    assistant: "Assistant",
+    system: "System",
+  };
+  return names[agentId] ?? agentId;
 }
 
 // ---------------------------------------------------------------------------
-// Handle natural language input — route based on intent
+// Wire PromptRouter dispatch events → TUI message display
 // ---------------------------------------------------------------------------
 
-async function handleChat(
+function wireRouterEvents(
+  router: PromptRouter,
+  layout: AppLayout,
+): () => void {
+  let streamingForAgent: string | null = null;
+
+  const onAgentStart = (_sessionId: string, agentId: string) => {
+    streamingForAgent = agentId;
+    layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} working...`, defaultTheme.statusWorking);
+    layout.tui.requestRender();
+  };
+
+  const onAgentToken = (_sessionId: string, agentId: string, token: string) => {
+    if (streamingForAgent !== agentId) {
+      // New agent started streaming — add a labeled message
+      streamingForAgent = agentId;
+      layout.messages.addMessage({
+        role: "agent",
+        agentName: agentDisplayName(agentId),
+        agentColor: getAgentColorFn(agentId),
+        content: "",
+        timestamp: new Date(),
+      });
+    }
+
+    layout.messages.appendToLast(token);
+    layout.tui.requestRender();
+  };
+
+  const onAgentTool = (_sessionId: string, agentId: string, toolName: string, status: string) => {
+    const symbol = status === "completed" ? defaultTheme.symbols.success
+      : status === "failed" ? defaultTheme.symbols.error
+        : defaultTheme.symbols.pending;
+    layout.messages.addMessage({
+      role: "tool",
+      content: `${symbol} ${toolName} (${status})`,
+      agentName: agentDisplayName(agentId),
+      timestamp: new Date(),
+    });
+    layout.tui.requestRender();
+  };
+
+  const onAgentDone = (_sessionId: string, _agentId: string) => {
+    streamingForAgent = null;
+    layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
+    layout.tui.requestRender();
+  };
+
+  const onDispatchError = (_sessionId: string, error: { type: string }) => {
+    streamingForAgent = null;
+    layout.messages.addMessage({
+      role: "error",
+      content: `Dispatch error: ${error.type}`,
+      timestamp: new Date(),
+    });
+    layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
+    layout.tui.requestRender();
+  };
+
+  router.on("dispatch:agent:start", onAgentStart);
+  router.on("dispatch:agent:token", onAgentToken);
+  router.on("dispatch:agent:tool", onAgentTool);
+  router.on("dispatch:agent:done", onAgentDone);
+  router.on("dispatch:error", onDispatchError);
+
+  // Return cleanup function
+  return () => {
+    router.off("dispatch:agent:start", onAgentStart);
+    router.off("dispatch:agent:token", onAgentToken);
+    router.off("dispatch:agent:tool", onAgentTool);
+    router.off("dispatch:agent:done", onAgentDone);
+    router.off("dispatch:error", onDispatchError);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Wire SessionManager events → status bar updates
+// ---------------------------------------------------------------------------
+
+function wireSessionEvents(
+  sessionMgr: SessionManager,
+  layout: AppLayout,
+): () => void {
+  const onCostUpdated = (_sessionId: string, cost: { usd: number }) => {
+    layout.statusBar.updateSegment(4, `$${cost.usd.toFixed(2)}`, defaultTheme.success);
+    layout.tui.requestRender();
+  };
+
+  const onMessageAdded = () => {
+    // Auto-render when new messages arrive from external sources
+    layout.tui.requestRender();
+  };
+
+  sessionMgr.on("cost:updated", onCostUpdated);
+  sessionMgr.on("message:added", onMessageAdded);
+
+  return () => {
+    sessionMgr.off("cost:updated", onCostUpdated);
+    sessionMgr.off("message:added", onMessageAdded);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Handle user input via PromptRouter (replaces old isWorkGoal / handleChat)
+// ---------------------------------------------------------------------------
+
+async function handleWithRouter(
+  text: string,
+  session: Session,
+  router: PromptRouter,
+  layout: AppLayout,
+  ctx: { addMessage: (role: string, content: string) => void },
+): Promise<void> {
+  layout.statusBar.updateSegment(3, "routing...", defaultTheme.statusWorking);
+  layout.tui.requestRender();
+
+  const result = await router.route(session.id, text);
+
+  if (result.isErr()) {
+    ctx.addMessage("error", `Error: ${result.error.type}`);
+    layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
+    layout.tui.requestRender();
+    return;
+  }
+
+  const dispatch = result.value;
+
+  // Display results (for non-streaming agents or placeholder runner)
+  for (const agentResult of dispatch.agentResults) {
+    if (!agentResult.response) continue;
+
+    if (agentResult.agentId === "system") {
+      ctx.addMessage("system", agentResult.response);
+    } else {
+      layout.messages.addMessage({
+        role: "agent",
+        agentName: agentDisplayName(agentResult.agentId),
+        agentColor: getAgentColorFn(agentResult.agentId),
+        content: agentResult.response,
+        timestamp: new Date(),
+      });
+      layout.tui.requestRender();
+    }
+  }
+
+  layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
+
+  // Update cost display
+  const cost = session.cost;
+  layout.statusBar.updateSegment(4, `$${cost.usd.toFixed(2)}`, defaultTheme.success);
+  layout.tui.requestRender();
+}
+
+// ---------------------------------------------------------------------------
+// Fallback: direct LLM chat (used when router is not available)
+// ---------------------------------------------------------------------------
+
+async function handleChatFallback(
   text: string,
   layout: AppLayout,
   ctx: { addMessage: (role: string, content: string) => void },
@@ -88,102 +274,9 @@ async function handleChat(
   }
 }
 
-async function handleNaturalInput(
-  text: string,
-  layout: AppLayout,
-  ctx: { addMessage: (role: string, content: string) => void },
-): Promise<void> {
-  // Non-work inputs → direct LLM chat response
-  if (!isWorkGoal(text)) {
-    await handleChat(text, layout, ctx);
-    return;
-  }
-
-  // Work goal → start the agent pipeline
-  const { workerEvents } = await import("../core/worker-events.js");
-
-  let streamingActive = false;
-  const onChunk = (data: { botId: string; chunk: string }) => {
-    if (!streamingActive) {
-      layout.messages.addMessage({ role: "assistant", content: "", timestamp: new Date() });
-      streamingActive = true;
-    }
-    layout.messages.appendToLast(data.chunk);
-    layout.tui.requestRender();
-  };
-  const onReasoning = (data: { botId: string; reasoning: string }) => {
-    const preview = data.reasoning.slice(0, 200).replace(/\n/g, " ");
-    layout.messages.addMessage({
-      role: "agent",
-      agentName: data.botId,
-      content: `thinking: ${preview}${data.reasoning.length > 200 ? "..." : ""}`,
-      timestamp: new Date(),
-    });
-    layout.tui.requestRender();
-  };
-
-  workerEvents.on("stream-chunk", onChunk);
-  workerEvents.on("reasoning", onReasoning);
-
-  layout.statusBar.updateSegment(3, "working", defaultTheme.statusWorking);
-  layout.tui.requestRender();
-
-  // Suppress @clack/prompts stdout output — it conflicts with the TUI renderer.
-  // We capture clack's terminal writes and route them to Messages instead.
-  const origStdoutWrite = process.stdout.write.bind(process.stdout);
-  const origStderrWrite = process.stderr.write.bind(process.stderr);
-  const suppressClack = () => {
-    process.stdout.write = ((chunk: string | Uint8Array) => {
-      const str = typeof chunk === "string" ? chunk : chunk.toString();
-      // Clack output contains box-drawing chars (◇│├└┌┐) — redirect to messages
-      if (/[◇│├└┌┐◆●○◒◐◓◑]/.test(str) || str.includes("\x1b[2K")) {
-        // Strip ANSI, trim, skip empty
-        const clean = str.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").trim();
-        if (clean) {
-          layout.messages.addMessage({ role: "system", content: clean, timestamp: new Date() });
-          layout.tui.requestRender();
-        }
-        return true;
-      }
-      return origStdoutWrite(chunk);
-    }) as typeof process.stdout.write;
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      const str = typeof chunk === "string" ? chunk : chunk.toString();
-      if (/[◇│├└┌┐◆●○◒◐◓◑]/.test(str) || str.includes("\x1b[2K")) {
-        return true; // suppress spinner updates
-      }
-      return origStderrWrite(chunk);
-    }) as typeof process.stderr.write;
-  };
-  const restoreStdout = () => {
-    process.stdout.write = origStdoutWrite;
-    process.stderr.write = origStderrWrite;
-  };
-
-  suppressClack();
-
-  try {
-    const { runWork } = await import("../work-runner.js");
-    // Pass noWeb + noInteractive to skip clack interactive prompts
-    await runWork({ goal: text.trim(), noWeb: true, args: ["--no-interactive", "--no-briefing"] });
-    streamingActive = false;
-    ctx.addMessage("system", "Done.");
-  } catch (err) {
-    streamingActive = false;
-    const msg = err instanceof Error ? err.message : String(err);
-    if (err instanceof Error && err.name === "UserCancelError") {
-      ctx.addMessage("system", "Cancelled.");
-    } else {
-      ctx.addMessage("error", `Failed: ${msg}`);
-    }
-  } finally {
-    restoreStdout();
-    workerEvents.off("stream-chunk", onChunk);
-    workerEvents.off("reasoning", onReasoning);
-    layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
-    layout.tui.requestRender();
-  }
-}
+// ---------------------------------------------------------------------------
+// Launch options
+// ---------------------------------------------------------------------------
 
 export interface LaunchOptions {
   /** Custom terminal for testing (VirtualTerminal). */
@@ -194,27 +287,42 @@ export interface LaunchOptions {
   resume?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
 /**
  * Launch the interactive TUI.
  * Blocks until the user exits (Ctrl+C, /quit, Ctrl+D).
  */
 export async function launchTUI(opts?: LaunchOptions): Promise<void> {
-  // Suppress logger during TUI — all messages go through layout.showSystemMessage
+  // Suppress logger during TUI — all messages go through layout
   setLoggerMuted(true);
 
   const layout = createLayout(opts?.terminal);
   const registry = new CommandRegistry();
-  const session = new SessionManager(opts?.sessionsDir);
+  const tuiSession = new TuiSessionManager(opts?.sessionsDir);
+
+  // ── Shared mutable refs for async-initialized session/router ────────
+  // These are populated by initSessionRouter() after the TUI starts.
+  // The onSubmit handler checks them on each invocation.
+  const ctx = {
+    sessionMgr: null as SessionManager | null,
+    router: null as PromptRouter | null,
+    chatSession: null as Session | null,
+    cleanupRouter: null as (() => void) | null,
+    cleanupSession: null as (() => void) | null,
+  };
 
   // Register built-in commands (/help, /clear, /quit)
   for (const cmd of createBuiltinCommands(() => registry)) {
     registry.register(cmd);
   }
 
-  // Register control commands (natural language goes to agent pipeline)
-  registerAllCommands(registry, session);
+  // Register app commands (/status, /settings, /model, /mode, /cost, etc.)
+  registerAllCommands(registry, tuiSession);
 
-  // Set up autocomplete
+  // Set up autocomplete (updated later when router is ready)
   layout.editor.setAutocompleteProvider(
     createAutocompleteProvider(registry, process.cwd()),
   );
@@ -224,19 +332,22 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.editor.pushHistory(text);
     const parsed = parseInput(text);
 
-    const ctx = {
+    const msgCtx = {
       addMessage: (role: string, content: string) => {
         layout.messages.addMessage({
           role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
           content,
           timestamp: new Date(),
         });
-        session.append({ role, content });
+        tuiSession.append({ role, content });
+        if (ctx.chatSession) {
+          ctx.chatSession.addMessage({ role: role as "user" | "assistant" | "system" | "tool", content });
+        }
         layout.tui.requestRender();
       },
       requestRender: () => layout.tui.requestRender(),
       exit: () => {
-        session.close();
+        tuiSession.close();
         layout.tui.stop();
       },
       tui: layout.tui,
@@ -245,20 +356,29 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     switch (parsed.type) {
       case "command": {
         if (!parsed.name) {
-          ctx.addMessage("error", "Type a command name after /. Try /help for a list.");
+          msgCtx.addMessage("error", "Type a command name after /. Try /help for a list.");
           break;
         }
+        // Check TUI registry first (has /help, /status, /settings, etc.)
         const result = registry.lookup(`/${parsed.name} ${parsed.args}`);
         if (result) {
-          await result.command.execute(result.args, ctx);
+          await result.command.execute(result.args, msgCtx);
+        } else if (ctx.router && ctx.chatSession) {
+          // Fall through to PromptRouter for its slash commands (/agents, /compact, etc.)
+          const slashResult = await ctx.router.handleSlashCommand(ctx.chatSession.id, `/${parsed.name} ${parsed.args}`);
+          if (slashResult) {
+            msgCtx.addMessage("system", slashResult);
+          } else {
+            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+          }
         } else {
-          ctx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+          msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
         }
         break;
       }
 
       case "shell": {
-        ctx.addMessage("system", `$ ${parsed.command}`);
+        msgCtx.addMessage("system", `$ ${parsed.command}`);
         layout.messages.addMessage({ role: "tool", content: "", timestamp: new Date() });
         await executeShell(parsed.command, (chunk) => {
           layout.messages.appendToLast(chunk);
@@ -270,23 +390,31 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       case "file_ref": {
         const file = resolveFileRef(parsed.path, process.cwd());
         if ("error" in file) {
-          ctx.addMessage("error", file.error);
+          msgCtx.addMessage("error", file.error);
         } else {
-          ctx.addMessage("system", `📎 ${file.path}\n\`\`\`${file.language}\n${file.content}\n\`\`\``);
+          msgCtx.addMessage("system", `📎 ${file.path}\n\`\`\`${file.language}\n${file.content}\n\`\`\``);
         }
         break;
       }
 
       case "message": {
-        // Natural language → send to agent pipeline
-        ctx.addMessage("user", text);
-        await handleNaturalInput(text, layout, ctx);
+        msgCtx.addMessage("user", text);
+
+        // Route through PromptRouter if available, else fallback
+        if (ctx.router && ctx.chatSession) {
+          await handleWithRouter(text, ctx.chatSession, ctx.router, layout, msgCtx);
+        } else {
+          await handleChatFallback(text, layout, msgCtx);
+        }
         break;
       }
     }
   };
 
-  // Welcome message — appears as the first chat message, scrolls away naturally
+  // TUI abort handler
+  layout.tui.onAbort = () => false;
+
+  // Welcome message
   let versionStr = "0.0.1";
   try {
     const { createRequire } = await import("node:module");
@@ -296,6 +424,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   } catch {
     // Use default version
   }
+
   layout.messages.addMessage({
     role: "system",
     content: [
@@ -303,15 +432,16 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       "",
       "Terminal-native AI workspace. Just type what you want to build.",
       "",
-      "  /help       Show commands",
-      "  /settings   Configure provider & model",
-      "  /status     Check connection",
-      "  !command    Run a shell command",
-      "  @file       Reference a file",
+      "  /help       Show commands      @coder    Route to Coder",
+      "  /settings   Configure provider  @reviewer Route to Reviewer",
+      "  /agents     List agents        @planner  Route to Planner",
+      "  !command    Run shell command   @tester   Route to Tester",
+      "  @file       Reference a file   @debugger Route to Debugger",
     ].join("\n"),
     timestamp: new Date(),
   });
-  // Detect provider configuration and update status bar
+
+  // Status bar segments: provider | connection | mode | state | cost
   layout.statusBar.setSegments([
     { text: "no provider", color: defaultTheme.dim },
     { text: "\u25cb not configured", color: defaultTheme.error },
@@ -338,15 +468,27 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.tui.requestRender();
   };
 
-  const cleanup = () => {
-    session.close();
+  const cleanup = async () => {
+    ctx.cleanupRouter?.();
+    ctx.cleanupSession?.();
+    tuiSession.close();
+    if (ctx.router) await ctx.router.shutdown();
+    if (ctx.sessionMgr) await ctx.sessionMgr.shutdown();
     layout.tui.stop();
     setLoggerMuted(false);
   };
-  layout.tui.onExit = cleanup;
+  layout.tui.onExit = () => void cleanup();
 
   // Start the TUI
   layout.tui.start();
+
+  // ── Initialize SessionManager + PromptRouter in background ──────────
+  // This happens after tui.start() so the TUI is responsive immediately.
+  // The onSubmit handler uses ctx.router/ctx.chatSession which are null
+  // until this completes (fallback mode handles that gracefully).
+  initSessionRouter(ctx, opts, layout, registry).catch(() => {
+    // Initialization failed — TUI continues in fallback mode
+  });
 
   // Block until exit
   await new Promise<void>((resolve) => {
@@ -357,6 +499,108 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     };
   });
 }
+
+/** Initialize SessionManager + PromptRouter after TUI has started. */
+async function initSessionRouter(
+  ctx: {
+    sessionMgr: SessionManager | null;
+    router: PromptRouter | null;
+    chatSession: Session | null;
+    cleanupRouter: (() => void) | null;
+    cleanupSession: (() => void) | null;
+  },
+  opts: LaunchOptions | undefined,
+  layout: AppLayout,
+  registry: CommandRegistry,
+): Promise<void> {
+  const { createSessionManager } = await import("../session/index.js");
+  const { PromptRouter: RouterClass } = await import("../router/index.js");
+
+  ctx.sessionMgr = createSessionManager({
+    sessionsDir: opts?.sessionsDir,
+  });
+  await ctx.sessionMgr.initialize();
+
+  ctx.router = new RouterClass({}, ctx.sessionMgr);
+  await ctx.router.initialize();
+
+  // Create or resume session
+  if (opts?.resume) {
+    const latestResult = await ctx.sessionMgr.resumeLatest();
+    ctx.chatSession = latestResult.isOk() ? latestResult.value : null;
+  }
+  if (!ctx.chatSession) {
+    const createResult = await ctx.sessionMgr.create(process.cwd());
+    if (createResult.isOk()) {
+      ctx.chatSession = createResult.value;
+    }
+  }
+
+  // Wire events
+  ctx.cleanupRouter = wireRouterEvents(ctx.router, layout);
+  ctx.cleanupSession = wireSessionEvents(ctx.sessionMgr, layout);
+
+  // Register router-powered commands
+  if (ctx.chatSession) {
+    registerRouterCommands(registry, ctx.router, ctx.chatSession, layout);
+  }
+
+  // Update autocomplete to include @agent mentions
+  layout.editor.setAutocompleteProvider(
+    createAutocompleteProvider(registry, process.cwd(), ctx.router),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Register router-powered slash commands into TUI command registry
+// ---------------------------------------------------------------------------
+
+function registerRouterCommands(
+  registry: CommandRegistry,
+  router: PromptRouter,
+  session: Session,
+  _layout: AppLayout,
+): void {
+  registry.register({
+    name: "agents",
+    description: "List available agents",
+    async execute(_args, ctx) {
+      const agents = router.getRegistry().getAll();
+      const lines = ["Available agents:", ""];
+      for (const a of agents) {
+        const colorFn = getAgentColorFn(a.id);
+        const label = colorFn(a.id.padEnd(14));
+        lines.push(`  ${label} ${a.description}`);
+      }
+      lines.push("");
+      lines.push("  Use @agent in your prompt to route directly.");
+      ctx.addMessage("system", lines.join("\n"));
+    },
+  });
+
+  registry.register({
+    name: "session",
+    aliases: ["s"],
+    description: "Show current session info",
+    async execute(_args, ctx) {
+      const state = session.getState();
+      const lines = [
+        `**Session:** ${state.id}`,
+        `**Title:** ${state.title}`,
+        `**Status:** ${state.status}`,
+        `**Messages:** ${state.messageCount}`,
+        `**Cost:** $${state.totalCostUSD.toFixed(4)}`,
+        `**Input tokens:** ${state.totalInputTokens.toLocaleString()}`,
+        `**Output tokens:** ${state.totalOutputTokens.toLocaleString()}`,
+      ];
+      ctx.addMessage("system", lines.join("\n"));
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Non-interactive print mode (unchanged)
+// ---------------------------------------------------------------------------
 
 /**
  * Non-interactive print mode.
