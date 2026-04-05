@@ -250,6 +250,15 @@ export class SettingsView extends InteractiveView {
         const result = getConfigValue(field.key, { raw: true });
         this.values.set(field.key, result.value ?? "");
       }
+
+      // Override provider and model from ActiveProviderState (runtime truth)
+      const { getActiveProviderState } = await import("../../providers/active-state.js");
+      const active = getActiveProviderState();
+      if (active.isConfigured()) {
+        this.values.set("provider", active.provider);
+        this.values.set("model", active.model);
+        this.connectionStatus.set("provider", "ok");
+      }
     } catch {
       // Config unavailable
     }

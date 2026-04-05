@@ -115,6 +115,10 @@ export function createModelCommand(): SlashCommand {
       if ("error" in setResult) {
         ctx.addMessage("error", setResult.error);
       } else {
+        // Update ActiveProviderState (single source of truth)
+        const { getActiveProviderState } = await import("../../providers/active-state.js");
+        getActiveProviderState().setModel(match.model);
+
         const via = match.provider !== modelName ? ` via ${match.provider}` : "";
         ctx.addMessage("system", `\u2713 Switched to ${match.model}${via}`);
       }

@@ -512,6 +512,13 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.statusBar.updateSegment(0, configState.providerName, ctp.subtext1);
     if (configState.isConnected) {
       layout.statusBar.updateSegment(1, "\u25cf connected", ctp.green);
+
+      // Set ActiveProviderState — single source of truth for all UI
+      const { getActiveProviderState } = await import("../providers/active-state.js");
+      const activeState = getActiveProviderState();
+      const { getConfigValue } = await import("../core/configManager.js");
+      const modelResult = getConfigValue("model", { raw: true });
+      activeState.setActive(configState.providerName, modelResult.value ?? "auto", { autoDetected: true });
     } else {
       layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
     }
