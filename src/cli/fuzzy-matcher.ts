@@ -4,7 +4,7 @@
 
 import levenshtein from "damerau-levenshtein";
 
-/** All valid top-level teamclaw commands. */
+/** All valid top-level openpawl commands. */
 export const COMMANDS = [
     "setup",
     "work",

@@ -1,5 +1,5 @@
 /**
- * CLI command: teamclaw think
+ * CLI command: openpawl think
  * Lightweight structured thinking mode — rubber duck debugging.
  */
 
@@ -111,25 +111,25 @@ export async function runThinkCommand(args: string[]): Promise<void> {
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     logger.plain(
       [
-        pc.bold("teamclaw think") +
+        pc.bold("openpawl think") +
           " — Rubber duck mode: structured thinking with agent perspectives",
         "",
         "Usage:",
-        '  teamclaw think "your question"               Interactive think session',
-        '  teamclaw think "question" --save              Auto-save to journal',
-        '  teamclaw think "question" --no-stream         Show results at end (no streaming)',
-        '  teamclaw think "question" --async             Run in background (async mode)',
-        '  teamclaw think "question" --async --no-save   Async without auto-saving to journal',
+        '  openpawl think "your question"               Interactive think session',
+        '  openpawl think "question" --save              Auto-save to journal',
+        '  openpawl think "question" --no-stream         Show results at end (no streaming)',
+        '  openpawl think "question" --async             Run in background (async mode)',
+        '  openpawl think "question" --async --no-save   Async without auto-saving to journal',
         "",
-        "  teamclaw think jobs                           List async think jobs",
-        "  teamclaw think jobs --pending                 Show only pending jobs",
-        "  teamclaw think jobs --complete                Show only completed jobs",
-        "  teamclaw think status [jobId]                 Show async job status",
-        "  teamclaw think results [jobId]                Show async job results",
-        "  teamclaw think cancel <jobId>                 Cancel a running async job",
-        "  teamclaw think clear                          Remove finished async jobs",
-        "  teamclaw think history                        List past think sessions",
-        "  teamclaw think history --session <id>         Show specific session",
+        "  openpawl think jobs                           List async think jobs",
+        "  openpawl think jobs --pending                 Show only pending jobs",
+        "  openpawl think jobs --complete                Show only completed jobs",
+        "  openpawl think status [jobId]                 Show async job status",
+        "  openpawl think results [jobId]                Show async job results",
+        "  openpawl think cancel <jobId>                 Cancel a running async job",
+        "  openpawl think clear                          Remove finished async jobs",
+        "  openpawl think history                        List past think sessions",
+        "  openpawl think history --session <id>         Show specific session",
       ].join("\n"),
     );
     return;
@@ -194,9 +194,9 @@ export async function runThinkCommand(args: string[]): Promise<void> {
     logger.plain(`Question: "${question}"`);
     logger.plain(`Auto-save: ${asyncAutoSave ? "yes" : "no"}`);
     logger.plain("");
-    logger.plain(pc.dim(`Check status:  teamclaw think status ${result.job!.id}`));
-    logger.plain(pc.dim(`View results:  teamclaw think results ${result.job!.id}`));
-    logger.plain(pc.dim(`List all jobs: teamclaw think jobs`));
+    logger.plain(pc.dim(`Check status:  openpawl think status ${result.job!.id}`));
+    logger.plain(pc.dim(`View results:  openpawl think results ${result.job!.id}`));
+    logger.plain(pc.dim(`List all jobs: openpawl think jobs`));
     return;
   }
 
@@ -367,9 +367,9 @@ export async function runThinkCommand(args: string[]): Promise<void> {
       logger.plain(pc.dim("You can modify the goal in the setup wizard.\n"));
 
       const { spawn } = await import("node:child_process");
-      spawn("npx", ["teamclaw", "work"], {
+      spawn("npx", ["openpawl", "work"], {
         stdio: "inherit",
-        env: { ...process.env, TEAMCLAW_SUGGESTED_GOAL: goal },
+        env: { ...process.env, OPENPAWL_SUGGESTED_GOAL: goal },
       });
       return;
     }
@@ -525,7 +525,7 @@ async function runAsyncResults(jobId?: string): Promise<void> {
 
 async function runAsyncCancel(jobId?: string): Promise<void> {
   if (!jobId) {
-    logger.error("Usage: teamclaw think cancel <jobId>");
+    logger.error("Usage: openpawl think cancel <jobId>");
     return;
   }
 

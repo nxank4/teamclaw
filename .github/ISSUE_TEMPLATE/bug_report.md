@@ -24,7 +24,7 @@ What actually happened.
 - Node version:
 - pnpm version:
 - OS:
-- TeamClaw version (if known):
+- OpenPawl version (if known):
 
 ## Additional context
 Logs, screenshots, or other relevant info.

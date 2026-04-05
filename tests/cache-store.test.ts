@@ -6,7 +6,7 @@ import path from "node:path";
 import { ResponseCacheStore, buildCacheKey, hasSessionSpecificContent } from "../src/cache/cache-store.js";
 import type { CacheEntry } from "../src/cache/types.js";
 
-const TEST_CACHE_DIR = path.join(os.tmpdir(), `teamclaw-cache-test-${process.pid}`);
+const TEST_CACHE_DIR = path.join(os.tmpdir(), `openpawl-cache-test-${process.pid}`);
 
 // Override cache dir for tests by patching the module-level constant
 // We use a custom store that writes to a temp dir instead

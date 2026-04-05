@@ -1,5 +1,5 @@
 /**
- * Tails the gateway log file (~/.teamclaw/gateway.log)
+ * Tails the gateway log file (~/.openpawl/gateway.log)
  * and emits parsed entries into llmEvents so they appear in the dashboard.
  */
 
@@ -10,7 +10,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { llmEvents, type LlmLogLevel } from "./llm-events.js";
 
-const GATEWAY_LOG = path.join(os.homedir(), ".teamclaw", "gateway.log");
+const GATEWAY_LOG = path.join(os.homedir(), ".openpawl", "gateway.log");
 const POLL_INTERVAL_MS = 5_000;
 const DEBOUNCE_MS = 50;
 

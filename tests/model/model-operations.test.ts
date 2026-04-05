@@ -24,7 +24,7 @@ vi.mock("@/core/global-config.js", () => ({
   buildDefaultGlobalConfig: mockBuildDefaultGlobalConfig,
   readGlobalConfigWithDefaults: () =>
     mockReadGlobalConfig() ?? mockBuildDefaultGlobalConfig(),
-  getGlobalConfigPath: () => "/tmp/.teamclaw/config.json",
+  getGlobalConfigPath: () => "/tmp/.openpawl/config.json",
   normalizeGlobalConfig: (input: Record<string, unknown>) => input,
 }));
 

@@ -1,9 +1,9 @@
 /**
- * Built-in seed templates bundled with TeamClaw.
+ * Built-in seed templates bundled with OpenPawl.
  * These work offline — no network needed.
  */
 
-import type { TeamClawTemplate } from "../types.js";
+import type { OpenPawlTemplate } from "../types.js";
 
 export const SEED_TEMPLATE_IDS = [
   "content-creator",
@@ -13,7 +13,7 @@ export const SEED_TEMPLATE_IDS = [
   "full-stack-sprint",
 ] as const;
 
-const SEED_TEMPLATES: TeamClawTemplate[] = [
+const SEED_TEMPLATES: OpenPawlTemplate[] = [
   {
     id: "content-creator",
     name: "Content Creator Team",
@@ -166,11 +166,11 @@ const SEED_TEMPLATES: TeamClawTemplate[] = [
   },
 ];
 
-export function getAllSeedTemplates(): TeamClawTemplate[] {
+export function getAllSeedTemplates(): OpenPawlTemplate[] {
   return [...SEED_TEMPLATES];
 }
 
-export function getSeedTemplate(id: string): TeamClawTemplate | null {
+export function getSeedTemplate(id: string): OpenPawlTemplate | null {
   return SEED_TEMPLATES.find((t) => t.id === id) ?? null;
 }
 

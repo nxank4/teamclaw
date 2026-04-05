@@ -4,7 +4,7 @@ import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TEST_DIR = path.join(os.tmpdir(), "teamclaw-test-publisher-" + Date.now());
+const TEST_DIR = path.join(os.tmpdir(), "openpawl-test-publisher-" + Date.now());
 
 describe("TemplatePublisher", () => {
   beforeEach(() => {
@@ -66,7 +66,7 @@ describe("TemplatePublisher", () => {
     const cmd = publisher.getGhCommand(validTemplate as any);
 
     expect(cmd).toContain("gh pr create");
-    expect(cmd).toContain("nxank4/teamclaw-templates");
+    expect(cmd).toContain("nxank4/openpawl-templates");
     expect(cmd).toContain("test-template");
   });
 

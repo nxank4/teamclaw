@@ -37,11 +37,11 @@ export const env = createEnv({
     LANGFUSE_PUBLIC_KEY: z.string().startsWith("pk-lf-").optional(),
     LANGFUSE_BASE_URL: z.string().url().optional(),
 
-    // TeamClaw settings
-    TEAMCLAW_LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
-    TEAMCLAW_CONFIG_DIR: z.string().optional(),
-    TEAMCLAW_PORT: z.coerce.number().int().positive().optional(),
-    TEAMCLAW_MOCK_LLM: z.string().optional(),
+    // OpenPawl settings
+    OPENPAWL_LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+    OPENPAWL_CONFIG_DIR: z.string().optional(),
+    OPENPAWL_PORT: z.coerce.number().int().positive().optional(),
+    OPENPAWL_MOCK_LLM: z.string().optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

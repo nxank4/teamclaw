@@ -629,7 +629,7 @@ export function createWorkerCollectNode(): (state: GraphState) => Partial<GraphS
               const path = await import("node:path");
               const { DecisionStore } = await import("../journal/store.js");
               const { checkSupersession } = await import("../journal/supersession.js");
-              const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+              const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
               const db = await lancedbMod.connect(dbPath);
               const store = new DecisionStore();
               await store.init(db);

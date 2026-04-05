@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MarketplaceClient } from "@/templates/marketplace-client.js";
-import type { TemplateIndex, TeamClawTemplate } from "@/templates/types.js";
+import type { TemplateIndex, OpenPawlTemplate } from "@/templates/types.js";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TEST_DIR = path.join(os.tmpdir(), "teamclaw-test-marketplace-" + Date.now());
+const TEST_DIR = path.join(os.tmpdir(), "openpawl-test-marketplace-" + Date.now());
 const originalHomedir = os.homedir;
 
 const mockIndex: TemplateIndex = {
@@ -43,12 +43,13 @@ const mockIndex: TemplateIndex = {
 
 describe("MarketplaceClient", () => {
   beforeEach(() => {
-    process.env.HOME = TEST_DIR;
+    // Mock os.homedir to return test dir (works on all platforms)
+    os.homedir = () => TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    process.env.HOME = originalHomedir();
+    os.homedir = originalHomedir;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }
@@ -71,7 +72,7 @@ describe("MarketplaceClient", () => {
 
   it("falls back to cache when GitHub unreachable", async () => {
     // Pre-populate cache
-    const cacheDir = path.join(TEST_DIR, ".teamclaw", "templates", "cache");
+    const cacheDir = path.join(TEST_DIR, ".openpawl", "templates", "cache");
     mkdirSync(cacheDir, { recursive: true });
     writeFileSync(
       path.join(cacheDir, "index.json"),
@@ -89,7 +90,7 @@ describe("MarketplaceClient", () => {
 
   it("returns stale cache within TTL", async () => {
     // Pre-populate fresh cache (within 1 hour)
-    const cacheDir = path.join(TEST_DIR, ".teamclaw", "templates", "cache");
+    const cacheDir = path.join(TEST_DIR, ".openpawl", "templates", "cache");
     mkdirSync(cacheDir, { recursive: true });
     writeFileSync(
       path.join(cacheDir, "index.json"),

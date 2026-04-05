@@ -1,6 +1,6 @@
 /**
  * Background service manager for Web UI.
- * Persists PIDs to .teamclaw/daemon.json and logs to .teamclaw/web.log.
+ * Persists PIDs to .openpawl/daemon.json and logs to .openpawl/web.log.
  */
 
 import { spawn } from "node:child_process";
@@ -8,7 +8,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, write
 import path from "node:path";
 import { readGlobalConfigWithDefaults } from "../core/global-config.js";
 
-const DAEMON_DIR = ".teamclaw";
+const DAEMON_DIR = ".openpawl";
 const STATE_FILE = "daemon.json";
 const WEB_LOG = "web.log";
 const DEFAULT_WEB_PORT = 9001;
@@ -67,7 +67,7 @@ export function start(options: StartOptions): { started: string[]; error?: strin
   const state = readState();
   const webPid = state?.web?.pid;
   if (webPid != null && isPidAlive(webPid)) {
-    return { started: [], error: "Services already running (use teamclaw stop first)." };
+    return { started: [], error: "Services already running (use openpawl stop first)." };
   }
 
   const cliPath = process.argv[1];

@@ -1,5 +1,5 @@
 /**
- * Fastify server for TeamClaw web UI.
+ * Fastify server for OpenPawl web UI.
  * Serves static HTML and streams workflow events via SSE.
  * Client→server commands use REST endpoints.
  */
@@ -268,7 +268,7 @@ export async function runWeb(args: string[]): Promise<void> {
     try {
       const lancedb = await import("@lancedb/lancedb");
       const { PersonalityEventStore } = await import("../personality/memory.js");
-      const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+      const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
       const db = await lancedb.connect(dbPath);
       const store = new PersonalityEventStore();
       await store.init(db);
@@ -297,7 +297,7 @@ export async function runWeb(args: string[]): Promise<void> {
     const goal = (body.goal as string)?.trim() || "";
     const workerUrl = (body.worker_url as string)?.trim() || "";
     const workers = body.workers as Record<string, string> | undefined;
-    const configPath = path.join(process.cwd(), "teamclaw.config.json");
+    const configPath = path.join(process.cwd(), "openpawl.config.json");
     const config: Record<string, unknown> = roster ? { roster, goal } : { template, goal };
     if (workerUrl) config.worker_url = workerUrl;
     if (workers && Object.keys(workers).length > 0) config.workers = workers;
@@ -448,7 +448,7 @@ export async function runWeb(args: string[]): Promise<void> {
       if (pm.getProviders().length === 0) {
         broadcast({
           type: "provision_error",
-          error: "No LLM providers configured. Run `teamclaw setup` or set an API key env var.",
+          error: "No LLM providers configured. Run `openpawl setup` or set an API key env var.",
         });
         return;
       }
@@ -810,7 +810,7 @@ export async function runWeb(args: string[]): Promise<void> {
     const callbackUrl = `${req.protocol}://${req.hostname}/webhook/approval`;
 
     const html = `<!DOCTYPE html>
-<html><head><title>TeamClaw Approval</title>
+<html><head><title>OpenPawl Approval</title>
 <style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#1a1a1a;color:#e5e5e5}
 .card{background:#262626;border-radius:12px;padding:2rem;text-align:center;max-width:400px}
 .btn{display:inline-block;padding:0.75rem 1.5rem;border-radius:8px;border:none;font-size:1rem;cursor:pointer;margin:0.5rem}
@@ -819,7 +819,7 @@ export async function runWeb(args: string[]): Promise<void> {
 textarea{width:100%;min-height:60px;border-radius:8px;border:1px solid #444;background:#333;color:#e5e5e5;padding:0.5rem;box-sizing:border-box}
 </style></head><body>
 <div class="card" id="form">
-<h2>TeamClaw Approval</h2>
+<h2>OpenPawl Approval</h2>
 <p>Choose an action:</p>
 <button class="btn approve" onclick="submit('approve')">Approve</button>
 <button class="btn reject" onclick="showFeedback()">Reject</button>
@@ -1301,7 +1301,7 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
     if (format === "markdown") {
       const md = renderAuditMarkdown(audit, { includePrompts: body.includePrompts as boolean ?? false });
       const { writeFile, mkdir } = await import("node:fs/promises");
-      const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
+      const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", sessionId);
       await mkdir(sessionDir, { recursive: true });
       const outPath = path.join(sessionDir, "audit.md");
       await writeFile(outPath, md, "utf-8");
@@ -1706,7 +1706,7 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
   fastify.get("/api/score", async (_req, reply) => {
     try {
       const lancedb = await import("@lancedb/lancedb");
-      const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+      const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
       const db = await lancedb.connect(dbPath);
       const { VibeScoreStore } = await import("../score/store.js");
       const { calculateTrend } = await import("../score/trends.js");
@@ -1841,7 +1841,7 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
       const outPath = path.resolve(DEFAULT_HANDOFF_CONFIG.outputPath);
       await writeFile(outPath, markdown, "utf-8");
 
-      const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", last.sessionId);
+      const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", last.sessionId);
       await mkdir(sessionDir, { recursive: true });
       await writeFile(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
 
@@ -1905,7 +1905,7 @@ document.getElementById('msg').textContent=r.ok?'Rejection submitted!':'Error: '
 
     if (s) {
       s.stop("Web Server is live!");
-      note(`Access the dashboard at: ${url}`, "TeamClaw Web UI");
+      note(`Access the dashboard at: ${url}`, "OpenPawl Web UI");
     } else {
       logger.success(`Web UI: ${url}`);
     }

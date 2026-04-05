@@ -1,6 +1,6 @@
 /**
  * Workspace History — remembers recently used workspace directories.
- * Persists up to MAX_HISTORY entries in ~/.teamclaw/workspace_history.json.
+ * Persists up to MAX_HISTORY entries in ~/.openpawl/workspace_history.json.
  */
 
 import fs from "node:fs";
@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 const MAX_HISTORY = 5;
-const HISTORY_FILE = path.join(os.homedir(), ".teamclaw", "workspace_history.json");
+const HISTORY_FILE = path.join(os.homedir(), ".openpawl", "workspace_history.json");
 
 interface HistoryData {
     workspaces: string[];

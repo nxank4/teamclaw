@@ -43,6 +43,7 @@ const ENV_KEY_MAP: Record<string, OpenAIPreset> = {
   OPENCODE_API_KEY: "opencode-zen",
   OPENCODE_GO_API_KEY: "opencode-go",
   AZURE_OPENAI_API_KEY: "azure",
+  DASHSCOPE_API_KEY: "alibaba-coding",
 };
 
 export function providerFromConfig(entry: ProviderConfigEntry): StreamProvider | null {
@@ -90,7 +91,7 @@ export function providerFromConfig(entry: ProviderConfigEntry): StreamProvider |
       });
 
     case "gemini-oauth":
-      logger.warn('Gemini OAuth not yet implemented. Use API key: teamclaw providers add gemini');
+      logger.warn('Gemini OAuth not yet implemented. Use API key: openpawl providers add gemini');
       return null;
   }
 
@@ -155,7 +156,7 @@ export function getGlobalProviderManager(): ProviderManager {
 
   const chain = createProviderChain(configProviders);
   if (chain.length === 0) {
-    logger.warn("No LLM providers configured. Set an API key env var or run `teamclaw setup`.");
+    logger.warn("No LLM providers configured. Set an API key env var or run `openpawl setup`.");
   }
 
   // Set active provider family for tier-based model routing

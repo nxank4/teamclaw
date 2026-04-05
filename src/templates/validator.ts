@@ -2,21 +2,21 @@
  * Template validator — validates template JSON against rules.
  */
 
-import type { TeamClawTemplate } from "./types.js";
+import type { OpenPawlTemplate } from "./types.js";
 
 export interface TemplateValidationResult {
   valid: boolean;
-  data?: TeamClawTemplate;
+  data?: OpenPawlTemplate;
   errors: string[];
 }
 
-export type ValidatedTemplate = TeamClawTemplate;
+export type ValidatedTemplate = OpenPawlTemplate;
 
 const KEBAB_CASE_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/;
 
-export const TeamClawTemplateSchema = {
-  parse(data: unknown): TeamClawTemplate {
+export const OpenPawlTemplateSchema = {
+  parse(data: unknown): OpenPawlTemplate {
     const result = validateTemplate(data);
     if (!result.valid) throw new Error(result.errors.join(", "));
     return result.data!;
@@ -80,5 +80,5 @@ export function validateTemplate(data: unknown): TemplateValidationResult {
     return { valid: false, errors };
   }
 
-  return { valid: true, data: obj as unknown as TeamClawTemplate, errors: [] };
+  return { valid: true, data: obj as unknown as OpenPawlTemplate, errors: [] };
 }

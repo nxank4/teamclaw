@@ -1,5 +1,5 @@
 /**
- * `teamclaw demo` — Terminal showcase of all TeamClaw features.
+ * `openpawl demo` — Terminal showcase of all OpenPawl features.
  * All output is hardcoded synthetic data — zero API calls, zero side effects.
  */
 
@@ -39,7 +39,7 @@ function todayFormatted(): string {
 
 function stepBriefing(): void {
   out(dim(SEP));
-  out(cyan("Previously on TeamClaw"));
+  out(cyan("Previously on OpenPawl"));
   out(dim("Last session: yesterday (a3f8b2c1d9e04f71)"));
   out(dim(SEP));
   out(bold("What was built:"));
@@ -89,7 +89,7 @@ function stepDrift(): void {
   out(red("    leaderboard\" — recommended by tech-lead, confidence 0.88"));
   out("");
   out(yellow("  Switching to REST polling contradicts 2 active decisions."));
-  out(yellow("  Use `teamclaw journal show 47` to review reasoning."));
+  out(yellow("  Use `openpawl journal show 47` to review reasoning."));
   out(dim(SEP));
 }
 
@@ -205,7 +205,7 @@ function stepStandup(): void {
 
 function stepThink(): void {
   out(dim(SEP));
-  out(cyan("Rubber Duck Mode — teamclaw think"));
+  out(cyan("Rubber Duck Mode — openpawl think"));
   out(dim(`Question: "Should we use SSE or WebSocket for the dashboard?"`));
   out(dim(SEP));
   out(bold("  Tech Lead perspective:"));
@@ -251,8 +251,8 @@ function stepTemplates(): void {
   }
 
   out("");
-  out(dim("  teamclaw templates install indie-hacker"));
-  out(dim('  teamclaw work --template indie-hacker --goal "Build auth"'));
+  out(dim("  openpawl templates install indie-hacker"));
+  out(dim('  openpawl work --template indie-hacker --goal "Build auth"'));
   out(dim(SEP));
 }
 
@@ -272,10 +272,10 @@ function stepSummary(): void {
   out(magenta("  Vibe Score: 78/100 ↑ (+3 from last week)"));
   out("");
   out(dim("  Next steps:"));
-  out(dim("    teamclaw standup        — check what's blocked"));
-  out(dim("    teamclaw work           — start next sprint"));
-  out(dim("    teamclaw journal list   — review decisions"));
-  out(dim("    teamclaw replay list    — replay this session"));
+  out(dim("    openpawl standup        — check what's blocked"));
+  out(dim("    openpawl work           — start next sprint"));
+  out(dim("    openpawl journal list   — review decisions"));
+  out(dim("    openpawl replay list    — replay this session"));
   out(dim(SEP));
 }
 
@@ -300,12 +300,12 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export async function runDemo(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     logger.plain([
-      pc.bold("teamclaw demo") + " — Showcase all TeamClaw features",
+      pc.bold("openpawl demo") + " — Showcase all OpenPawl features",
       "",
       "Usage:",
-      "  teamclaw demo                Run full 11-step demo",
-      "  teamclaw demo --fast         Skip pauses between steps",
-      "  teamclaw demo --step 4       Run only step N (1-11)",
+      "  openpawl demo                Run full 11-step demo",
+      "  openpawl demo --fast         Skip pauses between steps",
+      "  openpawl demo --step 4       Run only step N (1-11)",
       "",
       "Steps:",
       ...STEPS.map((s, i) => `  ${String(i + 1).padStart(2)}. ${s.name}`),
@@ -336,7 +336,7 @@ export async function runDemo(args: string[]): Promise<void> {
 
   out("");
   out(dim(SEP));
-  out(bold(cyan("  TeamClaw Demo — 11 Features in Action")));
+  out(bold(cyan("  OpenPawl Demo — 11 Features in Action")));
   out(dim("  All output is synthetic. No API calls. No side effects."));
   out(dim(SEP));
 

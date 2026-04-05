@@ -1,4 +1,4 @@
-# TeamClaw — multi-stage Docker build
+# OpenPawl — multi-stage Docker build
 # Build:  docker compose build
 # Run:    docker compose up -d
 
@@ -27,9 +27,9 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/dist ./dist
 
 # Data directories (mounted as volume in production)
-RUN mkdir -p /home/node/.teamclaw/memory /home/node/.teamclaw/sessions \
-    /home/node/.teamclaw/cache /home/node/.teamclaw/templates \
-    && chown -R node:node /home/node/.teamclaw /app
+RUN mkdir -p /home/node/.openpawl/memory /home/node/.openpawl/sessions \
+    /home/node/.openpawl/cache /home/node/.openpawl/templates \
+    && chown -R node:node /home/node/.openpawl /app
 
 RUN chmod +x /app/dist/cli.js
 

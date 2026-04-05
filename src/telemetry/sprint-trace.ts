@@ -14,7 +14,7 @@ export class SprintTrace {
 
     this.trace = lf.trace({
       id: sprintId,
-      name: "teamclaw-sprint",
+      name: "openpawl-sprint",
       input: { goal },
       userId,
       tags: ["sprint"],

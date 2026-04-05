@@ -80,11 +80,11 @@ async function runInteractiveClarification(goal: string, result: ClarityResult):
 export async function runClarityCommand(args: string[]): Promise<void> {
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     logger.plain([
-      pc.bold("teamclaw clarity") + " — Check goal clarity",
+      pc.bold("openpawl clarity") + " — Check goal clarity",
       "",
       "Usage:",
-      '  teamclaw clarity "Improve the API"           Check goal clarity',
-      '  teamclaw clarity "Improve the API" --fix     Interactive clarification',
+      '  openpawl clarity "Improve the API"           Check goal clarity',
+      '  openpawl clarity "Improve the API" --fix     Interactive clarification',
     ].join("\n"));
     return;
   }

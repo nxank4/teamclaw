@@ -60,7 +60,7 @@ export async function runProvidersCommand(args: string[]): Promise<void> {
   const sub = args[0];
 
   if (!sub || sub === "--help" || sub === "-h") {
-    logger.plain("Usage: teamclaw providers <subcommand>");
+    logger.plain("Usage: openpawl providers <subcommand>");
     logger.plain("");
     logger.plain("Subcommands:");
     logger.plain("  list     Show configured providers and status");
@@ -85,7 +85,7 @@ export async function runProvidersCommand(args: string[]): Promise<void> {
   }
 
   logger.error(`Unknown providers subcommand: ${sub}`);
-  logger.error("Run `teamclaw providers --help` for usage.");
+  logger.error("Run `openpawl providers --help` for usage.");
   process.exit(1);
 }
 
@@ -130,7 +130,7 @@ export async function listProviders(): Promise<void> {
   if ((!configEntries || configEntries.length === 0) && envProviders.length === 0) {
     logger.plain("");
     logger.plain(pc.yellow("  No providers configured."));
-    logger.plain(pc.dim("  Run `teamclaw setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
+    logger.plain(pc.dim("  Run `openpawl setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
   }
 }
 
@@ -140,7 +140,7 @@ async function testProviders(): Promise<void> {
 
   if (providers.length === 0) {
     logger.plain(pc.yellow("No providers configured. Nothing to test."));
-    logger.plain(pc.dim("Run `teamclaw setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
+    logger.plain(pc.dim("Run `openpawl setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
     return;
   }
 
@@ -344,7 +344,7 @@ export async function addProvider(args: string[]): Promise<void> {
 
   logger.plain(`\n${pc.green("\u2713")} Provider ${pc.bold(meta.name)} added successfully.`);
   if (entry.model) logger.plain(`  Model: ${entry.model}`);
-  logger.plain(pc.dim("  Run: teamclaw providers test"));
+  logger.plain(pc.dim("  Run: openpawl providers test"));
 }
 
 async function promptApiKey(

@@ -14,11 +14,11 @@ export interface DeviceIdentity {
   privateKeyPem: string;
 }
 
-const IDENTITY_DIR = path.join(os.homedir(), ".teamclaw", "identity");
+const IDENTITY_DIR = path.join(os.homedir(), ".openpawl", "identity");
 const IDENTITY_FILE = path.join(IDENTITY_DIR, "device.json");
 
 /**
- * Loads existing device identity from ~/.teamclaw/identity/device.json,
+ * Loads existing device identity from ~/.openpawl/identity/device.json,
  * or generates a new Ed25519 keypair if none exists.
  */
 export function loadOrCreateDeviceIdentity(): DeviceIdentity {

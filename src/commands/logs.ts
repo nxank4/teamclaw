@@ -2,12 +2,12 @@
  * Logs Command — View gateway, web dashboard, and work session logs.
  *
  * Usage:
- *   teamclaw logs                  # Show all available log files
- *   teamclaw logs gateway          # View gateway logs
- *   teamclaw logs web              # View web dashboard logs
- *   teamclaw logs work             # View work session logs
- *   teamclaw logs gateway -f       # Follow (tail -f) gateway logs
- *   teamclaw logs gateway -n 50    # Show last 50 lines
+ *   openpawl logs                  # Show all available log files
+ *   openpawl logs gateway          # View gateway logs
+ *   openpawl logs web              # View web dashboard logs
+ *   openpawl logs work             # View work session logs
+ *   openpawl logs gateway -f       # Follow (tail -f) gateway logs
+ *   openpawl logs gateway -n 50    # Show last 50 lines
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -32,20 +32,20 @@ function getLogSources(): LogSource[] {
     {
       name: "gateway",
       label: "LLM Gateway",
-      path: path.join(homeDir, ".teamclaw", "gateway.log"),
+      path: path.join(homeDir, ".openpawl", "gateway.log"),
       description: "Gateway process output (LLM routing, WebSocket protocol)",
     },
     {
       name: "web",
       label: "Web Dashboard",
-      path: path.join(cwd, ".teamclaw", "web.log"),
+      path: path.join(cwd, ".openpawl", "web.log"),
       description: "Fastify web server + WebSocket telemetry",
     },
     {
       name: "work",
       label: "Work Session",
-      path: path.join(homeDir, ".teamclaw", "logs"),
-      description: "Work runner session history (per-session files in ~/.teamclaw/logs/)",
+      path: path.join(homeDir, ".openpawl", "logs"),
+      description: "Work runner session history (per-session files in ~/.openpawl/logs/)",
     },
   ];
 }
@@ -88,10 +88,10 @@ function printLogIndex(): void {
   }
 
   logger.plain(pc.dim("Usage:"));
-  logger.plain(pc.dim("  teamclaw logs <source>           View last 100 lines"));
-  logger.plain(pc.dim("  teamclaw logs <source> -f         Follow (live tail)"));
-  logger.plain(pc.dim("  teamclaw logs <source> -n <N>     Show last N lines"));
-  logger.plain(pc.dim("  teamclaw logs <source> --clear    Truncate log file"));
+  logger.plain(pc.dim("  openpawl logs <source>           View last 100 lines"));
+  logger.plain(pc.dim("  openpawl logs <source> -f         Follow (live tail)"));
+  logger.plain(pc.dim("  openpawl logs <source> -n <N>     Show last N lines"));
+  logger.plain(pc.dim("  openpawl logs <source> --clear    Truncate log file"));
   logger.plain("");
 }
 
@@ -153,13 +153,13 @@ export async function runLogs(args: string[]): Promise<void> {
     const latest = findLatestLog(source.path, "work-history-");
     if (!latest) {
       logger.warn(`No work history logs found in ${source.path}`);
-      logger.plain(pc.dim("Run `teamclaw work` to create a session log."));
+      logger.plain(pc.dim("Run `openpawl work` to create a session log."));
       return;
     }
     resolvedPath = latest;
   } else if (!existsSync(resolvedPath)) {
     logger.warn(`Log file not found: ${resolvedPath}`);
-    logger.plain(pc.dim("The gateway may not have been started yet. Run `teamclaw work` to start a session."));
+    logger.plain(pc.dim("The gateway may not have been started yet. Run `openpawl work` to start a session."));
     return;
   }
 

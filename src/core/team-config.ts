@@ -1,5 +1,5 @@
 /**
- * TeamClaw project config (teamclaw.config.json).
+ * OpenPawl project config (openpawl.config.json).
  */
 
 import { readFile } from "node:fs/promises";
@@ -34,7 +34,7 @@ let _cached: TeamConfig | null | undefined;
 export async function loadTeamConfig(): Promise<TeamConfig | null> {
   if (_cached !== undefined) return _cached;
   try {
-    const raw = await readFile(path.join(process.cwd(), "teamclaw.config.json"), "utf-8");
+    const raw = await readFile(path.join(process.cwd(), "openpawl.config.json"), "utf-8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const creativity =
       typeof parsed.creativity === "number"

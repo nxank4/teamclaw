@@ -1,5 +1,5 @@
 /**
- * Types for the TeamClaw Custom Agent SDK.
+ * Types for the OpenPawl Custom Agent SDK.
  */
 
 /** Context passed to agent hooks during task execution. */
@@ -78,5 +78,5 @@ export interface AgentDefinition {
 
 /** Branded agent definition returned by defineAgent(). */
 export interface ValidatedAgentDefinition extends AgentDefinition {
-  readonly __teamclaw_agent: true;
+  readonly __openpawl_agent: true;
 }

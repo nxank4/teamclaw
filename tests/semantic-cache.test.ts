@@ -215,30 +215,30 @@ describe("SemanticCache", () => {
     expect(mockVectorSearch).not.toHaveBeenCalled();
   });
 
-  it("isEnabled returns false when TEAMCLAW_NO_CACHE is set", () => {
-    const original = process.env.TEAMCLAW_NO_CACHE;
-    process.env.TEAMCLAW_NO_CACHE = "true";
+  it("isEnabled returns false when OPENPAWL_NO_CACHE is set", () => {
+    const original = process.env.OPENPAWL_NO_CACHE;
+    process.env.OPENPAWL_NO_CACHE = "true";
     try {
       expect(cache.isEnabled()).toBe(false);
     } finally {
       if (original !== undefined) {
-        process.env.TEAMCLAW_NO_CACHE = original;
+        process.env.OPENPAWL_NO_CACHE = original;
       } else {
-        delete process.env.TEAMCLAW_NO_CACHE;
+        delete process.env.OPENPAWL_NO_CACHE;
       }
     }
   });
 
-  it("isEnabled returns false when TEAMCLAW_NO_SEMANTIC_CACHE is set", () => {
-    const original = process.env.TEAMCLAW_NO_SEMANTIC_CACHE;
-    process.env.TEAMCLAW_NO_SEMANTIC_CACHE = "true";
+  it("isEnabled returns false when OPENPAWL_NO_SEMANTIC_CACHE is set", () => {
+    const original = process.env.OPENPAWL_NO_SEMANTIC_CACHE;
+    process.env.OPENPAWL_NO_SEMANTIC_CACHE = "true";
     try {
       expect(cache.isEnabled()).toBe(false);
     } finally {
       if (original !== undefined) {
-        process.env.TEAMCLAW_NO_SEMANTIC_CACHE = original;
+        process.env.OPENPAWL_NO_SEMANTIC_CACHE = original;
       } else {
-        delete process.env.TEAMCLAW_NO_SEMANTIC_CACHE;
+        delete process.env.OPENPAWL_NO_SEMANTIC_CACHE;
       }
     }
   });

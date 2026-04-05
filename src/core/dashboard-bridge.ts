@@ -1,5 +1,5 @@
 /**
- * Dashboard Bridge - Forwards orchestration events to the TeamClaw web dashboard.
+ * Dashboard Bridge - Forwards orchestration events to the OpenPawl web dashboard.
  * Used by work-runner to push state updates when the dashboard runs as a separate daemon.
  * Uses HTTP POST to the REST bridge endpoint instead of WebSocket.
  */
@@ -64,7 +64,7 @@ export class DashboardBridge {
                     bot_id: data.botId,
                     reasoning: data.reasoning,
                     timestamp: Date.now(),
-                    source: "teamclaw",
+                    source: "openpawl",
                 },
             });
         };

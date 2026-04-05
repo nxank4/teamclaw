@@ -27,7 +27,7 @@ export interface ProviderConfigEntry {
   apiVersion?: string;
 }
 
-export interface TeamClawGlobalConfig {
+export interface OpenPawlGlobalConfig {
   version: 1;
   meta?: {
     version: string;
@@ -121,6 +121,28 @@ export interface TeamClawGlobalConfig {
     path?: string;
     logLevel?: "debug" | "info" | "warn" | "error" | "fatal" | "trace" | "silent";
   };
+  session?: {
+    idleTimeoutMinutes?: number;
+    checkpointIntervalMs?: number;
+    autoArchiveDays?: number;
+    maxHistoryMessages?: number;
+  };
+  router?: {
+    defaultAgent?: string;
+    maxParallelAgents?: number;
+    confirmationThresholdUSD?: number;
+    autoFollowUp?: boolean;
+    showRoutingDecision?: boolean;
+    customAgentsDir?: string;
+  };
+  tools?: {
+    defaults?: Record<string, string>;
+    mcp?: Array<{
+      name: string;
+      url: string;
+      permission?: string;
+    }>;
+  };
 }
 
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
@@ -172,7 +194,7 @@ function normalizeHost(raw: string): string {
 }
 
 export function getGlobalConfigPath(): string {
-  return path.join(os.homedir(), ".teamclaw", "config.json");
+  return path.join(os.homedir(), ".openpawl", "config.json");
 }
 
 function ensureGlobalConfigDir(): void {
@@ -180,7 +202,7 @@ function ensureGlobalConfigDir(): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-export function buildDefaultGlobalConfig(): TeamClawGlobalConfig {
+export function buildDefaultGlobalConfig(): OpenPawlGlobalConfig {
   return {
     version: 1,
     dashboardPort: DEFAULT_DASHBOARD_PORT,
@@ -188,7 +210,7 @@ export function buildDefaultGlobalConfig(): TeamClawGlobalConfig {
   };
 }
 
-export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): TeamClawGlobalConfig {
+export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): OpenPawlGlobalConfig {
   const fromGatewayUrl =
     typeof input.gatewayUrl === "string" && input.gatewayUrl.trim()
       ? parseHostAndPortFromUrl(input.gatewayUrl)
@@ -356,12 +378,12 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
   // Parse tokenOptimization — pass through if present, no deep validation needed
   const rawTokenOpt = (input as Record<string, unknown>).tokenOptimization;
   const tokenOptimization = rawTokenOpt && typeof rawTokenOpt === "object" && !Array.isArray(rawTokenOpt)
-    ? (rawTokenOpt as TeamClawGlobalConfig["tokenOptimization"])
+    ? (rawTokenOpt as OpenPawlGlobalConfig["tokenOptimization"])
     : undefined;
 
   // Parse timeouts
   const rawTimeouts = asRecord((input as Record<string, unknown>).timeouts);
-  const timeouts: TeamClawGlobalConfig["timeouts"] | undefined =
+  const timeouts: OpenPawlGlobalConfig["timeouts"] | undefined =
     Object.keys(rawTimeouts).length > 0
       ? {
           firstChunkMs: toPositiveInt(rawTimeouts.firstChunkMs, 15000),
@@ -371,7 +393,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
 
   // Parse dashboard config
   const rawDashboard = asRecord((input as Record<string, unknown>).dashboard);
-  const dashboard: TeamClawGlobalConfig["dashboard"] | undefined =
+  const dashboard: OpenPawlGlobalConfig["dashboard"] | undefined =
     Object.keys(rawDashboard).length > 0
       ? {
           port: toPositiveInt(rawDashboard.port, DEFAULT_DASHBOARD_PORT),
@@ -382,7 +404,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
 
   // Parse work config
   const rawWork = asRecord((input as Record<string, unknown>).work);
-  const work: TeamClawGlobalConfig["work"] | undefined =
+  const work: OpenPawlGlobalConfig["work"] | undefined =
     Object.keys(rawWork).length > 0
       ? {
           interactive: typeof rawWork.interactive === "boolean" ? rawWork.interactive : true,
@@ -392,7 +414,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
 
   // Parse streaming config
   const rawStreaming = asRecord((input as Record<string, unknown>).streaming);
-  const streaming: TeamClawGlobalConfig["streaming"] | undefined =
+  const streaming: OpenPawlGlobalConfig["streaming"] | undefined =
     Object.keys(rawStreaming).length > 0
       ? {
           enabled: typeof rawStreaming.enabled === "boolean" ? rawStreaming.enabled : true,
@@ -402,7 +424,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
 
   // Parse meta
   const rawMeta = asRecord((input as Record<string, unknown>).meta);
-  const meta: TeamClawGlobalConfig["meta"] | undefined =
+  const meta: OpenPawlGlobalConfig["meta"] | undefined =
     Object.keys(rawMeta).length > 0
       ? {
           version: typeof rawMeta.version === "string" ? rawMeta.version : "1",
@@ -413,7 +435,7 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
       : undefined;
 
   // Gateway fields are optional — include only when present in input
-  const gatewayFields: Partial<TeamClawGlobalConfig> = {};
+  const gatewayFields: Partial<OpenPawlGlobalConfig> = {};
   if (typeof input.managedGateway === "boolean") gatewayFields.managedGateway = input.managedGateway;
   if (gatewayHost !== DEFAULT_GATEWAY_HOST || input.gatewayHost) gatewayFields.gatewayHost = gatewayHost;
   if (gatewayPort !== DEFAULT_GATEWAY_PORT || input.gatewayPort) {
@@ -451,23 +473,23 @@ export function normalizeGlobalConfig(input: Partial<TeamClawGlobalConfig>): Tea
   };
 }
 
-export function readGlobalConfig(): TeamClawGlobalConfig | null {
+export function readGlobalConfig(): OpenPawlGlobalConfig | null {
   const configPath = getGlobalConfigPath();
   if (!existsSync(configPath)) return null;
   try {
     const raw = readFileSync(configPath, "utf-8");
     const parsed = asRecord(JSON.parse(raw));
-    return normalizeGlobalConfig(parsed as Partial<TeamClawGlobalConfig>);
+    return normalizeGlobalConfig(parsed as Partial<OpenPawlGlobalConfig>);
   } catch {
     return null;
   }
 }
 
-export function readGlobalConfigWithDefaults(): TeamClawGlobalConfig {
+export function readGlobalConfigWithDefaults(): OpenPawlGlobalConfig {
   return readGlobalConfig() ?? buildDefaultGlobalConfig();
 }
 
-export function writeGlobalConfig(input: TeamClawGlobalConfig): string {
+export function writeGlobalConfig(input: OpenPawlGlobalConfig): string {
   const normalized = normalizeGlobalConfig(input);
 
   // Automatically stamp meta.updatedAt on every write

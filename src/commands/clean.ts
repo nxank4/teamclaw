@@ -1,5 +1,5 @@
 /**
- * CLI command: teamclaw clean
+ * CLI command: openpawl clean
  * Removes session data; preserves global memory by default.
  */
 
@@ -35,7 +35,7 @@ export async function runClean(args: string[]): Promise<void> {
   }
 
   if (includeGlobal) {
-    const globalPath = path.join(os.homedir(), ".teamclaw", "memory");
+    const globalPath = path.join(os.homedir(), ".openpawl", "memory");
     if (existsSync(globalPath)) {
       const canPrompt = Boolean(process.stdout.isTTY && process.stderr.isTTY);
       if (canPrompt) {
@@ -58,7 +58,7 @@ export async function runClean(args: string[]): Promise<void> {
 
   // Clear response cache unless --keep-cache
   if (!keepCache) {
-    const cachePath = path.join(os.homedir(), ".teamclaw", "cache");
+    const cachePath = path.join(os.homedir(), ".openpawl", "cache");
     if (existsSync(cachePath)) {
       await rm(cachePath, { recursive: true, force: true });
       logger.plain("  Removed response cache.");

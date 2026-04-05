@@ -67,7 +67,7 @@ export function defineAgent(def: AgentDefinition): ValidatedAgentDefinition {
 
   return Object.freeze({
     ...def,
-    __teamclaw_agent: true as const,
+    __openpawl_agent: true as const,
   });
 }
 
@@ -76,6 +76,6 @@ export function isAgentDefinition(value: unknown): value is ValidatedAgentDefini
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as Record<string, unknown>).__teamclaw_agent === true
+    (value as Record<string, unknown>).__openpawl_agent === true
   );
 }

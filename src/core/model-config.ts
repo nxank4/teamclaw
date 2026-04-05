@@ -1,10 +1,10 @@
 /**
- * Centralized model resolution for TeamClaw.
+ * Centralized model resolution for OpenPawl.
  *
  * Resolution priority (highest → lowest):
  *   1. Per-agent runtime override (setAgentModel)
- *   2. Per-agent config from teamclaw.config.json → agent_models
- *   3. Global config from ~/.teamclaw/config.json → model
+ *   2. Per-agent config from openpawl.config.json → agent_models
+ *   3. Global config from ~/.openpawl/config.json → model
  *   4. Fallback: empty string (let provider decide)
  */
 
@@ -113,7 +113,7 @@ function loadConfigAgentModels(): Record<string, string> {
 
   configAgentModels = {};
 
-  // Load from team config (teamclaw.config.json) - synchronous read via cache
+  // Load from team config (openpawl.config.json) - synchronous read via cache
   // This is populated by loadTeamConfig() during startup and fed in via
   // setConfigAgentModels().
   return configAgentModels;
@@ -151,7 +151,7 @@ export function resolveModelForAgent(agentRole: string): string {
     if (runtime) { resolved = runtime; break; }
   }
 
-  // Priority 2: Per-agent config (teamclaw.config.json → agent_models)
+  // Priority 2: Per-agent config (openpawl.config.json → agent_models)
   if (!resolved) {
     const cfgModels = loadConfigAgentModels();
     for (const role of candidates) {

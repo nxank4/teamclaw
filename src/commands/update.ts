@@ -1,5 +1,5 @@
 /**
- * CLI command: teamclaw update
+ * CLI command: openpawl update
  * Self-update mechanism that detects install method and updates accordingly.
  */
 
@@ -11,7 +11,7 @@ import os from "node:os";
 import { logger } from "../core/logger.js";
 import { isCancel, confirm } from "@clack/prompts";
 
-const GITHUB_REPO = "nxank4/teamclaw";
+const GITHUB_REPO = "nxank4/openpawl";
 const GITHUB_API_RELEASES = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const GITHUB_RAW_PKG = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/package.json`;
 
@@ -27,7 +27,7 @@ async function fetchLatestVersion(): Promise<{ version: string; tag: string; dow
     // Try GitHub releases API first
     try {
         const res = await fetch(GITHUB_API_RELEASES, {
-            headers: { "Accept": "application/vnd.github.v3+json", "User-Agent": "teamclaw-cli" },
+            headers: { "Accept": "application/vnd.github.v3+json", "User-Agent": "openpawl-cli" },
             signal: AbortSignal.timeout(10_000),
         });
         if (res.ok) {
@@ -44,7 +44,7 @@ async function fetchLatestVersion(): Promise<{ version: string; tag: string; dow
     // Fallback: fetch package.json from main branch
     try {
         const res = await fetch(GITHUB_RAW_PKG, {
-            headers: { "User-Agent": "teamclaw-cli" },
+            headers: { "User-Agent": "openpawl-cli" },
             signal: AbortSignal.timeout(10_000),
         });
         if (res.ok) {
@@ -59,13 +59,13 @@ async function fetchLatestVersion(): Promise<{ version: string; tag: string; dow
 }
 
 function detectInstallMethod(): InstallMethod {
-    // Check local dev: cwd is a git repo with package.json name "teamclaw-app"
+    // Check local dev: cwd is a git repo with package.json name "openpawl-app"
     const cwdPkg = path.join(process.cwd(), "package.json");
     if (existsSync(cwdPkg)) {
         try {
             const require = createRequire(import.meta.url);
             const pkg = require(cwdPkg) as { name?: string };
-            if (pkg.name === "teamclaw-app" && existsSync(path.join(process.cwd(), ".git"))) {
+            if (pkg.name === "openpawl-app" && existsSync(path.join(process.cwd(), ".git"))) {
                 return "local-dev";
             }
         } catch {
@@ -73,15 +73,15 @@ function detectInstallMethod(): InstallMethod {
         }
     }
 
-    // Check source install: ~/.teamclaw/source/ exists
-    const sourceDir = path.join(os.homedir(), ".teamclaw", "source");
+    // Check source install: ~/.openpawl/source/ exists
+    const sourceDir = path.join(os.homedir(), ".openpawl", "source");
     if (existsSync(sourceDir) && existsSync(path.join(sourceDir, "package.json"))) {
         return "source";
     }
 
-    // Check npm global: resolve `teamclaw` binary and see if it's inside node_modules
+    // Check npm global: resolve `openpawl` binary and see if it's inside node_modules
     try {
-        const binPath = execSync("which teamclaw 2>/dev/null || where teamclaw 2>nul", { encoding: "utf-8" }).trim();
+        const binPath = execSync("which openpawl 2>/dev/null || where openpawl 2>nul", { encoding: "utf-8" }).trim();
         if (binPath && binPath.includes("node_modules")) {
             return "npm";
         }
@@ -91,7 +91,7 @@ function detectInstallMethod(): InstallMethod {
 
     // If we got here and can detect a binary path, assume binary install
     try {
-        const binPath = execSync("which teamclaw 2>/dev/null || where teamclaw 2>nul", { encoding: "utf-8" }).trim();
+        const binPath = execSync("which openpawl 2>/dev/null || where openpawl 2>nul", { encoding: "utf-8" }).trim();
         if (binPath) {
             return "binary";
         }
@@ -120,11 +120,11 @@ function execShell(cmd: string, cwd?: string): void {
 
 async function updateNpm(): Promise<void> {
     logger.plain("Updating via npm...");
-    execShell("npm install -g @teamclaw/cli@latest");
+    execShell("npm install -g @openpawl/cli@latest");
 }
 
 async function updateSource(tag: string): Promise<void> {
-    const sourceDir = path.join(os.homedir(), ".teamclaw", "source");
+    const sourceDir = path.join(os.homedir(), ".openpawl", "source");
     logger.plain(`Updating source install at ${sourceDir}...`);
     execShell("git fetch --tags", sourceDir);
     execShell(`git checkout ${tag}`, sourceDir);
@@ -153,9 +153,9 @@ async function updateBinary(downloadUrl: string | undefined, tag: string): Promi
 
 export async function runUpdateCommand(args: string[]): Promise<void> {
     if (args.includes("--help") || args.includes("-h")) {
-        logger.plain("Usage: teamclaw update [options]");
+        logger.plain("Usage: openpawl update [options]");
         logger.plain("");
-        logger.plain("Self-update TeamClaw to the latest version.");
+        logger.plain("Self-update OpenPawl to the latest version.");
         logger.plain("");
         logger.plain("Options:");
         logger.plain("  --check   Check for updates without installing");
@@ -198,7 +198,7 @@ export async function runUpdateCommand(args: string[]): Promise<void> {
     logger.plain(`Install method:  ${method}`);
 
     if (method === "unknown") {
-        logger.error("Could not detect how TeamClaw was installed.");
+        logger.error("Could not detect how OpenPawl was installed.");
         logger.plain(`Download the latest version manually from: https://github.com/${GITHUB_REPO}/releases`);
         process.exit(1);
     }
@@ -207,7 +207,7 @@ export async function runUpdateCommand(args: string[]): Promise<void> {
     const canPrompt = Boolean(process.stdout.isTTY && process.stderr.isTTY);
     if (canPrompt && !force) {
         const confirmed = await confirm({
-            message: `Update TeamClaw v${current} → v${latest.version} via ${method}?`,
+            message: `Update OpenPawl v${current} → v${latest.version} via ${method}?`,
         });
         if (isCancel(confirmed) || !confirmed) {
             logger.plain("Update cancelled.");
@@ -237,7 +237,7 @@ export async function runUpdateCommand(args: string[]): Promise<void> {
 
     // Verify the update
     try {
-        const newVersion = execSync("teamclaw --version 2>/dev/null", { encoding: "utf-8" }).trim();
+        const newVersion = execSync("openpawl --version 2>/dev/null", { encoding: "utf-8" }).trim();
         logger.success(`Updated to v${newVersion}`);
     } catch {
         logger.success("Update completed. Restart your terminal to use the new version.");

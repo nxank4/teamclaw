@@ -8,6 +8,7 @@ import pc from "picocolors";
 const SEP = " | ";
 
 let _debugMode = false;
+let _muted = false;
 
 export function setDebugMode(enabled: boolean): void {
   _debugMode = enabled;
@@ -15,6 +16,11 @@ export function setDebugMode(enabled: boolean): void {
 
 export function isDebugMode(): boolean {
   return _debugMode;
+}
+
+/** Suppress all logger output (used during TUI mode). */
+export function setLoggerMuted(muted: boolean): void {
+  _muted = muted;
 }
 
 function timestamp(): string {
@@ -35,35 +41,38 @@ function formatLineWithIcon(
 
 export const logger = {
   debug(message: string): void {
-    if (_debugMode) {
-      console.log(formatLineWithIcon("🔍", "DEBUG", pc.blue, message));
-    }
+    if (_muted || !_debugMode) return;
+    console.log(formatLineWithIcon("🔍", "DEBUG", pc.blue, message));
   },
 
   info(message: string): void {
+    if (_muted) return;
     console.log(formatLineWithIcon("ℹ", "INFO", pc.cyan, message));
   },
 
   success(message: string): void {
+    if (_muted) return;
     console.log(formatLineWithIcon("✅", "SUCCESS", pc.green, message));
   },
 
   warn(message: string): void {
+    if (_muted) return;
     console.warn(formatLineWithIcon("⚠", "WARN", pc.yellow, message));
   },
 
   error(message: string): void {
+    if (_muted) return;
     console.error(formatLineWithIcon("❌", "ERROR", pc.red, message));
   },
 
   agent(message: string): void {
-    if (_debugMode) {
-      console.log(formatLineWithIcon("🤖", "BOT", pc.magenta, message));
-    }
+    if (_muted || !_debugMode) return;
+    console.log(formatLineWithIcon("🤖", "BOT", pc.magenta, message));
   },
 
   /** Plain unstyled line (no timestamp). Use for help text or raw output. */
   plain(message: string): void {
+    if (_muted) return;
     console.log(message);
   },
 

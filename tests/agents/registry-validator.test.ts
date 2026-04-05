@@ -73,7 +73,7 @@ describe("validateAgentDefinition", () => {
   });
 
   it("accepts branded definitions", () => {
-    const result = validateAgentDefinition({ ...validDef, __teamclaw_agent: true });
+    const result = validateAgentDefinition({ ...validDef, __openpawl_agent: true });
     expect(result.success).toBe(true);
   });
 });

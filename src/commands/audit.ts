@@ -1,16 +1,16 @@
 /**
  * CLI commands for audit trail export.
  *
- * teamclaw audit <sessionId>                    Export last run as markdown
- * teamclaw audit <sessionId> --run N            Export specific run
- * teamclaw audit <sessionId> --format pdf       Export as PDF
- * teamclaw audit <sessionId> --format both      Export both formats
- * teamclaw audit <sessionId> --output ./dir     Custom output directory
- * teamclaw audit <sessionId> --include-prompts  Include raw agent prompts
- * teamclaw audit <sessionId> --all-runs         Export all runs separately
- * teamclaw audit <sessionId> --summary          Multi-run summary only
- * teamclaw audit list                           List exported audits
- * teamclaw audit open <sessionId>               Open audit file
+ * openpawl audit <sessionId>                    Export last run as markdown
+ * openpawl audit <sessionId> --run N            Export specific run
+ * openpawl audit <sessionId> --format pdf       Export as PDF
+ * openpawl audit <sessionId> --format both      Export both formats
+ * openpawl audit <sessionId> --output ./dir     Custom output directory
+ * openpawl audit <sessionId> --include-prompts  Include raw agent prompts
+ * openpawl audit <sessionId> --all-runs         Export all runs separately
+ * openpawl audit <sessionId> --summary          Multi-run summary only
+ * openpawl audit list                           List exported audits
+ * openpawl audit open <sessionId>               Open audit file
  */
 
 import { existsSync, readdirSync } from "node:fs";
@@ -31,7 +31,7 @@ import { extractRunSnapshot } from "../diff/engine.js";
 import { buildDiffChain } from "../diff/chain.js";
 import type { RunSnapshot } from "../diff/types.js";
 
-const SESSIONS_DIR = path.join(os.homedir(), ".teamclaw", "sessions");
+const SESSIONS_DIR = path.join(os.homedir(), ".openpawl", "sessions");
 
 export async function runAuditCommand(args: string[]): Promise<void> {
   const sub = args[0];
@@ -58,7 +58,7 @@ export async function runAuditCommand(args: string[]): Promise<void> {
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw audit") + " — Export audit trails for past sessions",
+    pc.bold("openpawl audit") + " — Export audit trails for past sessions",
     "",
     pc.bold("Commands:"),
     "  " + pc.green("<sessionId>") + "                   Export audit trail (default: markdown)",
@@ -74,9 +74,9 @@ function printHelp(): void {
     "  " + pc.green("--summary") + "     Multi-run summary only",
     "",
     "Examples:",
-    pc.dim("  teamclaw audit sess_abc123"),
-    pc.dim("  teamclaw audit sess_abc123 --format pdf"),
-    pc.dim("  teamclaw audit sess_abc123 --all-runs --include-prompts"),
+    pc.dim("  openpawl audit sess_abc123"),
+    pc.dim("  openpawl audit sess_abc123 --format pdf"),
+    pc.dim("  openpawl audit sess_abc123 --all-runs --include-prompts"),
     "",
   ];
   console.log(lines.join("\n"));
@@ -85,7 +85,7 @@ function printHelp(): void {
 async function runExport(args: string[]): Promise<void> {
   const sessionId = args[0];
   if (!sessionId) {
-    logger.error("Usage: teamclaw audit <sessionId>");
+    logger.error("Usage: openpawl audit <sessionId>");
     process.exit(1);
   }
 
@@ -235,7 +235,7 @@ function runList(): void {
 
   if (dirs.length === 0) {
     logger.plain("No exported audits found.");
-    logger.plain(pc.dim("Export one with: teamclaw audit <sessionId>"));
+    logger.plain(pc.dim("Export one with: openpawl audit <sessionId>"));
     return;
   }
 
@@ -252,7 +252,7 @@ function runList(): void {
 
 async function runOpen(sessionId?: string): Promise<void> {
   if (!sessionId) {
-    logger.error("Usage: teamclaw audit open <sessionId>");
+    logger.error("Usage: openpawl audit open <sessionId>");
     process.exit(1);
   }
 
@@ -262,7 +262,7 @@ async function runOpen(sessionId?: string): Promise<void> {
 
   const filePath = existsSync(pdfPath) ? pdfPath : existsSync(mdPath) ? mdPath : null;
   if (!filePath) {
-    logger.error(`No audit file found for ${sessionId}. Run: teamclaw audit ${sessionId}`);
+    logger.error(`No audit file found for ${sessionId}. Run: openpawl audit ${sessionId}`);
     process.exit(1);
   }
 

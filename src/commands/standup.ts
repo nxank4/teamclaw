@@ -29,16 +29,16 @@ function getMondayMidnight(): number {
 export async function runStandupCommand(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     logger.plain([
-      pc.bold("teamclaw standup") + " — Daily standup summary",
+      pc.bold("openpawl standup") + " — Daily standup summary",
       "",
       "Usage:",
-      "  teamclaw standup                   Today's standup (last 24h)",
-      "  teamclaw standup --today           Since midnight",
-      "  teamclaw standup --since 2d        Custom time window",
-      "  teamclaw standup --week            Full current week",
-      "  teamclaw standup --week-summary    Weekly recap",
-      "  teamclaw standup --export          Output as markdown",
-      "  teamclaw standup --export --out standup.md   Save to file",
+      "  openpawl standup                   Today's standup (last 24h)",
+      "  openpawl standup --today           Since midnight",
+      "  openpawl standup --since 2d        Custom time window",
+      "  openpawl standup --week            Full current week",
+      "  openpawl standup --week-summary    Weekly recap",
+      "  openpawl standup --export          Output as markdown",
+      "  openpawl standup --export --out standup.md   Save to file",
     ].join("\n"));
     return;
   }

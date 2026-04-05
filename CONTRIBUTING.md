@@ -1,12 +1,12 @@
-# Contributing to TeamClaw
+# Contributing to OpenPawl
 
 Thanks for your interest in contributing.
 
 ## Setup
 
 ```bash
-git clone https://github.com/nxank4/teamclaw.git
-cd teamclaw
+git clone https://github.com/nxank4/openpawl.git
+cd openpawl
 pnpm install
 pnpm run build
 ```
@@ -41,7 +41,7 @@ See [CLAUDE.md](./CLAUDE.md) for the full architecture guide.
 
 ## Reporting Issues
 
-Use [GitHub Issues](https://github.com/nxank4/teamclaw/issues).
+Use [GitHub Issues](https://github.com/nxank4/openpawl/issues).
 
 ## Security
 

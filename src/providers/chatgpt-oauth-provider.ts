@@ -39,7 +39,7 @@ export class ChatGPTOAuthProvider implements StreamProvider {
       throw new ProviderError({
         provider: "chatgpt",
         code: "CHATGPT_OAUTH_REQUIRED",
-        message: "No ChatGPT OAuth token. Run: teamclaw providers add chatgpt",
+        message: "No ChatGPT OAuth token. Run: openpawl providers add chatgpt",
         isFallbackTrigger: true,
       });
     }

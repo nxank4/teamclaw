@@ -1,10 +1,10 @@
-# TeamClaw Webhooks
+# OpenPawl Webhooks
 
-TeamClaw can POST events to external URLs when tasks complete or cycles end. Use this to notify your team on Discord, Slack, or Telegram.
+OpenPawl can POST events to external URLs when tasks complete or cycles end. Use this to notify your team on Discord, Slack, or Telegram.
 
 ## Configuration
 
-Set these in `.env` or `teamclaw.config.json`:
+Set these in `.env` or `openpawl.config.json`:
 
 - `WEBHOOK_ON_TASK_COMPLETE` — URL for task completion events
 - `WEBHOOK_ON_CYCLE_END` — URL for cycle end events
@@ -46,7 +46,7 @@ Set these in `.env` or `teamclaw.config.json`:
 ## Discord
 
 1. In your Discord server: **Server Settings → Integrations → Webhooks**
-2. **New Webhook**, name it (e.g. "TeamClaw")
+2. **New Webhook**, name it (e.g. "OpenPawl")
 3. Copy the **Webhook URL**
 4. Set in `.env`:
 
@@ -55,7 +55,7 @@ WEBHOOK_ON_TASK_COMPLETE=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
 WEBHOOK_ON_CYCLE_END=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
 ```
 
-Discord expects a JSON body with `content` or `embeds`. TeamClaw sends raw JSON; for a nicer display, use an intermediary (e.g. Zapier, n8n) or a small proxy that converts the payload to Discord's format.
+Discord expects a JSON body with `content` or `embeds`. OpenPawl sends raw JSON; for a nicer display, use an intermediary (e.g. Zapier, n8n) or a small proxy that converts the payload to Discord's format.
 
 ---
 
@@ -70,7 +70,7 @@ Discord expects a JSON body with `content` or `embeds`. TeamClaw sends raw JSON;
 WEBHOOK_ON_TASK_COMPLETE=https://hooks.slack.com/services/T00/B00/xxx
 ```
 
-Slack expects `{ "text": "..." }`. TeamClaw sends the full event object. To render it in Slack, use a small proxy that maps the payload to `{ "text": "Task TASK-001 completed by bot_0: ..." }`, or use Slack's Block Kit if you need rich formatting.
+Slack expects `{ "text": "..." }`. OpenPawl sends the full event object. To render it in Slack, use a small proxy that maps the payload to `{ "text": "Task TASK-001 completed by bot_0: ..." }`, or use Slack's Block Kit if you need rich formatting.
 
 ---
 
@@ -79,10 +79,10 @@ Slack expects `{ "text": "..." }`. TeamClaw sends the full event object. To rend
 1. Message [@BotFather](https://t.me/BotFather) to create a bot
 2. Create a group, add your bot, get the chat ID (e.g. via [getUpdates](https://core.telegram.org/bots/api#getupdates))
 3. Use: `https://api.telegram.org/bot<TOKEN>/sendMessage`
-4. TeamClaw sends JSON; Telegram expects form-encoded or JSON with `chat_id` and `text`
+4. OpenPawl sends JSON; Telegram expects form-encoded or JSON with `chat_id` and `text`
 
 Use a small proxy that:
-- Receives TeamClaw's POST
+- Receives OpenPawl's POST
 - Extracts the payload
 - Calls Telegram: `POST .../sendMessage` with `{ "chat_id": "...", "text": "Task X completed" }`
 
@@ -92,11 +92,11 @@ Use a small proxy that:
 
 ## Approval Webhooks
 
-TeamClaw supports async webhook-based approvals. When tasks need review, TeamClaw POSTs approval requests to an external URL (Slack, generic webhook), then waits for a signed callback. No one needs to be at the terminal or dashboard.
+OpenPawl supports async webhook-based approvals. When tasks need review, OpenPawl POSTs approval requests to an external URL (Slack, generic webhook), then waits for a signed callback. No one needs to be at the terminal or dashboard.
 
 ### Approval Configuration
 
-Add to `~/.teamclaw/config.json`:
+Add to `~/.openpawl/config.json`:
 
 ```json
 {
@@ -122,10 +122,10 @@ Add to `~/.teamclaw/config.json`:
 
 ```bash
 # Run with async webhook approvals
-teamclaw work --async
+openpawl work --async
 
 # Override timeout (in minutes)
-teamclaw work --async --async-timeout 10
+openpawl work --async --async-timeout 10
 ```
 
 The `--async` flag activates webhook approvals. The web server stays running to receive callbacks.
@@ -190,7 +190,7 @@ Content-Type: application/json
 1. Create a Slack Incoming Webhook for your channel
 2. Set `provider: "slack"` and `url` to the webhook URL
 3. Set a strong `secret` (e.g., `openssl rand -hex 32`)
-4. Run `teamclaw work --async`
+4. Run `openpawl work --async`
 
 Approval requests appear as Block Kit messages with Approve/Reject/Escalate buttons. Clicking a button opens a browser page that auto-submits the approval callback. No Slack app interactivity setup required.
 

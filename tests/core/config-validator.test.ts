@@ -4,7 +4,7 @@ vi.mock("../../src/core/logger.js", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), plain: vi.fn(), success: vi.fn() },
 }));
 
-import { validateConfig, migrateConfig, TeamClawConfigSchema } from "../../src/core/config-validator.js";
+import { validateConfig, migrateConfig, OpenPawlConfigSchema } from "../../src/core/config-validator.js";
 
 describe("validateConfig", () => {
   it("accepts valid minimal config", () => {

@@ -116,5 +116,5 @@ async function proxyPluginImpl(
 }
 
 export const proxyPlugin = fp(proxyPluginImpl, {
-  name: "teamclaw-proxy",
+  name: "openpawl-proxy",
 });

@@ -58,7 +58,7 @@ export class SemanticCache {
     this.ttlMs = (cacheConfig?.ttlMinutes ?? DEFAULT_TTL_MINUTES) * 60 * 1000;
 
     try {
-      const dbPath = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+      const dbPath = path.join(os.homedir(), ".openpawl", "memory", "global.db");
       this.db = await lancedb.connect(dbPath);
       this.embedder = new HttpEmbeddingFunction(DEFAULT_EMBEDDING_BASE, EMBEDDING_MODEL, "");
 
@@ -79,8 +79,8 @@ export class SemanticCache {
   isEnabled(): boolean {
     return (
       this.enabled &&
-      process.env.TEAMCLAW_NO_CACHE !== "true" &&
-      process.env.TEAMCLAW_NO_SEMANTIC_CACHE !== "true"
+      process.env.OPENPAWL_NO_CACHE !== "true" &&
+      process.env.OPENPAWL_NO_SEMANTIC_CACHE !== "true"
     );
   }
 

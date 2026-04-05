@@ -1,5 +1,5 @@
 /**
- * Interactive model management sub-menu for `teamclaw config`.
+ * Interactive model management sub-menu for `openpawl config`.
  */
 
 import {

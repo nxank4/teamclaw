@@ -85,7 +85,7 @@ describe("formatProviderErrorType", () => {
   it("formats auth_failed", () => {
     const msg = formatProviderErrorType({ type: "auth_failed", provider: "anthropic", message: "bad key" });
     expect(msg).toContain("Authentication failed");
-    expect(msg).toContain("teamclaw providers add");
+    expect(msg).toContain("openpawl providers add");
   });
 
   it("formats model_not_found", () => {

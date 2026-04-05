@@ -4,7 +4,7 @@
 
 **Goal:** Add complete model authentication and provider integration for 30+ providers across subscription plans, API keys, inference networks, cloud credentials, and local models.
 
-**Architecture:** ~80% of providers reuse `OpenAICompatibleProvider` via presets. New dedicated providers only for non-OpenAI-compatible auth flows (ChatGPT OAuth, Copilot device flow, Bedrock SigV4, Vertex GCP auth, Gemini OAuth). All providers implement `StreamProvider`. Config stored in `~/.teamclaw/config.json`. Provider chain fallback via `ProviderManager`.
+**Architecture:** ~80% of providers reuse `OpenAICompatibleProvider` via presets. New dedicated providers only for non-OpenAI-compatible auth flows (ChatGPT OAuth, Copilot device flow, Bedrock SigV4, Vertex GCP auth, Gemini OAuth). All providers implement `StreamProvider`. Config stored in `~/.openpawl/config.json`. Provider chain fallback via `ProviderManager`.
 
 **Tech Stack:** TypeScript (ESM), OpenAI SDK, @anthropic-ai/sdk, @aws-sdk/client-bedrock-runtime, @clack/prompts, open (browser launch), Vitest + vi.mock for tests.
 
@@ -318,7 +318,7 @@ export const PROVIDER_CATALOG: Record<string, ProviderMeta> = {
     ],
     menuLabel: "Claude Pro/Max — setup-token [ToS gray area]",
     menuHint: "⚠️",
-    warning: `⚠️  IMPORTANT: Anthropic's Terms of Service state that OAuth tokens from\n    Claude Pro/Max plans are intended for Claude Code and claude.ai only.\n    TeamClaw supports this as a technical compatibility option. Anthropic has\n    enforced this in the past. Use at your own discretion. For a guaranteed\n    safe path, use an Anthropic API key instead.`,
+    warning: `⚠️  IMPORTANT: Anthropic's Terms of Service state that OAuth tokens from\n    Claude Pro/Max plans are intended for Claude Code and claude.ai only.\n    OpenPawl supports this as a technical compatibility option. Anthropic has\n    enforced this in the past. Use at your own discretion. For a guaranteed\n    safe path, use an Anthropic API key instead.`,
     openaiCompatible: false,
   },
   "gemini-oauth": {
@@ -1140,32 +1140,32 @@ Add new error templates to `ERROR_MESSAGES`:
 CHATGPT_OAUTH_REQUIRED: {
   title: 'ChatGPT OAuth not configured',
   body: 'Run the setup flow to connect your ChatGPT subscription.',
-  fix: ['Run: teamclaw providers add chatgpt'],
+  fix: ['Run: openpawl providers add chatgpt'],
 },
 CHATGPT_TOKEN_EXPIRED: {
   title: 'ChatGPT token expired',
   body: 'Your ChatGPT OAuth token has expired. Refreshing automatically...',
-  fix: ['If this persists, re-run: teamclaw providers add chatgpt'],
+  fix: ['If this persists, re-run: openpawl providers add chatgpt'],
 },
 COPILOT_GITHUB_NOT_FOUND: {
   title: 'GitHub token not found',
   body: 'Could not find a GitHub token for Copilot access.',
   fix: [
     'Run: gh auth login',
-    'Or let TeamClaw run the device flow: teamclaw providers add copilot',
+    'Or let OpenPawl run the device flow: openpawl providers add copilot',
   ],
 },
 COPILOT_TOKEN_EXPIRED: {
   title: 'Copilot token expired',
   body: 'Your Copilot access token has expired. Refreshing automatically...',
-  fix: ['If this persists, re-run: teamclaw providers add copilot'],
+  fix: ['If this persists, re-run: openpawl providers add copilot'],
 },
 CLAUDE_SETUP_TOKEN_REJECTED: {
   title: 'Anthropic rejected the setup-token',
   body: 'The setup-token from Claude CLI was not accepted.',
   fix: [
     'Re-run: claude setup-token',
-    'If persistent, switch to API key: teamclaw providers add anthropic',
+    'If persistent, switch to API key: openpawl providers add anthropic',
   ],
 },
 GEMINI_OAUTH_BANNED: {
@@ -1195,8 +1195,8 @@ ANTHROPIC_OAUTH_BLOCKED: {
   title: 'Anthropic OAuth not supported',
   body: 'Anthropic OAuth tokens (from claude.ai) are not supported for third-party tools.',
   fix: [
-    'Use an API key: teamclaw providers add anthropic',
-    'Or setup-token (gray area): teamclaw providers add anthropic-sub',
+    'Use an API key: openpawl providers add anthropic',
+    'Or setup-token (gray area): openpawl providers add anthropic-sub',
   ],
 },
 ```
@@ -1372,7 +1372,7 @@ export class CopilotProvider implements StreamProvider {
       headers: {
         Authorization: `token ${this.githubToken}`,
         Accept: "application/json",
-        "User-Agent": "TeamClaw/1.0",
+        "User-Agent": "OpenPawl/1.0",
       },
       signal: AbortSignal.timeout(10_000),
     });
@@ -1425,8 +1425,8 @@ export class CopilotProvider implements StreamProvider {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
-        "Copilot-Integration-Id": "teamclaw",
-        "User-Agent": "TeamClaw/1.0",
+        "Copilot-Integration-Id": "openpawl",
+        "User-Agent": "OpenPawl/1.0",
         Accept: "text/event-stream",
       },
       body: JSON.stringify({
@@ -1777,7 +1777,7 @@ export class ChatGPTOAuthProvider implements StreamProvider {
       throw new ProviderError({
         provider: "chatgpt",
         code: "CHATGPT_OAUTH_REQUIRED",
-        message: "No ChatGPT OAuth token. Run: teamclaw providers add chatgpt",
+        message: "No ChatGPT OAuth token. Run: openpawl providers add chatgpt",
         isFallbackTrigger: true,
       });
     }
@@ -2344,7 +2344,7 @@ function providerFromConfig(entry: ProviderConfigEntry): StreamProvider | null {
 
     case "gemini-oauth":
       // OAuth variant — not yet implemented, fall through to null
-      logger.warn('Gemini OAuth not yet implemented. Use API key: teamclaw providers add gemini');
+      logger.warn('Gemini OAuth not yet implemented. Use API key: openpawl providers add gemini');
       return null;
 
     default:
@@ -2382,7 +2382,7 @@ git commit -m "feat: wire all dedicated providers into factory"
 
 - [ ] **Step 1: Add the `add` subcommand to providers.ts**
 
-Expand `src/commands/providers.ts` to support `teamclaw providers add` with the full provider menu. Import from the catalog and use @clack/prompts for the interactive menu.
+Expand `src/commands/providers.ts` to support `openpawl providers add` with the full provider menu. Import from the catalog and use @clack/prompts for the interactive menu.
 
 ```typescript
 // Add to the runProvidersCommand function:
@@ -2401,7 +2401,7 @@ The `addProvider` function should:
 3. Show any warnings (for gray-area providers)
 4. Validate key format
 5. Let user pick a model from the catalog
-6. Save to ~/.teamclaw/config.json providers array
+6. Save to ~/.openpawl/config.json providers array
 7. Run health check
 
 - [ ] **Step 2: Implement addProvider with grouped menu**
@@ -2573,7 +2573,7 @@ async function addProvider(args: string[]): Promise<void> {
   if (entry.model) {
     logger.plain(`  Model: ${entry.model}`);
   }
-  logger.plain(pc.dim("  Run: teamclaw providers test"));
+  logger.plain(pc.dim("  Run: openpawl providers test"));
 }
 
 async function promptApiKey(
@@ -2668,7 +2668,7 @@ async function promptLocalProvider(
 async function promptCopilotAuth(entry: ProviderConfigEntry): Promise<void> {
   entry.authMethod = "device-oauth";
   note(
-    "TeamClaw will use GitHub's device flow to authenticate.\n" +
+    "OpenPawl will use GitHub's device flow to authenticate.\n" +
     "This requires an active GitHub Copilot subscription.",
     "GitHub Copilot",
   );
@@ -2836,7 +2836,7 @@ Expected: No errors
 
 ```bash
 git add src/commands/providers.ts
-git commit -m "feat: add 'teamclaw providers add' with full provider menu"
+git commit -m "feat: add 'openpawl providers add' with full provider menu"
 ```
 
 ---

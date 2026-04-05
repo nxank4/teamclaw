@@ -2,22 +2,20 @@
  * Runs template setup hooks in a secure-exec sandbox.
  * Template hooks are third-party code — treated as untrusted.
  * Each invocation gets a fresh runtime (one-shot).
+ *
+ * secure-exec is loaded dynamically so missing prebuilt binaries
+ * only fail at call time, not at import time.
  */
-
-import {
-  NodeRuntime,
-  createNodeDriver,
-  createNodeRuntimeDriverFactory,
-} from "secure-exec";
 
 export async function runTemplateHook(
   hookCode: string,
   projectPath: string,
 ): Promise<{ success: boolean; output: string; error?: string }> {
+  const { NodeRuntime, createNodeDriver, createNodeRuntimeDriverFactory } = await import("secure-exec");
   const runtime = new NodeRuntime({
     systemDriver: createNodeDriver({
       permissions: {
-        fs: (req) => ({ allow: req.path.startsWith(projectPath) }),
+        fs: (req: { path: string }) => ({ allow: req.path.startsWith(projectPath) }),
         network: () => ({ allow: false }),
         childProcess: () => ({ allow: false }),
         env: () => ({ allow: false }),

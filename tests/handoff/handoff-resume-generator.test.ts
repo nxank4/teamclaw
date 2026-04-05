@@ -10,8 +10,8 @@ describe("generateResumeCommands", () => {
     ];
     const result = generateResumeCommands(items, 0);
     expect(result).toEqual([
-      'teamclaw work --goal "Finish auth module"',
-      'teamclaw work --goal "Add tests"',
+      'openpawl work --goal "Finish auth module"',
+      'openpawl work --goal "Add tests"',
     ]);
   });
 
@@ -21,11 +21,11 @@ describe("generateResumeCommands", () => {
         description: "Run migrations",
         type: "open_task",
         priority: "high",
-        command: "teamclaw run migrate",
+        command: "openpawl run migrate",
       },
     ];
     const result = generateResumeCommands(items, 0);
-    expect(result).toEqual(["teamclaw run migrate"]);
+    expect(result).toEqual(["openpawl run migrate"]);
   });
 
   it("limits to 3 leftToDo commands", () => {
@@ -45,7 +45,7 @@ describe("generateResumeCommands", () => {
       { description: "Do something", type: "open_task", priority: "low" },
     ];
     const result = generateResumeCommands(items, 5);
-    expect(result).toContain("teamclaw journal list");
+    expect(result).toContain("openpawl journal list");
   });
 
   it("does not add journal list when decisionCount <= 3", () => {
@@ -53,7 +53,7 @@ describe("generateResumeCommands", () => {
       { description: "Do something", type: "open_task", priority: "low" },
     ];
     const result = generateResumeCommands(items, 3);
-    expect(result).not.toContain("teamclaw journal list");
+    expect(result).not.toContain("openpawl journal list");
   });
 
   it("adds think command for escalated items", () => {
@@ -66,7 +66,7 @@ describe("generateResumeCommands", () => {
     ];
     const result = generateResumeCommands(items, 0);
     expect(result).toContain(
-      'teamclaw think "Resolve architecture conflict"',
+      'openpawl think "Resolve architecture conflict"',
     );
   });
 

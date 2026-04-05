@@ -180,7 +180,7 @@ export function printWorkSummary(
     logger.plain([
         "",
         "History saved to:",
-        "• ~/.teamclaw/logs/work-history-*.log",
+        "• ~/.openpawl/logs/work-history-*.log",
         "• data/vector_store/",
         "",
     ].join("\n"));

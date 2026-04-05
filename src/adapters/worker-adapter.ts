@@ -1,5 +1,5 @@
 /**
- * WorkerAdapter — LLM interface for TeamClaw agent tasks.
+ * WorkerAdapter — LLM interface for OpenPawl agent tasks.
  * Uses ProviderManager for LLM completions (no external binary needed).
  */
 

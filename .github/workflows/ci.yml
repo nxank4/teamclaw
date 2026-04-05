@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, staging]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -62,7 +62,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests
+        if: matrix.os != 'ubuntu-latest' || matrix.node != '20'
         run: pnpm run test
+
+      - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '20'
+        run: pnpm run test:coverage
 
   build:
     name: Build
@@ -107,3 +112,19 @@ jobs:
             echo "::error::One or more CI jobs failed"
             exit 1
           fi
+
+  pr-gate:
+    name: PR Gate
+    if: always()
+    needs: [lint, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ||
+                "${{ needs.test.result }}" != "success" ||
+                "${{ needs.build.result }}" != "success" ]]; then
+            echo "::error::One or more CI jobs failed"
+            exit 1
+          fi
+          echo "All CI checks passed"

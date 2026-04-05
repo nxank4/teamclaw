@@ -16,7 +16,7 @@ vi.mock("node:os", async () => {
 
 describe("model-cache", () => {
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "teamclaw-cache-test-"));
+    tempDir = await mkdtemp(join(tmpdir(), "openpawl-cache-test-"));
     // Re-import to pick up new tempDir
     vi.resetModules();
   });
@@ -43,8 +43,8 @@ describe("model-cache", () => {
     const { getCachedModels } = await import("../../src/providers/model-cache.js");
     const { writeFile, mkdir } = await import("node:fs/promises");
 
-    const cachePath = join(tempDir, ".teamclaw", "model-cache.json");
-    await mkdir(join(tempDir, ".teamclaw"), { recursive: true });
+    const cachePath = join(tempDir, ".openpawl", "model-cache.json");
+    await mkdir(join(tempDir, ".openpawl"), { recursive: true });
 
     // Write expired cache (25 hours ago)
     const expired = {
@@ -63,8 +63,8 @@ describe("model-cache", () => {
     const { getCachedModels } = await import("../../src/providers/model-cache.js");
     const { writeFile, mkdir } = await import("node:fs/promises");
 
-    const cachePath = join(tempDir, ".teamclaw", "model-cache.json");
-    await mkdir(join(tempDir, ".teamclaw"), { recursive: true });
+    const cachePath = join(tempDir, ".openpawl", "model-cache.json");
+    await mkdir(join(tempDir, ".openpawl"), { recursive: true });
 
     const fresh = {
       openai: {

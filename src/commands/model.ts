@@ -1,5 +1,5 @@
 /**
- * `teamclaw model` — Manage model configuration.
+ * `openpawl model` — Manage model configuration.
  *
  * Subcommands:
  *   (none)        Interactive dashboard
@@ -37,7 +37,7 @@ const KNOWN_AGENT_ROLES = [
 ];
 
 export async function runModelCommand(args: string[]): Promise<void> {
-  logger.warn(pc.yellow("Note: teamclaw model is moving into teamclaw config"));
+  logger.warn(pc.yellow("Note: openpawl model is moving into openpawl config"));
   const sub = args[0];
 
   if (!sub) {
@@ -71,7 +71,7 @@ export async function runModelCommand(args: string[]): Promise<void> {
   }
 
   logger.error(`Unknown subcommand: model ${sub}`);
-  logger.error("Usage: teamclaw model | model list | model get | model set <model> | model set --agent <role> <model> | model reset | model refresh");
+  logger.error("Usage: openpawl model | model list | model get | model set <model> | model set --agent <role> <model> | model reset | model refresh");
   process.exit(1);
 }
 
@@ -200,7 +200,7 @@ async function runModelDashboard(): Promise<void> {
 async function runModelList(): Promise<void> {
   const models = await listAvailableModels();
   if (models.length === 0) {
-    logger.warn("No models discovered. Check your provider configuration with `teamclaw setup`.");
+    logger.warn("No models discovered. Check your provider configuration with `openpawl setup`.");
     return;
   }
 
@@ -238,13 +238,13 @@ function runModelGet(): void {
 }
 
 async function runModelSet(args: string[]): Promise<void> {
-  // teamclaw model set --agent <role> <model>
+  // openpawl model set --agent <role> <model>
   const agentIdx = args.indexOf("--agent");
   if (agentIdx !== -1) {
     const role = args[agentIdx + 1];
     const model = args[agentIdx + 2];
     if (!role || !model) {
-      logger.error("Usage: teamclaw model set --agent <role> <model>");
+      logger.error("Usage: openpawl model set --agent <role> <model>");
       process.exit(1);
     }
     persistAgentModel(role, model);
@@ -252,10 +252,10 @@ async function runModelSet(args: string[]): Promise<void> {
     return;
   }
 
-  // teamclaw model set <model>
+  // openpawl model set <model>
   const model = args[0];
   if (!model) {
-    logger.error("Usage: teamclaw model set <model>");
+    logger.error("Usage: openpawl model set <model>");
     process.exit(1);
   }
   persistDefaultModel(model);
@@ -278,7 +278,7 @@ async function runModelRefresh(args: string[]): Promise<void> {
   const providers = config?.providers ?? [];
 
   if (providers.length === 0) {
-    logger.warn("No providers configured. Run `teamclaw setup` first.");
+    logger.warn("No providers configured. Run `openpawl setup` first.");
     return;
   }
 

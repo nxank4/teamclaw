@@ -6,8 +6,8 @@ vi.mock("@/core/jsonConfigManager.js", async () => {
   );
   return {
     ...actual,
-    readTeamclawConfig: () => ({ 
-      path: "/x/teamclaw.config.json", 
+    readOpenpawlConfig: () => ({ 
+      path: "/x/openpawl.config.json", 
       data: { 
         creativity: 0.7, 
         max_cycles: 5,
@@ -21,21 +21,21 @@ vi.mock("@/core/jsonConfigManager.js", async () => {
 import { getConfigValue } from "@/core/configManager.js";
 
 describe("configManager", () => {
-  test("routes known JSON keys to teamclaw.config.json", () => {
+  test("routes known JSON keys to openpawl.config.json", () => {
     const res = getConfigValue("creativity");
-    expect(res.source).toBe("teamclaw.config.json");
+    expect(res.source).toBe("openpawl.config.json");
     expect(res.value).toBe("0.7");
   });
 
-  test("routes other keys to teamclaw.config.json", () => {
+  test("routes other keys to openpawl.config.json", () => {
     const res = getConfigValue("FOO");
-    expect(res.source).toBe("teamclaw.config.json");
+    expect(res.source).toBe("openpawl.config.json");
     expect(res.value).toBe("bar");
   });
 
   test("masks secret-like keys by default", () => {
     const res = getConfigValue("OPENAI_API_KEY");
-    expect(res.source).toBe("teamclaw.config.json");
+    expect(res.source).toBe("openpawl.config.json");
     expect(res.masked).toBe(true);
     expect(res.value).toMatch(/^sk-…\d{4}$/);
   });
@@ -54,7 +54,7 @@ describe("configManager", () => {
   test("returns null for missing config", () => {
     const res = getConfigValue("NONEXISTENT");
     expect(res.value).toBeNull();
-    expect(res.source).toBe("teamclaw.config.json");
+    expect(res.source).toBe("openpawl.config.json");
   });
 });
 

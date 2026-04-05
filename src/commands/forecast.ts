@@ -1,10 +1,10 @@
 /**
  * CLI commands for cost forecasting.
  *
- * teamclaw forecast <goal>                 Forecast without starting a run
- * teamclaw forecast <goal> --runs 3        Multi-run projection
- * teamclaw forecast accuracy               Show forecast accuracy stats
- * teamclaw forecast accuracy --method historical  Per method breakdown
+ * openpawl forecast <goal>                 Forecast without starting a run
+ * openpawl forecast <goal> --runs 3        Multi-run projection
+ * openpawl forecast accuracy               Show forecast accuracy stats
+ * openpawl forecast accuracy --method historical  Per method breakdown
  */
 
 import pc from "picocolors";
@@ -40,7 +40,7 @@ export async function runForecastCommand(args: string[]): Promise<void> {
   const goal = goalParts.join(" ");
 
   if (!goal.trim()) {
-    logger.error("Usage: teamclaw forecast <goal>");
+    logger.error("Usage: openpawl forecast <goal>");
     process.exit(1);
   }
 
@@ -228,21 +228,21 @@ function generateSyntheticTasks(goal: string): PreviewTask[] {
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw forecast") + " — Estimate run cost before execution",
+    pc.bold("openpawl forecast") + " — Estimate run cost before execution",
     "",
     pc.bold("Usage:"),
-    "  " + pc.green('teamclaw forecast "<goal>"') + "            Standalone forecast",
-    "  " + pc.green('teamclaw forecast "<goal>" --runs 3') + "   Multi-run projection",
-    "  " + pc.green("teamclaw forecast accuracy") + "            Show accuracy stats",
+    "  " + pc.green('openpawl forecast "<goal>"') + "            Standalone forecast",
+    "  " + pc.green('openpawl forecast "<goal>" --runs 3') + "   Multi-run projection",
+    "  " + pc.green("openpawl forecast accuracy") + "            Show accuracy stats",
     "",
     pc.bold("Options:"),
     "  " + pc.green("--runs <N>") + "           Number of runs to project",
     "  " + pc.green("--method <method>") + "    Filter accuracy by method (historical, profile_based, heuristic)",
     "",
     "Examples:",
-    pc.dim('  teamclaw forecast "Refactor auth module to use OAuth2"'),
-    pc.dim('  teamclaw forecast "Build REST API" --runs 3'),
-    pc.dim("  teamclaw forecast accuracy"),
+    pc.dim('  openpawl forecast "Refactor auth module to use OAuth2"'),
+    pc.dim('  openpawl forecast "Build REST API" --runs 3'),
+    pc.dim("  openpawl forecast accuracy"),
     "",
   ];
   console.log(lines.join("\n"));
