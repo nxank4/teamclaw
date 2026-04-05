@@ -43,6 +43,7 @@ const ENV_KEY_MAP: Record<string, OpenAIPreset> = {
   OPENCODE_API_KEY: "opencode-zen",
   OPENCODE_GO_API_KEY: "opencode-go",
   AZURE_OPENAI_API_KEY: "azure",
+  DASHSCOPE_API_KEY: "alibaba-coding",
 };
 
 export function providerFromConfig(entry: ProviderConfigEntry): StreamProvider | null {

@@ -207,14 +207,24 @@ export class EditorComponent implements Component {
       return true;
     }
 
-    // Arrow keys
+    // Arrow keys — with Ctrl for word navigation
     if (event.type === "arrow") {
       if (event.direction === "left") {
-        if (this.cursorCol > 0) this.cursorCol--;
+        if (event.ctrl) {
+          // Ctrl+Left: jump to start of previous word
+          this.cursorCol = jumpWordLeft(this.lines[this.cursorRow] ?? "", this.cursorCol);
+        } else {
+          if (this.cursorCol > 0) this.cursorCol--;
+        }
         return true;
       }
       if (event.direction === "right") {
-        if (this.cursorCol < (this.lines[this.cursorRow]?.length ?? 0)) this.cursorCol++;
+        if (event.ctrl) {
+          // Ctrl+Right: jump to start of next word
+          this.cursorCol = jumpWordRight(this.lines[this.cursorRow] ?? "", this.cursorCol);
+        } else {
+          if (this.cursorCol < (this.lines[this.cursorRow]?.length ?? 0)) this.cursorCol++;
+        }
         return true;
       }
       if (event.direction === "up") {
@@ -280,10 +290,29 @@ export class EditorComponent implements Component {
       return true;
     }
 
-    // Ctrl+U — clear line
+    // Ctrl+U — delete from cursor to start of line
     if (event.type === "char" && event.ctrl && event.char === "u") {
-      this.lines[this.cursorRow] = "";
+      const line = this.lines[this.cursorRow] ?? "";
+      this.lines[this.cursorRow] = line.slice(this.cursorCol);
       this.cursorCol = 0;
+      this.onChange?.(this.getText());
+      return true;
+    }
+
+    // Ctrl+K — delete from cursor to end of line
+    if (event.type === "char" && event.ctrl && event.char === "k") {
+      const line = this.lines[this.cursorRow] ?? "";
+      this.lines[this.cursorRow] = line.slice(0, this.cursorCol);
+      this.onChange?.(this.getText());
+      return true;
+    }
+
+    // Ctrl+W — delete previous word
+    if (event.type === "char" && event.ctrl && event.char === "w") {
+      const line = this.lines[this.cursorRow] ?? "";
+      const newCol = jumpWordLeft(line, this.cursorCol);
+      this.lines[this.cursorRow] = line.slice(0, newCol) + line.slice(this.cursorCol);
+      this.cursorCol = newCol;
       this.onChange?.(this.getText());
       return true;
     }
@@ -489,4 +518,24 @@ export class EditorComponent implements Component {
     }
     return false;
   }
+}
+
+// ── Word navigation helpers ──────────────────────────────
+
+/** Jump cursor to start of previous word. */
+function jumpWordLeft(text: string, cursor: number): number {
+  if (cursor === 0) return 0;
+  let i = cursor - 1;
+  while (i > 0 && text[i - 1] === " ") i--;
+  while (i > 0 && text[i - 1] !== " ") i--;
+  return i;
+}
+
+/** Jump cursor to start of next word. */
+function jumpWordRight(text: string, cursor: number): number {
+  if (cursor >= text.length) return text.length;
+  let i = cursor;
+  while (i < text.length && text[i] !== " ") i++;
+  while (i < text.length && text[i] === " ") i++;
+  return i;
 }

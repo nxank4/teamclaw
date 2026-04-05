@@ -272,6 +272,7 @@ function getDefaultBaseUrl(providerId: string): string {
     grok: "https://api.x.ai/v1",
     "opencode-zen": "https://opencode.ai/zen/v1",
     "opencode-go": "https://opencode.ai/zen/go/v1",
+    "alibaba-coding": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   };
   return URLS[providerId] ?? "";
 }

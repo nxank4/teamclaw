@@ -17,7 +17,7 @@ interface SettingField {
 }
 
 const FIELDS: SettingField[] = [
-  { key: "provider", label: "provider", description: "LLM provider", type: "select", options: ["ollama", "anthropic", "openai", "openrouter", "deepseek", "groq"] },
+  { key: "provider", label: "provider", description: "LLM provider", type: "select", options: ["ollama", "chatgpt", "github-copilot", "anthropic", "openai", "groq", "deepseek", "openrouter", "gemini", "grok", "mistral", "together", "fireworks", "cerebras", "perplexity", "lmstudio"] },
   { key: "model", label: "model", description: "Active model", type: "select", options: [] },
   { key: "apikey", label: "apikey", description: "API key", type: "password" },
   { key: "mode", label: "mode", description: "Default execution mode", type: "select", options: ["auto", "ask", "build", "brainstorm", "loop-hell"] },

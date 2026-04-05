@@ -15,7 +15,8 @@ export type OpenAIPreset =
   | "openai" | "openrouter" | "ollama" | "deepseek" | "groq" | "custom"
   | "gemini" | "grok" | "mistral" | "cerebras" | "together"
   | "fireworks" | "perplexity" | "moonshot" | "zai" | "minimax"
-  | "cohere" | "opencode-zen" | "opencode-go" | "azure" | "lmstudio";
+  | "cohere" | "opencode-zen" | "opencode-go" | "azure" | "lmstudio"
+  | "alibaba-coding";
 
 const PRESETS: Record<OpenAIPreset, { baseURL: string; envKey: string; defaultModel: string }> = {
   openai: {
@@ -63,6 +64,7 @@ const PRESETS: Record<OpenAIPreset, { baseURL: string; envKey: string; defaultMo
   "opencode-go": { baseURL: "https://opencode.ai/zen/go/v1", envKey: "OPENCODE_GO_API_KEY", defaultModel: "kimi-k2.5" },
   azure: { baseURL: "", envKey: "AZURE_OPENAI_API_KEY", defaultModel: "gpt-4o" },
   lmstudio: { baseURL: "http://localhost:1234/v1", envKey: "", defaultModel: "" },
+  "alibaba-coding": { baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", envKey: "DASHSCOPE_API_KEY", defaultModel: "qwen-turbo-latest" },
 };
 
 export interface OpenAICompatibleConfig {
