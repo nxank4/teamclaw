@@ -33,7 +33,7 @@ export { AgentResolver } from "./agent-resolver.js";
 export type { ResolverContext } from "./agent-resolver.js";
 
 // Dispatcher
-export { Dispatcher, PlaceholderAgentRunner } from "./dispatch-strategy.js";
+export { Dispatcher } from "./dispatch-strategy.js";
 export type { AgentRunner, DispatcherEvents } from "./dispatch-strategy.js";
 
 // Prompt router (main entry)

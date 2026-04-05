@@ -49,38 +49,6 @@ export interface AgentRunner {
 }
 
 
-// ─── Placeholder Agent Runner ────────────────────────────────────────────────
-
-/**
- * Placeholder agent runner for v1.
- * Returns a stub response. Real LLM calls wired in a later task.
- */
-export class PlaceholderAgentRunner implements AgentRunner {
-  async run(
-    agentId: string,
-    prompt: string,
-    _tools: string[],
-    _context: { systemPrompt: string; model?: string },
-    signal?: AbortSignal,
-  ): Promise<AgentResult> {
-    // Check abort before "executing"
-    if (signal?.aborted) {
-      return makeFailedResult(agentId, "Aborted");
-    }
-
-    return {
-      agentId,
-      success: true,
-      response: `[${agentId}] Acknowledged: "${prompt.slice(0, 100)}"`,
-      toolCalls: [],
-      duration: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      costUSD: 0,
-    };
-  }
-}
-
 // ─── Dispatcher ──────────────────────────────────────────────────────────────
 
 export class Dispatcher extends EventEmitter {
@@ -89,7 +57,7 @@ export class Dispatcher extends EventEmitter {
 
   constructor(
     private registry: AgentRegistry,
-    private agentRunner: AgentRunner = new PlaceholderAgentRunner(),
+    private agentRunner: AgentRunner,
   ) {
     super();
   }

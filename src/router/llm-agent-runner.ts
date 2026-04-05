@@ -6,6 +6,7 @@
 import type { AgentRunner } from "./dispatch-strategy.js";
 import type { AgentResult, ToolCallSummary } from "./router-types.js";
 import { callLLM, callLLMMultiTurn, type ToolDef } from "../engine/llm.js";
+import { InjectionDetector } from "../security/injection-detector.js";
 
 export interface LLMAgentRunnerOptions {
   onToken?: (agentId: string, token: string) => void;
@@ -23,6 +24,7 @@ export interface LLMAgentRunnerOptions {
  */
 export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRunner {
   const { onToken, onToolCall, getToolSchemas, executeTool } = opts;
+  const injectionDetector = new InjectionDetector();
 
   return {
     async run(
@@ -64,7 +66,14 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
             handleTool: async (name, args) => {
               onToolCall?.(agentId, name, "running");
               try {
-                const result = await executeTool!(name, args);
+                let result = await executeTool!(name, args);
+
+                // Scan tool output for injection attempts before sending to LLM
+                const alerts = injectionDetector.detect(result, "tool_output");
+                if (alerts.some((a) => a.severity === "critical")) {
+                  result = "[BLOCKED: suspicious content detected in tool output]";
+                }
+
                 onToolCall?.(agentId, name, "completed");
                 allToolCalls.push({ tool: name, input: JSON.stringify(args), output: result.slice(0, 200), duration: 0, success: true });
                 return result;

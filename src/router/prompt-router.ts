@@ -65,8 +65,8 @@ export class PromptRouter extends EventEmitter {
   constructor(
     config: PromptRouterConfig,
     sessionManager: SessionManager,
-    classifierLLM?: ClassifierLLM | null,
-    agentRunner?: AgentRunner,
+    classifierLLM: ClassifierLLM | null | undefined,
+    agentRunner: AgentRunner,
   ) {
     super();
     this.sessionManager = sessionManager;

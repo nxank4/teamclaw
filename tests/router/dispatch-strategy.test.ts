@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Dispatcher, PlaceholderAgentRunner } from "../../src/router/dispatch-strategy.js";
+import { Dispatcher } from "../../src/router/dispatch-strategy.js";
 import type { AgentRunner } from "../../src/router/dispatch-strategy.js";
 import { AgentRegistry } from "../../src/router/agent-registry.js";
 import type { RouteDecision, AgentResult } from "../../src/router/router-types.js";
@@ -229,11 +229,4 @@ describe("Dispatcher", () => {
     expect(dispatch.totalCostUSD).toBeCloseTo(0.01);
   });
 
-  it("placeholder runner returns acknowledgement", async () => {
-    const dispatcher = new Dispatcher(registry);
-
-    const result = await dispatcher.dispatch("session-1", "hello world", makeDecision());
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap().agentResults[0]!.response).toContain("Acknowledged");
-  });
 });

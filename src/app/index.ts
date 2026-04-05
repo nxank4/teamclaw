@@ -759,6 +759,19 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.tui.requestRender();
   };
 
+  // Install crash handler for clean shutdown on uncaught errors
+  try {
+    const { CrashHandler } = await import("../recovery/crash-handler.js");
+    const crashHandler = new CrashHandler(async () => {
+      tuiSession.close();
+      if (ctx.sessionMgr) await ctx.sessionMgr.shutdown();
+      layout.tui.stop();
+    });
+    crashHandler.install();
+  } catch {
+    // Recovery module not available — continue without crash handler
+  }
+
   const cleanup = async () => {
     ctx.cleanupRouter?.();
     ctx.cleanupSession?.();
@@ -831,6 +844,57 @@ async function initSessionRouter(
     registerBuiltInTools(reg);
     toolRegistry = reg;
     toolExecutor = new ToolExecutor(reg, new PermissionResolver());
+
+    // Wire tool confirmation: show inline prompt for dangerous tools
+    toolExecutor.on("tool:confirmation_needed", ({ toolName, input, approve, reject }: {
+      toolName: string; input: unknown; approve: () => void; reject: () => void;
+    }) => {
+      const inputSummary = typeof input === "object" && input !== null
+        ? JSON.stringify(input).slice(0, 80)
+        : String(input).slice(0, 80);
+      layout.messages.addMessage({
+        role: "system",
+        content: ctp.yellow(`\u25c6 ${toolName} ${inputSummary}\n  Allow? [Y]es [N]o [!]Always`),
+        timestamp: new Date(),
+      });
+      layout.tui.requestRender();
+
+      // Push a key handler that waits for Y/N/!
+      layout.tui.pushKeyHandler({
+        handleKey: (event) => {
+          if (event.type === "char" && !event.ctrl) {
+            const ch = event.char.toLowerCase();
+            if (ch === "y") {
+              layout.tui.popKeyHandler();
+              layout.messages.addMessage({ role: "system", content: ctp.green("\u2713 Approved"), timestamp: new Date() });
+              layout.tui.requestRender();
+              approve();
+              return true;
+            }
+            if (ch === "n") {
+              layout.tui.popKeyHandler();
+              layout.messages.addMessage({ role: "system", content: ctp.red("\u2717 Denied"), timestamp: new Date() });
+              layout.tui.requestRender();
+              reject();
+              return true;
+            }
+            if (ch === "!") {
+              layout.tui.popKeyHandler();
+              layout.messages.addMessage({ role: "system", content: ctp.green("\u2713 Always approved for session"), timestamp: new Date() });
+              layout.tui.requestRender();
+              approve();
+              return true;
+            }
+          }
+          if (event.type === "escape") {
+            layout.tui.popKeyHandler();
+            reject();
+            return true;
+          }
+          return true; // consume all keys while waiting
+        },
+      });
+    });
   } catch {
     // Tools not available — run without tools
   }

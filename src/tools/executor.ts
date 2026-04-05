@@ -64,10 +64,10 @@ export class ToolExecutor extends EventEmitter {
     }
 
     if ("needsConfirmation" in check && check.needsConfirmation) {
-      const executionId = randomUUID().slice(0, 8);
-      this.emit("tool:confirmation_needed", executionId, toolName, context.agentId, check.risk, check.description);
-      // For now, auto-approve (real confirmation flow wired when TUI connects)
-      // In production: would await user response via session.resolveToolConfirmation
+      const approved = await this.requestConfirmation(toolName, context.agentId, validatedInput);
+      if (!approved) {
+        return err({ type: "permission_denied", toolName, level: permission });
+      }
       if (permission === "session") {
         this.permissionResolver.grantSession(toolName);
       }
@@ -126,6 +126,32 @@ export class ToolExecutor extends EventEmitter {
     return Promise.all(
       calls.map((call) => this.execute(call.toolName, call.input, context)),
     );
+  }
+
+  /**
+   * Request user confirmation for a tool execution.
+   * Emits tool:confirmation_needed with approve/reject callbacks.
+   * If no listener is registered, auto-approves (backwards compat).
+   */
+  private async requestConfirmation(
+    toolName: string,
+    agentId: string,
+    input: unknown,
+  ): Promise<boolean> {
+    // If nobody is listening for confirmations, auto-approve
+    if (this.listenerCount("tool:confirmation_needed") === 0) {
+      return true;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      this.emit("tool:confirmation_needed", {
+        toolName,
+        agentId,
+        input,
+        approve: () => resolve(true),
+        reject: () => resolve(false),
+      });
+    });
   }
 
   abort(executionId: string): void {
