@@ -61,6 +61,17 @@ export const ACTIONS = {
   "mode.build": "Switch to build mode",
   "mode.brainstorm": "Switch to brainstorm mode",
   "mode.loopHell": "Switch to loop-hell mode",
+  "mode.cycle": "Cycle operating mode",
+
+  // Palette & overlays
+  "palette.show": "Open command palette",
+  "help.keybindings": "Show keybinding help",
+
+  // Model
+  "model.picker": "Open model picker",
+
+  // Thinking
+  "thinking.toggle": "Toggle extended thinking",
 } as const;
 
 export type ActionId = keyof typeof ACTIONS;

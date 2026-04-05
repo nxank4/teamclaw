@@ -59,6 +59,12 @@ export const WINDOWS_KEYMAP: KeymapPreset = {
   "mode.build": "alt+2",
   "mode.brainstorm": "alt+3",
   "mode.loopHell": "alt+4",
+  "mode.cycle": "shift+tab",
+
+  "palette.show": "ctrl+p",
+  "help.keybindings": "f1",
+  "model.picker": "alt+p",
+  "thinking.toggle": "alt+t",
 };
 
 export const MAC_KEYMAP: KeymapPreset = {
