@@ -43,9 +43,12 @@ export class ModelView extends InteractiveView {
       .filter((m) => m.status === "available" || m.status === "configured")
       .map((m) => ({ model: m, selectable: true }));
 
-    // Pre-select current model
+    // Pre-select current model and adjust scroll
     const idx = this.items.findIndex((item) => item.model.model === this.currentModel);
-    if (idx >= 0) this.selectedIndex = idx;
+    if (idx >= 0) {
+      this.selectedIndex = idx;
+      this.adjustScroll();
+    }
 
     this.loading = false;
     this.render();
@@ -108,19 +111,24 @@ export class ModelView extends InteractiveView {
       return lines;
     }
 
-    // Group available models by provider
+    // Group available models by provider (with scroll)
+    const { start, end, aboveCount, belowCount } = this.getVisibleRange();
+    const visible = filtered.slice(start, end);
     let lastProvider = "";
-    let itemIdx = 0;
-    for (const item of filtered) {
+    const itemLines: string[] = [];
+
+    for (let vi = 0; vi < visible.length; vi++) {
+      const globalIdx = start + vi;
+      const item = visible[vi]!;
       const m = item.model;
-      const isSelected = itemIdx === this.selectedIndex;
+      const isSelected = globalIdx === this.selectedIndex;
       const isCurrent = m.model === this.currentModel;
 
       if (m.provider !== lastProvider) {
-        if (lastProvider) lines.push("");
+        if (lastProvider) itemLines.push("");
         const status = this.providerStatuses.find((p) => p.id === m.provider);
         const dot = status?.status === "connected" ? ctp.green("\u25cf") : ctp.yellow("\u25d0");
-        lines.push(`    ${dot} ${t.dim(m.provider)}`);
+        itemLines.push(`    ${dot} ${t.dim(m.provider)}`);
         lastProvider = m.provider;
       }
 
@@ -128,14 +136,15 @@ export class ModelView extends InteractiveView {
       const current = isCurrent ? ctp.green("  \u2190 current") : "";
       const ctxInfo = m.contextWindow ? t.dim(` ${Math.round(m.contextWindow / 1000)}k ctx`) : "";
 
-
       if (isSelected) {
-        lines.push(`      ${cursor}${t.bold(m.displayName)}${ctxInfo}${current}`);
+        itemLines.push(`      ${cursor}${t.bold(m.displayName)}${ctxInfo}${current}`);
       } else {
-        lines.push(`      ${cursor}${m.displayName}${ctxInfo}${current}`);
+        itemLines.push(`      ${cursor}${m.displayName}${ctxInfo}${current}`);
       }
-      itemIdx++;
     }
+
+    const withIndicators = this.addScrollIndicators(itemLines, aboveCount, belowCount);
+    lines.push(...withIndicators);
 
     // Show unconfigured providers
     const unconfigured = this.providerStatuses.filter((p) => p.status === "not_configured" || (p.modelCount === 0 && p.status !== "connected"));

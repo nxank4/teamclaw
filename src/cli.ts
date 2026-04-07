@@ -138,11 +138,20 @@ async function main(): Promise<void> {
     if (proxyUrl && !process.execArgv.includes("--use-env-proxy")) {
       const [major] = process.versions.node.split(".").map(Number) as [number];
       if (major >= 22) {
+        // Suppress the experimental warning from undici's EnvHttpProxyAgent
+        const nodeOpts = process.env.NODE_OPTIONS ?? "";
+        const env = {
+          ...process.env,
+          NODE_OPTIONS: nodeOpts.includes("--no-warnings") ? nodeOpts : `${nodeOpts} --no-warnings=ExperimentalWarning`.trim(),
+        };
+
+        logger.plain(pc.dim(`  Proxy detected (${proxyUrl}). Routing network requests through proxy...`));
+
         const { spawnSync } = await import("node:child_process");
         const result = spawnSync(
           process.execPath,
           ["--use-env-proxy", ...process.argv.slice(1)],
-          { stdio: "inherit", env: process.env },
+          { stdio: "inherit", env },
         );
         process.exit(result.status ?? 1);
       } else {

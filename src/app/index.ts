@@ -19,7 +19,7 @@ import { SessionManager as TuiSessionManager } from "./session.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
-import { detectConfig, showConfigWarning } from "./config-check.js";
+import { type ConfigState, detectConfig, showConfigWarning } from "./config-check.js";
 import { setLoggerMuted } from "../core/logger.js";
 import { defaultTheme, ctp } from "../tui/themes/default.js";
 import { ModeSystem } from "../tui/keybindings/mode-system.js";
@@ -381,6 +381,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     chatSession: null as Session | null,
     cleanupRouter: null as (() => void) | null,
     cleanupSession: null as (() => void) | null,
+    configState: null as ConfigState | null,
   };
 
   // Register built-in commands (/help, /clear, /quit)
@@ -494,6 +495,16 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           msgCtx.addMessage("user", text);
         }
 
+        // Guard: don't attempt LLM calls when no provider is configured
+        if (!ctx.configState?.hasProvider) {
+          msgCtx.addMessage("system", "\u26a0 No provider configured. Run /setup to set up your AI provider.");
+          break;
+        }
+        if (!ctx.configState.isConnected && !ctx.router) {
+          msgCtx.addMessage("system", "\u26a0 Provider not connected. Check your API key with /settings.");
+          break;
+        }
+
         // Route through PromptRouter if available, else fallback
         if (ctx.router && ctx.chatSession) {
           await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
@@ -550,6 +561,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.statusBar.setRightText(ctp.overlay0("/help"));
 
   const configState = await detectConfig();
+  ctx.configState = configState;
   if (configState.hasProvider) {
     layout.statusBar.updateSegment(0, configState.providerName, ctp.subtext1);
     if (configState.isConnected) {
@@ -580,6 +592,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       addWelcomeMessage();
 
       const newState = await detectConfig();
+      ctx.configState = newState;
       if (newState.hasProvider) {
         layout.statusBar.updateSegment(0, newState.providerName, ctp.subtext1);
         if (newState.isConnected) {

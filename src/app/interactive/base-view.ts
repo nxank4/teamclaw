@@ -16,6 +16,8 @@ import { renderPanel } from "../../tui/components/panel.js";
 
 export abstract class InteractiveView {
   protected selectedIndex = 0;
+  protected scrollOffset = 0;
+  protected maxVisible = 10;
   protected active = false;
   protected filterEnabled = false;
   protected filterText = "";
@@ -28,6 +30,7 @@ export abstract class InteractiveView {
   activate(): void {
     this.active = true;
     this.selectedIndex = 0;
+    this.scrollOffset = 0;
     this.tui.pushKeyHandler(this);
     this.render();
   }
@@ -64,6 +67,7 @@ export abstract class InteractiveView {
       if (this.filterEnabled && this.filterText) {
         this.filterText = "";
         this.selectedIndex = 0;
+        this.scrollOffset = 0;
         this.render();
         return true;
       }
@@ -76,6 +80,7 @@ export abstract class InteractiveView {
       if (this.filterEnabled) {
         this.filterText += event.char;
         this.selectedIndex = 0;
+        this.scrollOffset = 0;
         this.render();
         return true;
       }
@@ -87,6 +92,7 @@ export abstract class InteractiveView {
     if (this.filterEnabled && !this.isEditing() && event.type === "char" && !event.ctrl && !event.alt) {
       this.filterText += event.char;
       this.selectedIndex = 0;
+      this.scrollOffset = 0;
       this.render();
       return true;
     }
@@ -95,18 +101,27 @@ export abstract class InteractiveView {
     if (this.filterEnabled && !this.isEditing() && event.type === "backspace" && this.filterText) {
       this.filterText = this.filterText.slice(0, -1);
       this.selectedIndex = 0;
+      this.scrollOffset = 0;
       this.render();
       return true;
     }
 
     if (!this.isEditing()) {
       if (event.type === "arrow" && event.direction === "up") {
-        this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+        const count = this.getItemCount();
+        if (count > 0) {
+          this.selectedIndex = this.selectedIndex <= 0 ? count - 1 : this.selectedIndex - 1;
+          this.adjustScroll();
+        }
         this.render();
         return true;
       }
       if (event.type === "arrow" && event.direction === "down") {
-        this.selectedIndex = Math.min(this.getItemCount() - 1, this.selectedIndex + 1);
+        const count = this.getItemCount();
+        if (count > 0) {
+          this.selectedIndex = this.selectedIndex >= count - 1 ? 0 : this.selectedIndex + 1;
+          this.adjustScroll();
+        }
         this.render();
         return true;
       }
@@ -155,6 +170,51 @@ export abstract class InteractiveView {
     const t = this.theme;
     if (!this.filterText) return `  ${t.dim("Type to search...")}`;
     return `  ${t.dim("Filter:")} ${this.filterText}${t.primary("▌")}`;
+  }
+
+  /** Adjust scrollOffset so selectedIndex stays in the visible window. */
+  protected adjustScroll(): void {
+    const count = this.getItemCount();
+    if (count <= this.maxVisible) {
+      this.scrollOffset = 0;
+      return;
+    }
+    // Wrap-around jump: selected at 0 means we wrapped from bottom
+    if (this.selectedIndex === 0) {
+      this.scrollOffset = 0;
+    } else if (this.selectedIndex === count - 1) {
+      this.scrollOffset = count - this.maxVisible;
+    }
+    // Keep selected in view
+    if (this.selectedIndex < this.scrollOffset) {
+      this.scrollOffset = this.selectedIndex;
+    } else if (this.selectedIndex >= this.scrollOffset + this.maxVisible) {
+      this.scrollOffset = this.selectedIndex - this.maxVisible + 1;
+    }
+  }
+
+  /** Get the visible window for the current scroll state. */
+  protected getVisibleRange(): { start: number; end: number; aboveCount: number; belowCount: number } {
+    const count = this.getItemCount();
+    if (count <= this.maxVisible) {
+      return { start: 0, end: count, aboveCount: 0, belowCount: 0 };
+    }
+    const start = this.scrollOffset;
+    const end = Math.min(count, start + this.maxVisible);
+    return { start, end, aboveCount: start, belowCount: count - end };
+  }
+
+  /** Wrap item lines with scroll indicators when items are hidden. */
+  protected addScrollIndicators(lines: string[], aboveCount: number, belowCount: number): string[] {
+    const t = this.theme;
+    const result = [...lines];
+    if (aboveCount > 0) {
+      result.unshift(t.dim(`  ${"▲"} ${aboveCount} more`));
+    }
+    if (belowCount > 0) {
+      result.push(t.dim(`  ${"▼"} ${belowCount} more`));
+    }
+    return result;
   }
 
   protected abstract getItemCount(): number;
