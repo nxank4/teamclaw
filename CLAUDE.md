@@ -19,7 +19,7 @@ OpenPawl orchestrates AI agent teams via LangGraph. Users define goals and teams
 - `bun run dev` — watch mode
 - `bun run web` — web UI (http://localhost:8000)
 - `bun run work` — work sessions with web dashboard
-- Makefile: `make check` (typecheck + test), `make test-full` (typecheck + lint + test + build — used in CI/pre-commit), `make clean`
+- Pre-commit hook runs: typecheck → lint → tests (all must pass)
 
 ## Architecture
 
