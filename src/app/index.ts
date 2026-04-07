@@ -1283,7 +1283,7 @@ export async function runPrintMode(prompt: string): Promise<void> {
 
   if (parsed.type === "command" && parsed.name === "status") {
     const { getGlobalProviderManager } = await import("../providers/provider-factory.js");
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     for (const p of pm.getProviders()) {
       const ok = await p.healthCheck().catch(() => false);
       console.log(`${p.name}: ${p.isAvailable() ? "available" : "unavailable"} health=${ok ? "ok" : "fail"}`);

@@ -444,7 +444,7 @@ export async function runWeb(args: string[]): Promise<void> {
 
     // Fire orchestration in background
     (async () => {
-      const pm = getGlobalProviderManager();
+      const pm = await getGlobalProviderManager();
       if (pm.getProviders().length === 0) {
         broadcast({
           type: "provision_error",

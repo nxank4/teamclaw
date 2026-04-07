@@ -63,7 +63,7 @@ export async function callLLM(
   prompt: string,
   options?: LLMCallOptions,
 ): Promise<LLMResponse> {
-  const mgr = getGlobalProviderManager();
+  const mgr = await getGlobalProviderManager();
   const model = options?.model ?? resolveModelForAgent("agent");
 
   const chunks: string[] = [];

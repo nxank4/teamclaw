@@ -347,7 +347,7 @@ export class SettingsView extends InteractiveView {
         try {
           const { getGlobalProviderManager, resetGlobalProviderManager } = await import("../../providers/provider-factory.js");
           resetGlobalProviderManager();
-          const mgr = getGlobalProviderManager();
+          const mgr = await getGlobalProviderManager();
           const providers = mgr.getProviders();
           if (providers.length > 0) {
             const ok = await providers[0]!.healthCheck().catch(() => false);

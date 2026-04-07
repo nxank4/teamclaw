@@ -77,16 +77,31 @@ vi.mock("../../src/providers/vertex-provider.js", () => ({
   })),
 }));
 
+// Mock CredentialStore to avoid real keychain access in tests
+vi.mock("../../src/credentials/credential-store.js", () => ({
+  CredentialStore: vi.fn().mockImplementation(() => ({
+    initialize: vi.fn().mockResolvedValue({ isOk: () => true }),
+    resolveApiKey: vi.fn().mockResolvedValue(null),
+  })),
+}));
+
+// Mock detectProviders to avoid real network probes in tests
+vi.mock("../../src/providers/detect.js", () => ({
+  detectProviders: vi.fn().mockResolvedValue([]),
+}));
+
 import { createProviderChain } from "../../src/providers/provider-factory.js";
 import { ProviderManager } from "../../src/providers/provider-manager.js";
 import type { ProviderConfigEntry } from "../../src/core/global-config.js";
+import { detectProviders } from "../../src/providers/detect.js";
 
 describe("provider chain integration", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    vi.mocked(detectProviders).mockResolvedValue([]);
   });
 
-  it("creates chain from mixed provider config", () => {
+  it("creates chain from mixed provider config", async () => {
     const entries: ProviderConfigEntry[] = [
       { type: "anthropic", apiKey: "sk-ant-test" },
       { type: "grok", apiKey: "xai-test" },
@@ -94,7 +109,7 @@ describe("provider chain integration", () => {
       { type: "ollama" },
     ];
 
-    const chain = createProviderChain(entries);
+    const chain = await createProviderChain(entries);
     expect(chain).toHaveLength(4);
     expect(chain[0]!.name).toBe("anthropic");
     expect(chain[1]!.name).toBe("grok");
@@ -102,7 +117,7 @@ describe("provider chain integration", () => {
     expect(chain[3]!.name).toBe("ollama");
   });
 
-  it("creates chain from new OpenAI-compatible provider types", () => {
+  it("creates chain from new OpenAI-compatible provider types", async () => {
     const entries: ProviderConfigEntry[] = [
       { type: "gemini", apiKey: "test-key", model: "gemini-3-pro" },
       { type: "mistral", apiKey: "test-key", model: "codestral" },
@@ -116,7 +131,7 @@ describe("provider chain integration", () => {
       { type: "cohere", apiKey: "test-key" },
     ];
 
-    const chain = createProviderChain(entries);
+    const chain = await createProviderChain(entries);
     expect(chain).toHaveLength(10);
     expect(chain.map(p => p.name)).toEqual([
       "gemini", "mistral", "cerebras", "together", "fireworks",
@@ -124,12 +139,17 @@ describe("provider chain integration", () => {
     ]);
   });
 
-  it("discovers new providers from env vars", () => {
+  it("discovers new providers from env vars", async () => {
+    vi.mocked(detectProviders).mockResolvedValue([
+      { type: "grok", available: true, source: "env", envKey: "XAI_API_KEY" },
+      { type: "mistral", available: true, source: "env", envKey: "MISTRAL_API_KEY" },
+      { type: "cerebras", available: true, source: "env", envKey: "CEREBRAS_API_KEY" },
+    ]);
     vi.stubEnv("XAI_API_KEY", "xai-test");
     vi.stubEnv("MISTRAL_API_KEY", "test-key");
     vi.stubEnv("CEREBRAS_API_KEY", "test-key");
 
-    const chain = createProviderChain();
+    const chain = await createProviderChain();
     expect(chain.length).toBeGreaterThanOrEqual(3);
     const names = chain.map(p => p.name);
     expect(names).toContain("grok");
@@ -137,38 +157,41 @@ describe("provider chain integration", () => {
     expect(names).toContain("cerebras");
   });
 
-  it("deduplicates env var providers with same preset", () => {
+  it("deduplicates env var providers with same preset", async () => {
+    vi.mocked(detectProviders).mockResolvedValue([
+      { type: "gemini", available: true, source: "env", envKey: "GOOGLE_API_KEY" },
+    ]);
     vi.stubEnv("GOOGLE_API_KEY", "key1");
     vi.stubEnv("GEMINI_API_KEY", "key2");
 
-    const chain = createProviderChain();
+    const chain = await createProviderChain();
     const geminiProviders = chain.filter(p => p.name === "gemini");
     expect(geminiProviders).toHaveLength(1);
   });
 
-  it("creates ProviderManager from chain", () => {
+  it("creates ProviderManager from chain", async () => {
     const entries: ProviderConfigEntry[] = [
       { type: "anthropic", apiKey: "sk-ant-test" },
       { type: "deepseek", apiKey: "sk-test" },
     ];
 
-    const chain = createProviderChain(entries);
+    const chain = await createProviderChain(entries);
     const manager = new ProviderManager(chain);
     expect(manager.getProviders()).toHaveLength(2);
   });
 
-  it("filters out null providers (e.g. gemini-oauth stub)", () => {
+  it("filters out null providers (e.g. gemini-oauth stub)", async () => {
     const entries: ProviderConfigEntry[] = [
       { type: "gemini-oauth" },
       { type: "anthropic", apiKey: "sk-ant-test" },
     ];
 
-    const chain = createProviderChain(entries);
+    const chain = await createProviderChain(entries);
     expect(chain).toHaveLength(1);
     expect(chain[0]!.name).toBe("anthropic");
   });
 
-  it("creates dedicated providers from config", () => {
+  it("creates dedicated providers from config", async () => {
     const entries: ProviderConfigEntry[] = [
       { type: "copilot", githubToken: "ghu_test" },
       { type: "chatgpt", oauthToken: "test-token" },
@@ -176,23 +199,23 @@ describe("provider chain integration", () => {
       { type: "vertex", projectId: "my-project" },
     ];
 
-    const chain = createProviderChain(entries);
+    const chain = await createProviderChain(entries);
     expect(chain).toHaveLength(4);
     expect(chain.map(p => p.name)).toEqual(["copilot", "chatgpt", "bedrock", "vertex"]);
   });
 
-  it("ignores removed anthropic-sub type gracefully", () => {
+  it("ignores removed anthropic-sub type gracefully", async () => {
     const entries: ProviderConfigEntry[] = [
       { type: "anthropic", apiKey: "sk-ant-api03-test" },
     ];
 
-    const chain = createProviderChain(entries);
+    const chain = await createProviderChain(entries);
     expect(chain).toHaveLength(1);
     expect(chain[0]!.name).toBe("anthropic");
   });
 
-  it("returns empty chain when no config and no env vars", () => {
-    const chain = createProviderChain();
+  it("returns empty chain when no config and no env vars", async () => {
+    const chain = await createProviderChain();
     expect(chain).toHaveLength(0);
   });
 });

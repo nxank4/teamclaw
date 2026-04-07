@@ -141,7 +141,7 @@ export async function runWork(
         logger.plain(formatFirstRunMessage());
     }
 
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     if (pm.getProviders().length === 0) {
         throw new Error("No LLM providers configured. Run `openpawl setup` or set an API key env var.");
     }

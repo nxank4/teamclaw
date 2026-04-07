@@ -112,7 +112,7 @@ export async function suggestGoalFromWorkspace(
             "\nSuggest an updated goal that accounts for the existing work. Respond with ONLY the goal text, no explanation.",
         ].join("\n");
 
-        const pm = getGlobalProviderManager();
+        const pm = await getGlobalProviderManager();
         if (pm.getProviders().length === 0) {
             s.stop("No LLM providers configured.");
             return null;
@@ -153,7 +153,7 @@ export async function refineGoalWithAI(
 ): Promise<string | null> {
     const s = spinner();
     try {
-        const pm = getGlobalProviderManager();
+        const pm = await getGlobalProviderManager();
         if (pm.getProviders().length === 0) {
             return null;
         }

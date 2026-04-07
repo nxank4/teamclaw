@@ -61,9 +61,9 @@ export function getHealthMonitor(): HealthMonitor | null {
   return instance?.healthMonitor ?? null;
 }
 
-export function createProxyService(): ProxyService {
+export async function createProxyService(): Promise<ProxyService> {
   if (!instance) {
-    const manager = getGlobalProviderManager();
+    const manager = await getGlobalProviderManager();
     const providers = [...manager.getProviders()];
     const monitor = new HealthMonitor(providers);
     instance = new ProxyService(manager, monitor);

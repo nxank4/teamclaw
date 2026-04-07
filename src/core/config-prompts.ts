@@ -41,7 +41,7 @@ export async function validateOrPromptConfig(
     }
 
     // Check if we have at least one LLM provider configured
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     const hasProviders = pm.getProviders().length > 0;
 
     if (hasProviders && rosterOk && !opts.forceDiscover) {

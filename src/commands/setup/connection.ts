@@ -110,7 +110,7 @@ async function testProviderConnection(entry: ProviderConfigEntry): Promise<boole
     if (entry.type === "opencode-zen" || entry.type === "opencode-go") return true;
 
     const { providerFromConfig } = await import("../../providers/provider-factory.js");
-    const provider = providerFromConfig(entry);
+    const provider = await providerFromConfig(entry);
     if (!provider) return true;
 
     const s = spinner();

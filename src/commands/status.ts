@@ -8,7 +8,7 @@ export async function runStatusCommand(): Promise<void> {
   intro("OpenPawl Status");
 
   // Provider status
-  const mgr = getGlobalProviderManager();
+  const mgr = await getGlobalProviderManager();
   const providers = mgr.getProviders();
   const providerLines: string[] = [];
   for (const p of providers) {

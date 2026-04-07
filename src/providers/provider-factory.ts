@@ -18,39 +18,24 @@ import type { StreamProvider } from "./provider.js";
 import { readGlobalConfig, type ProviderConfigEntry } from "../core/global-config.js";
 import { logger } from "../core/logger.js";
 import { setActiveProviderFamily } from "../core/model-config.js";
+import { CredentialStore } from "../credentials/credential-store.js";
+import { detectProviders } from "./detect.js";
 
 let globalManager: ProviderManager | null = null;
 
-const ENV_KEY_MAP: Record<string, OpenAIPreset> = {
-  OPENAI_API_KEY: "openai",
-  OPENROUTER_API_KEY: "openrouter",
-  DEEPSEEK_API_KEY: "deepseek",
-  GROQ_API_KEY: "groq",
-  GOOGLE_API_KEY: "gemini",
-  GEMINI_API_KEY: "gemini",
-  XAI_API_KEY: "grok",
-  MISTRAL_API_KEY: "mistral",
-  CEREBRAS_API_KEY: "cerebras",
-  TOGETHER_API_KEY: "together",
-  TOGETHER_AI_API_KEY: "together",
-  FIREWORKS_API_KEY: "fireworks",
-  PERPLEXITY_API_KEY: "perplexity",
-  MOONSHOT_API_KEY: "moonshot",
-  ZAI_API_KEY: "zai",
-  ZHIPU_API_KEY: "zai",
-  MINIMAX_API_KEY: "minimax",
-  COHERE_API_KEY: "cohere",
-  OPENCODE_API_KEY: "opencode-zen",
-  OPENCODE_GO_API_KEY: "opencode-go",
-  AZURE_OPENAI_API_KEY: "azure",
-  DASHSCOPE_API_KEY: "alibaba-coding",
-};
+export async function providerFromConfig(entry: ProviderConfigEntry): Promise<StreamProvider | null> {
+  // Resolve API key from credential store if not provided inline
+  let resolvedApiKey = entry.apiKey;
+  if (!resolvedApiKey && entry.hasCredential) {
+    const store = new CredentialStore();
+    await store.initialize();
+    resolvedApiKey = await store.resolveApiKey(entry.type) ?? undefined;
+  }
 
-export function providerFromConfig(entry: ProviderConfigEntry): StreamProvider | null {
   // Anthropic native SDK
   if (entry.type === "anthropic") {
     return new AnthropicProvider({
-      apiKey: entry.apiKey,
+      apiKey: resolvedApiKey,
       model: entry.model,
     });
   }
@@ -98,52 +83,39 @@ export function providerFromConfig(entry: ProviderConfigEntry): StreamProvider |
   // Everything else uses OpenAI-compatible
   return new OpenAICompatibleProvider({
     preset: entry.type as OpenAIPreset,
-    apiKey: entry.apiKey,
+    apiKey: resolvedApiKey,
     baseURL: entry.baseURL,
     model: entry.model,
     name: entry.name,
   });
 }
 
-function discoverFromEnv(): StreamProvider[] {
+export async function discoverFromEnv(): Promise<StreamProvider[]> {
+  const detected = await detectProviders();
   const providers: StreamProvider[] = [];
-  const seenPresets = new Set<string>();
-
-  if (process.env.ANTHROPIC_API_KEY) {
-    providers.push(new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY }));
+  for (const d of detected.filter((p) => p.available && p.source === "env")) {
+    const entry: ProviderConfigEntry = { type: d.type as ProviderConfigEntry["type"] };
+    const provider = await providerFromConfig(entry);
+    if (provider) providers.push(provider);
   }
-
-  for (const [envKey, preset] of Object.entries(ENV_KEY_MAP)) {
-    if (process.env[envKey] && !seenPresets.has(preset)) {
-      seenPresets.add(preset);
-      providers.push(
-        new OpenAICompatibleProvider({
-          preset,
-          apiKey: process.env[envKey],
-        }),
-      );
-    }
-  }
-
   return providers;
 }
 
-export function createProviderChain(
+export async function createProviderChain(
   configEntries?: ProviderConfigEntry[],
-): StreamProvider[] {
+): Promise<StreamProvider[]> {
   if (configEntries && configEntries.length > 0) {
-    return configEntries
-      .map(providerFromConfig)
-      .filter((p): p is StreamProvider => p !== null);
+    const settled = await Promise.all(configEntries.map(providerFromConfig));
+    return settled.filter((p): p is StreamProvider => p !== null);
   }
 
-  const fromEnv = discoverFromEnv();
+  const fromEnv = await discoverFromEnv();
   if (fromEnv.length > 0) return fromEnv;
 
   return [];
 }
 
-export function getGlobalProviderManager(): ProviderManager {
+export async function getGlobalProviderManager(): Promise<ProviderManager> {
   if (globalManager) return globalManager;
 
   let configProviders: ProviderConfigEntry[] | undefined;
@@ -154,7 +126,7 @@ export function getGlobalProviderManager(): ProviderManager {
     // Config unavailable — rely on env vars
   }
 
-  const chain = createProviderChain(configProviders);
+  const chain = await createProviderChain(configProviders);
   if (chain.length === 0) {
     logger.warn("No LLM providers configured. Set an API key env var or run `openpawl setup`.");
   }

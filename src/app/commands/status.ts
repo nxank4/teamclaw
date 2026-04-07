@@ -13,7 +13,7 @@ export function createStatusCommand(): SlashCommand {
       const { loadTeamConfig } = await import("../../core/team-config.js");
       const { buildTeamFromRoster, buildTeamFromTemplate } = await import("../../core/team-templates.js");
 
-      const pm = getGlobalProviderManager();
+      const pm = await getGlobalProviderManager();
       const providers = pm.getProviders();
       const lines: string[] = ["**Providers:**"];
       for (const p of providers) {

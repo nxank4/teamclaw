@@ -29,7 +29,7 @@ function summarizeStatus(checks: HealthCheckResult[]): HealthLevel {
 
 export async function runGatewayHealthCheck(): Promise<GatewayHealthReport> {
   const checks: HealthCheckResult[] = [];
-  const pm = getGlobalProviderManager();
+  const pm = await getGlobalProviderManager();
   const providers = pm.getProviders();
 
   if (providers.length === 0) {

@@ -135,7 +135,7 @@ export async function listProviders(): Promise<void> {
 }
 
 async function testProviders(): Promise<void> {
-  const manager = getGlobalProviderManager();
+  const manager = await getGlobalProviderManager();
   const providers = manager.getProviders();
 
   if (providers.length === 0) {
