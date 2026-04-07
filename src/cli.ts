@@ -131,24 +131,24 @@ function printHelp(): void {
 async function main(): Promise<void> {
     // ── Proxy auto-detection ──────────────────────────────────────────────
     // Node's fetch (undici) ignores HTTP_PROXY/HTTPS_PROXY. On Node >= 22.8,
-    // re-exec with --experimental-global-proxy so corporate proxies work.
+    // re-exec with --use-env-proxy so corporate proxies work.
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY
       || process.env.https_proxy || process.env.http_proxy;
 
-    if (proxyUrl && !process.execArgv.includes("--experimental-global-proxy")) {
-      const [major, minor] = process.versions.node.split(".").map(Number) as [number, number];
-      if (major > 22 || (major === 22 && minor >= 8)) {
+    if (proxyUrl && !process.execArgv.includes("--use-env-proxy")) {
+      const [major] = process.versions.node.split(".").map(Number) as [number];
+      if (major >= 22) {
         const { spawnSync } = await import("node:child_process");
         const result = spawnSync(
           process.execPath,
-          ["--experimental-global-proxy", ...process.argv.slice(1)],
+          ["--use-env-proxy", ...process.argv.slice(1)],
           { stdio: "inherit", env: process.env },
         );
         process.exit(result.status ?? 1);
       } else {
         logger.warn(
-          `Proxy detected (${proxyUrl}) but Node ${process.versions.node} does not support --experimental-global-proxy (requires 22.8+).`
-          + "\n  Network requests may fail. Upgrade Node or set NODE_OPTIONS=--experimental-global-proxy manually.",
+          `Proxy detected (${proxyUrl}) but Node ${process.versions.node} does not support --use-env-proxy (requires >= 22).`
+          + "\n  Network requests may fail. Upgrade Node or set NODE_OPTIONS=--use-env-proxy manually.",
         );
       }
     }
