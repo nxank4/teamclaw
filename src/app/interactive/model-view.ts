@@ -27,6 +27,8 @@ export class ModelView extends InteractiveView {
   }
 
   override activate(): void {
+    this.filterEnabled = true;
+    this.filterText = "";
     super.activate();
     void this.loadModels();
   }
@@ -49,10 +51,15 @@ export class ModelView extends InteractiveView {
     this.render();
   }
 
-  protected getItemCount(): number { return this.items.length; }
+  private getFilteredItems(): ModelItem[] {
+    return this.items.filter((item) => this.matchesFilter(item.model.displayName || item.model.model));
+  }
+
+  protected getItemCount(): number { return this.getFilteredItems().length; }
 
   private selectAndClose(): void {
-    const item = this.items[this.selectedIndex];
+    const filtered = this.getFilteredItems();
+    const item = filtered[this.selectedIndex];
     if (item?.selectable) {
       this.onSelect(item.model.model);
       this.deactivate();
@@ -68,7 +75,7 @@ export class ModelView extends InteractiveView {
   }
 
   protected override getPanelTitle(): string { return "\u26a1 Models"; }
-  protected override getPanelFooter(): string { return "\u2191\u2193 navigate \u00b7 Enter select \u00b7 Esc close"; }
+  protected override getPanelFooter(): string { return "\u2191\u2193 navigate \u00b7 Enter select \u00b7 Type to filter \u00b7 Esc close"; }
 
   protected renderLines(): string[] {
     const t = this.theme;
@@ -87,10 +94,24 @@ export class ModelView extends InteractiveView {
       return lines;
     }
 
+    const filterLine = this.renderFilterLine();
+    if (filterLine) {
+      lines.push(`    ${filterLine}`);
+      lines.push("");
+    }
+
+    const filtered = this.getFilteredItems();
+
+    if (filtered.length === 0 && this.filterText) {
+      lines.push(`    ${ctp.overlay1(`No models match "${this.filterText}"`)}`);
+      lines.push("");
+      return lines;
+    }
+
     // Group available models by provider
     let lastProvider = "";
     let itemIdx = 0;
-    for (const item of this.items) {
+    for (const item of filtered) {
       const m = item.model;
       const isSelected = itemIdx === this.selectedIndex;
       const isCurrent = m.model === this.currentModel;

@@ -1,8 +1,12 @@
 /**
  * Base class for interactive TUI views.
- * Handles ↑/↓ navigation, Esc/Ctrl+C to close, mouse click routing,
+ * Handles ↑/↓ navigation, Esc/Ctrl+C to close,
  * and key handler stack management.
  * Subclasses implement getItemCount(), handleCustomKey(), and renderLines().
+ *
+ * Opt-in filter: set `filterEnabled = true` in subclass. Typing characters
+ * populates `filterText`. Subclass should use `matchesFilter(label)` to
+ * filter items in `renderLines()` and `getItemCount()`.
  */
 import type { KeyEvent } from "../../tui/core/input.js";
 import type { TUI } from "../../tui/core/tui.js";
@@ -13,6 +17,8 @@ import { renderPanel } from "../../tui/components/panel.js";
 export abstract class InteractiveView {
   protected selectedIndex = 0;
   protected active = false;
+  protected filterEnabled = false;
+  protected filterText = "";
 
   constructor(
     protected tui: TUI,
@@ -54,12 +60,42 @@ export abstract class InteractiveView {
         this.render();
         return true;
       }
+      // First Esc clears filter, second Esc closes view
+      if (this.filterEnabled && this.filterText) {
+        this.filterText = "";
+        this.selectedIndex = 0;
+        this.render();
+        return true;
+      }
       this.deactivate();
       return true;
     }
 
     if (event.type === "char" && event.char === "q" && !event.ctrl && !this.isEditing()) {
+      // If filtering, treat 'q' as a filter character, not close
+      if (this.filterEnabled) {
+        this.filterText += event.char;
+        this.selectedIndex = 0;
+        this.render();
+        return true;
+      }
       this.deactivate();
+      return true;
+    }
+
+    // Filter: typing characters filters the list
+    if (this.filterEnabled && !this.isEditing() && event.type === "char" && !event.ctrl && !event.alt) {
+      this.filterText += event.char;
+      this.selectedIndex = 0;
+      this.render();
+      return true;
+    }
+
+    // Filter: backspace removes last filter character
+    if (this.filterEnabled && !this.isEditing() && event.type === "backspace" && this.filterText) {
+      this.filterText = this.filterText.slice(0, -1);
+      this.selectedIndex = 0;
+      this.render();
       return true;
     }
 
@@ -106,6 +142,19 @@ export abstract class InteractiveView {
     const width = this.tui.getTerminal().columns;
     const gap = Math.max(2, width - visibleWidth(title) - visibleWidth(hint) - 4);
     return t.bold(title) + " ".repeat(gap) + t.dim(hint);
+  }
+
+  /** Case-insensitive substring match against the current filter text. */
+  protected matchesFilter(label: string): boolean {
+    if (!this.filterText) return true;
+    return label.toLowerCase().includes(this.filterText.toLowerCase());
+  }
+
+  /** Render the filter input line (call from renderLines when filterEnabled). */
+  protected renderFilterLine(): string {
+    const t = this.theme;
+    if (!this.filterText) return "";
+    return `  ${t.dim("Filter:")} ${this.filterText}${t.primary("▌")}`;
   }
 
   protected abstract getItemCount(): number;

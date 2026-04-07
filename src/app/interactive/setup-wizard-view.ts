@@ -56,9 +56,11 @@ export class SetupWizardView extends InteractiveView {
   override activate(): void {
     this.step = WizardStep.PROVIDER;
     this.selectedIndex = 0;
+    this.filterEnabled = true;
+    this.filterText = "";
     this.loading = true;
     this.loadingText = "Scanning for providers...";
-    this.buildProviderItems(); // show all providers immediately (no detection yet)
+    this.buildProviderItems();
     super.activate();
     void this.runDetection();
   }
@@ -67,9 +69,9 @@ export class SetupWizardView extends InteractiveView {
 
   protected getItemCount(): number {
     switch (this.step) {
-      case WizardStep.PROVIDER: return this.getSelectableProviderCount();
+      case WizardStep.PROVIDER: return this.getFilteredProviders().length;
       case WizardStep.API_KEY: return 1;
-      case WizardStep.MODEL: return this.models.length;
+      case WizardStep.MODEL: return this.getFilteredModels().length;
       case WizardStep.CONFIRM: return 1;
     }
   }
@@ -120,9 +122,9 @@ export class SetupWizardView extends InteractiveView {
 
   protected override getPanelFooter(): string {
     switch (this.step) {
-      case WizardStep.PROVIDER: return this.loading ? "Scanning..." : "↑↓ navigate · Enter select · Esc close";
+      case WizardStep.PROVIDER: return this.loading ? "Scanning..." : "↑↓ navigate · Enter select · Type to filter · Esc close";
       case WizardStep.API_KEY: return "Type key, Enter to validate · Esc back";
-      case WizardStep.MODEL: return "↑↓ navigate · Enter select · Esc back";
+      case WizardStep.MODEL: return "↑↓ navigate · Enter select · Type to filter · Esc back";
       case WizardStep.CONFIRM: return "Enter save · Esc back";
     }
   }
@@ -199,30 +201,26 @@ export class SetupWizardView extends InteractiveView {
     }
   }
 
-  private getSelectableProviderCount(): number {
-    return this.providerItems.filter((i) => i.type === "provider").length;
+  private getFilteredProviders(): ProviderItem[] {
+    return this.providerItems.filter((i) => i.type === "provider" && this.matchesFilter(i.label));
   }
 
-  private getSelectableIndex(visualIndex: number): ProviderItem | undefined {
-    let count = 0;
-    for (const item of this.providerItems) {
-      if (item.type !== "provider") continue;
-      if (count === visualIndex) return item;
-      count++;
-    }
-    return undefined;
+  private getFilteredModels(): string[] {
+    return this.models.filter((m) => this.matchesFilter(m));
   }
 
   private handleProviderKey(event: KeyEvent): boolean {
-    if (this.loading) return true; // consume while detecting
+    if (this.loading) return true;
 
     if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
-      const item = this.getSelectableIndex(this.selectedIndex);
-      if (!item || item.type !== "provider" || !item.id) return true;
+      const filtered = this.getFilteredProviders();
+      const item = filtered[this.selectedIndex];
+      if (!item || !item.id) return true;
 
       this.selectedProvider = item.id;
       const meta = getProviderMeta(item.id);
       this.needsKey = meta?.authMethod !== "local";
+      this.filterText = "";
 
       if (this.needsKey) {
         this.prepareApiKeyStep();
@@ -249,29 +247,49 @@ export class SetupWizardView extends InteractiveView {
       lines.push("");
     }
 
-    let selectableIdx = 0;
-    for (const item of this.providerItems) {
-      if (item.type === "header") {
-        lines.push("");
-        lines.push(`  ${t.bold(item.label)}`);
-        lines.push(`  ${"─".repeat(40)}`);
-        continue;
+    const filterLine = this.renderFilterLine();
+    if (filterLine) {
+      lines.push("");
+      lines.push(filterLine);
+    }
+
+    const filtered = this.getFilteredProviders();
+
+    if (filtered.length === 0 && this.filterText) {
+      lines.push("");
+      lines.push(`  ${t.dim("No providers match")} "${this.filterText}"`);
+      lines.push("");
+      return lines;
+    }
+
+    const detectedFiltered = filtered.filter((i) => i.detected);
+    const otherFiltered = filtered.filter((i) => !i.detected);
+    let idx = 0;
+
+    if (detectedFiltered.length > 0) {
+      lines.push("");
+      lines.push(`  ${t.bold("Detected")}`);
+      lines.push(`  ${"─".repeat(40)}`);
+      for (const item of detectedFiltered) {
+        const isSelected = idx === this.selectedIndex;
+        const cursor = isSelected ? t.primary("▸") : t.dim("│");
+        const hint = item.hint ? t.dim(` — ${item.hint}`) : "";
+        lines.push(`  ${cursor} ${t.success("✓")} ${isSelected ? t.bold(item.label) : item.label}${hint}`);
+        idx++;
       }
+    }
 
-      if (item.type === "separator") {
-        lines.push("");
-        continue;
+    if (otherFiltered.length > 0) {
+      lines.push("");
+      lines.push(`  ${t.bold("All Providers")}`);
+      lines.push(`  ${"─".repeat(40)}`);
+      for (const item of otherFiltered) {
+        const isSelected = idx === this.selectedIndex;
+        const cursor = isSelected ? t.primary("▸") : t.dim("│");
+        const hint = item.hint ? t.dim(` — ${item.hint}`) : "";
+        lines.push(`  ${cursor}   ${isSelected ? t.bold(item.label) : item.label}${hint}`);
+        idx++;
       }
-
-      const isSelected = selectableIdx === this.selectedIndex;
-
-
-      const prefix = item.detected ? t.success("✓") : " ";
-      const cursor = isSelected ? t.primary("▸") : t.dim("│");
-      const hint = item.hint ? t.dim(` — ${item.hint}`) : "";
-      const label = isSelected ? t.bold(item.label) : item.label;
-      lines.push(`  ${cursor} ${prefix} ${label}${hint}`);
-      selectableIdx++;
     }
 
     lines.push("");
@@ -470,16 +488,18 @@ export class SetupWizardView extends InteractiveView {
   }
 
   private handleModelKey(event: KeyEvent): boolean {
-    if (event.type === "backspace") {
+    if (event.type === "backspace" && !this.filterText) {
       this.goBack();
       return true;
     }
 
     if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
-      if (this.models.length > 0 && this.selectedIndex < this.models.length) {
-        this.selectedModel = this.models[this.selectedIndex]!;
+      const filtered = this.getFilteredModels();
+      if (filtered.length > 0 && this.selectedIndex < filtered.length) {
+        this.selectedModel = filtered[this.selectedIndex]!;
         this.step = WizardStep.CONFIRM;
         this.selectedIndex = 0;
+        this.filterText = "";
         this.render();
       }
       return true;
@@ -510,12 +530,26 @@ export class SetupWizardView extends InteractiveView {
       return lines;
     }
 
+    const filterLine = this.renderFilterLine();
+    if (filterLine) {
+      lines.push(filterLine);
+      lines.push("");
+    }
+
+    const filtered = this.getFilteredModels();
+
+    if (filtered.length === 0 && this.filterText) {
+      lines.push(`  ${t.dim("No models match")} "${this.filterText}"`);
+      lines.push("");
+      return lines;
+    }
+
     lines.push(`  ${t.dim("Choose a default model:")}`);
     lines.push("");
 
-    for (let i = 0; i < this.models.length; i++) {
+    for (let i = 0; i < filtered.length; i++) {
       const isSelected = i === this.selectedIndex;
-      const model = this.models[i]!;
+      const model = filtered[i]!;
       const cursor = isSelected ? t.primary("▸") : t.dim("│");
       lines.push(`  ${cursor} ${isSelected ? t.bold(model) : model}`);
     }
@@ -583,6 +617,7 @@ export class SetupWizardView extends InteractiveView {
   // ── Navigation ────────────────────────────────────────────
 
   private goBack(): void {
+    this.filterText = "";
     switch (this.step) {
       case WizardStep.PROVIDER:
         this.deactivate();
@@ -612,6 +647,10 @@ export class SetupWizardView extends InteractiveView {
 
   // ── Key handler override ──────────────────────────────────
 
+  private isFilterableStep(): boolean {
+    return this.step === WizardStep.PROVIDER || this.step === WizardStep.MODEL;
+  }
+
   override handleKey(event: KeyEvent): boolean {
     if (!this.active) return false;
 
@@ -626,19 +665,39 @@ export class SetupWizardView extends InteractiveView {
       return true;
     }
 
-    // Don't let 'q' close the wizard
-    if (event.type === "char" && event.char === "q" && !this.isEditing()) {
-      return true;
-    }
-
-    // Escape handled by handleCustomKey
+    // Escape: clear filter first, then go back
     if (event.type === "escape") {
+      if (this.isFilterableStep() && this.filterText) {
+        this.filterText = "";
+        this.selectedIndex = 0;
+        this.render();
+        return true;
+      }
       return this.handleCustomKey(event);
     }
 
     // Consume Ctrl+arrow
     if (event.type === "arrow" && event.ctrl) {
       return true;
+    }
+
+    // Filter: typing characters in PROVIDER/MODEL steps
+    if (this.isFilterableStep() && !this.isEditing() && event.type === "char" && !event.ctrl && !event.alt) {
+      this.filterText += event.char;
+      this.selectedIndex = 0;
+      this.render();
+      return true;
+    }
+
+    // Filter: backspace removes filter char (or goes back if empty)
+    if (this.isFilterableStep() && !this.isEditing() && event.type === "backspace") {
+      if (this.filterText) {
+        this.filterText = this.filterText.slice(0, -1);
+        this.selectedIndex = 0;
+        this.render();
+        return true;
+      }
+      // Empty filter + backspace = go back (falls through to handleCustomKey)
     }
 
     // Arrow navigation in non-editing steps
