@@ -16,8 +16,6 @@ import { SelectionManager } from "./selection.js";
 import { KeybindingManager, type KeyContext } from "../keyboard/keybindings.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
-import { HitTester } from "../mouse/hit-test.js";
-import { HoverManager } from "../mouse/hover-manager.js";
 import { CopyManager } from "../text/copy-manager.js";
 
 export class TUI {
@@ -40,38 +38,21 @@ export class TUI {
   private scrollOffset = 0; // 0 = at bottom, positive = scrolled up
   private autoScroll = true;
 
-  // Mouse selection + region tracking
+  // Text selection + copy
   private selectionManager = new SelectionManager();
   private copyManager = new CopyManager();
-  private hitTester = new HitTester();
-  private hoverManager = new HoverManager();
   private lastScreenLines: string[] = [];
   private lastFullContentLines: string[] = [];  // all content lines (not just visible)
   private contentRowEnd = 0;   // last row of messages content region (1-based)
   private editorRowStart = 0;  // first row of editor region (1-based)
   private editorRowEnd = 0;    // last row of editor region (1-based)
   private statusBarRow = 0;    // status bar row (1-based)
-  private hoveredRow: number | null = null;
-
-  // Multi-click detection
-  private lastClickTime = 0;
-  private lastClickRow = 0;
-  private lastClickCol = 0;
-  private clickCount = 0;
-
-  // Drag state: track mousedown position so selection starts on drag, not on click
-  private mouseDownPos: { row: number; col: number } | null = null;
-  private isDragging = false;
-
   // Key handler stack — interactive views push handlers that take priority
   private keyHandlerStack: { handleKey: (event: KeyEvent) => boolean }[] = [];
 
   // Interactive view content (renders at bottom of scrollable area)
   private interactiveLines: string[] | null = null;
   private interactiveStartRow = 0; // screen row where interactive content starts (1-based)
-
-  // Click handler for interactive views
-  private clickHandler: ((row: number, col: number) => boolean) | null = null;
 
   // Ctrl+C double-press state
   private ctrlCPending = false;
@@ -93,7 +74,6 @@ export class TUI {
     this.root = new Container("__root__");
     this.inputParser = new InputParser();
     this.inputParser.onEvent = this.handleEvent.bind(this);
-    this.hoverManager.onRequestRender = () => this.requestRender();
   }
 
   // ── Lifecycle ───────────────────────────────────────────
@@ -221,24 +201,9 @@ export class TUI {
     return this.interactiveLines !== null;
   }
 
-  /** Set click handler for interactive views. Handler receives screen row/col (1-based). */
-  setClickHandler(handler: ((row: number, col: number) => boolean) | null): void {
-    this.clickHandler = handler;
-  }
-
   /** Get the screen row where the interactive content starts (1-based). */
   getInteractiveStartRow(): number {
     return this.interactiveStartRow;
-  }
-
-  /** Get the hit tester for registering interactive elements. */
-  getHitTester(): HitTester {
-    return this.hitTester;
-  }
-
-  /** Get the hover manager for checking hover state. */
-  getHoverManager(): HoverManager {
-    return this.hoverManager;
   }
 
   // ── Legacy child API (backward compatible) ──────────────
@@ -324,9 +289,6 @@ export class TUI {
   }
 
   private doRender(): void {
-    // Clear interactive element regions before re-render
-    this.hitTester.clear();
-
     if (this.overlayComponent) {
       this.renderOverlay();
       return;
@@ -405,11 +367,7 @@ export class TUI {
       this.interactiveStartRow = 0;
     }
 
-    // 5c. Track region boundaries for mouse routing
-    //   Content region: rows 1 to scrollableHeight (messages area, minus interactive)
-    //   Interactive region: interactiveStartRow to scrollableHeight (when active)
-    //   Editor region: within fixed bottom
-    //   Status bar: last row of fixed bottom
+    // 5c. Track region boundaries for highlight/selection
     this.contentRowEnd = this.interactiveStartRow > 0
       ? this.interactiveStartRow - 1
       : scrollableHeight;
@@ -498,11 +456,6 @@ export class TUI {
   // ── Input ───────────────────────────────────────────────
 
   private handleEvent(event: KeyEvent): void {
-    // Mouse events — separate path
-    if (event.type === "mouse_click" || event.type === "mouse_move" || event.type === "mouse_drag" || event.type === "mouse_release") {
-      this.handleMouse(event);
-      return;
-    }
     if (event.type === "scroll_up" || event.type === "scroll_down") {
       if (this.scrollableComponent) {
         if (event.type === "scroll_up") this.scrollUp(3);
@@ -524,7 +477,6 @@ export class TUI {
     // Clear selection on keyboard input
     if (this.selectionManager.hasSelection() && !this.selectionManager.isSelecting()) {
       this.selectionManager.clearSelection();
-      this.hoveredRow = null;
       this.requestRender();
     }
 
@@ -738,7 +690,7 @@ export class TUI {
     this.stop();
   }
 
-  // ── Mouse ───────────────────────────────────────────────
+  // ── Region classification + selection highlight ────────
 
   /** Classify a screen row: 'content' (messages/editor), 'interactive', or 'none'. */
   private getRegionType(row: number): "content" | "interactive" | "none" {
@@ -749,162 +701,14 @@ export class TUI {
     return "none"; // divider or out of bounds
   }
 
-  private handleMouse(event: KeyEvent): void {
-    // Mouse move → hover detection
-    if (event.type === "mouse_move" && "col" in event) {
-      this.hoverManager.onMouseMove(event.col, event.row, this.hitTester);
-      return;
-    }
-
-    if (event.type === "mouse_click" && "button" in event) {
-      // Try hit tester first for interactive elements
-      if (event.button === "left" && this.hoverManager.onClick(event.col, event.row, this.hitTester)) {
-        this.requestRender();
-        return;
-      }
-      if (event.button !== "left") return;
-
-      // Multi-click detection
-      const now = Date.now();
-      const samePos = event.row === this.lastClickRow && Math.abs(event.col - this.lastClickCol) <= 1;
-      this.clickCount = (samePos && now - this.lastClickTime < 400) ? this.clickCount + 1 : 1;
-      this.lastClickTime = now;
-      this.lastClickRow = event.row;
-      this.lastClickCol = event.col;
-
-      const region = this.getRegionType(event.row);
-
-      if (region === "interactive") {
-        // Interactive region: click = action, no text selection
-        this.selectionManager.clearSelection();
-        if (this.clickHandler?.(event.row, event.col)) {
-          this.requestRender();
-        }
-        return;
-      }
-
-      if (region === "content") {
-        this.selectionManager.clearSelection();
-
-        // Editor region: position cursor + multi-click
-        if (event.row >= this.editorRowStart && event.row <= this.editorRowEnd) {
-          const editor = this.focusedComponent as Component & {
-            setCursorFromClick?: (col: number) => void;
-            selectWordAtCursor?: () => void;
-            selectAllText?: () => void;
-          };
-          if (this.clickCount === 1) {
-            editor.setCursorFromClick?.(event.col);
-          } else if (this.clickCount === 2) {
-            editor.setCursorFromClick?.(event.col);
-            editor.selectWordAtCursor?.();
-          } else if (this.clickCount >= 3) {
-            editor.selectAllText?.();
-          }
-          this.requestRender();
-          return;
-        }
-
-        // Messages region: click behavior
-        if (this.clickCount === 1) {
-          // Single click: record position for potential drag, don't start selection yet
-          this.mouseDownPos = { row: event.row, col: event.col };
-          this.isDragging = false;
-          this.requestRender(); // re-render to clear old selection highlight
-        } else if (this.clickCount === 2) {
-          // Double click: select word at cursor
-          this.mouseDownPos = null;
-          this.selectionManager.selectWordAt(event.row, event.col, this.lastScreenLines);
-          this.requestRender();
-        } else if (this.clickCount >= 3) {
-          // Triple click: select entire line
-          this.mouseDownPos = null;
-          this.selectionManager.selectLine(event.row, this.lastScreenLines);
-          this.requestRender();
-        }
-        return;
-      }
-      // 'none' — ignore
-      return;
-    }
-
-    if (event.type === "mouse_drag" && "col" in event) {
-      // Lazy drag: start selection on first move from the mousedown position
-      if (this.mouseDownPos && !this.isDragging) {
-        const moved = event.row !== this.mouseDownPos.row || event.col !== this.mouseDownPos.col;
-        if (moved) {
-          this.isDragging = true;
-          this.selectionManager.startSelection(this.mouseDownPos.row, this.mouseDownPos.col);
-        }
-      }
-      if (this.isDragging && this.selectionManager.isSelecting()) {
-        // Clamp drag to messages area — don't bleed into editor, divider, or status bar
-        let row = event.row;
-        if (row > this.contentRowEnd) {
-          row = this.contentRowEnd;
-        }
-        this.selectionManager.updateSelection(row, event.col);
-        this.requestRender();
-      }
-      return;
-    }
-
-    if (event.type === "mouse_release") {
-      if (this.isDragging && this.selectionManager.isSelecting()) {
-        this.selectionManager.endSelection();
-        this.requestRender();
-      }
-      this.mouseDownPos = null;
-      this.isDragging = false;
-      return;
-    }
-  }
-
-  /** Handle mouse click in the editor region — position cursor. */
-  private handleEditorClick(row: number, col: number): void {
-    if (!this.focusedComponent || !this.scrollableComponent) return;
-    // Editor is in the fixed-bottom region. Calculate its screen row.
-    const totalRows = this.terminal.rows;
-    const fixedHeight = this.getFixedHeight();
-    const fixedStartRow = totalRows - fixedHeight + 1; // 1-based
-
-    // Find the editor's offset within fixed components
-    let offset = 0;
-    for (const comp of this.fixedBottomComponents) {
-      if (comp === this.focusedComponent) {
-        // Editor found — check if click is within its rendered lines
-        const editorLines = comp.render(this.terminal.columns).length;
-        const editorStartRow = fixedStartRow + offset;
-        const editorEndRow = editorStartRow + editorLines - 1;
-        if (row >= editorStartRow && row <= editorEndRow) {
-          // Call setCursorFromClick if the component supports it
-          const editor = comp as Component & { setCursorFromClick?: (col: number) => void };
-          editor.setCursorFromClick?.(col);
-          this.requestRender();
-        }
-        return;
-      }
-      offset += comp.render(this.terminal.columns).length;
-    }
-  }
-
-  /** Apply selection highlight (content regions) and hover highlight (interactive regions). */
+  /** Apply selection highlight in content regions. */
   private applySelectionHighlight(screenLines: string[]): string[] {
-    const hasSelection = this.selectionManager.hasSelection();
-    const hasHover = this.hoveredRow !== null;
-    if (!hasSelection && !hasHover) return screenLines;
+    if (!this.selectionManager.hasSelection()) return screenLines;
 
     return screenLines.map((line, idx) => {
       const row = idx + 1;
       const region = this.getRegionType(row);
-
-      // Hover highlight in interactive regions
-      if (region === "interactive" && row === this.hoveredRow) {
-        return `\x1b[48;2;40;40;55m${line}\x1b[49m`;
-      }
-
-      // Selection highlight in messages area only (not editor, not interactive)
-      if (region !== "content" || !hasSelection) return line;
+      if (region !== "content") return line;
       if (row >= this.editorRowStart && row <= this.editorRowEnd) return line;
 
       let result = "";

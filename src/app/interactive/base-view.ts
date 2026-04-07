@@ -14,9 +14,6 @@ export abstract class InteractiveView {
   protected selectedIndex = 0;
   protected active = false;
 
-  // Maps screen row (1-based) → item index for click handling
-  protected rowToItem: Map<number, number> = new Map();
-
   constructor(
     protected tui: TUI,
     protected onClose: () => void,
@@ -26,7 +23,6 @@ export abstract class InteractiveView {
     this.active = true;
     this.selectedIndex = 0;
     this.tui.pushKeyHandler(this);
-    this.tui.setClickHandler((row, _col) => this.handleScreenClick(row));
     this.render();
   }
 
@@ -34,15 +30,8 @@ export abstract class InteractiveView {
     if (!this.active) return;
     this.active = false;
     this.tui.popKeyHandler();
-    this.tui.setClickHandler(null);
     this.tui.clearInteractiveView();
     this.onClose();
-  }
-
-  /** Handle mouse click on a specific item index. Override for Enter-on-click. */
-  handleClick(itemIndex: number): void {
-    this.selectedIndex = itemIndex;
-    this.render();
   }
 
   handleKey(event: KeyEvent): boolean {
@@ -91,9 +80,7 @@ export abstract class InteractiveView {
   }
 
   protected render(): void {
-    this.rowToItem.clear();
     const contentLines = this.renderLines();
-    // Wrap in Panel if subclass provides a panelTitle
     const title = this.getPanelTitle();
     const footer = this.getPanelFooter();
     if (title) {
@@ -109,14 +96,6 @@ export abstract class InteractiveView {
   /** Override to add footer hints to the panel. */
   protected getPanelFooter(): string | undefined { return undefined; }
 
-  /** Register a rendered line as clickable for a specific item index.
-   *  Call during renderLines() — lineIndex is 0-based within the interactive content. */
-  protected registerClickRow(lineIndex: number, itemIndex: number): void {
-    // Screen row = interactiveStartRow + lineIndex (calculated after render by TUI)
-    // Store as relative offset — resolved during click handling
-    this.rowToItem.set(lineIndex, itemIndex);
-  }
-
   protected get theme() {
     return defaultTheme;
   }
@@ -127,26 +106,6 @@ export abstract class InteractiveView {
     const width = this.tui.getTerminal().columns;
     const gap = Math.max(2, width - visibleWidth(title) - visibleWidth(hint) - 4);
     return t.bold(title) + " ".repeat(gap) + t.dim(hint);
-  }
-
-  private handleScreenClick(screenRow: number): boolean {
-    if (!this.active) return false;
-    const baseRow = this.tui.getInteractiveStartRow();
-    if (baseRow === 0) return false;
-
-    const relativeRow = screenRow - baseRow;
-    const itemIndex = this.rowToItem.get(relativeRow);
-    if (itemIndex !== undefined) {
-      this.handleClick(itemIndex);
-      return true;
-    }
-
-    // Click outside interactive content → close view
-    if (screenRow < baseRow) {
-      this.deactivate();
-      return true;
-    }
-    return false;
   }
 
   protected abstract getItemCount(): number;

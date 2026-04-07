@@ -59,13 +59,6 @@ export class ModelView extends InteractiveView {
     }
   }
 
-  override handleClick(itemIndex: number): void {
-    if (itemIndex >= 0 && itemIndex < this.items.length) {
-      this.selectedIndex = itemIndex;
-      this.selectAndClose();
-    }
-  }
-
   protected handleCustomKey(event: KeyEvent): boolean {
     if (event.type === "enter") {
       this.selectAndClose();
@@ -113,7 +106,7 @@ export class ModelView extends InteractiveView {
       const cursor = isSelected ? ctp.mauve("\u25b8 ") : "  ";
       const current = isCurrent ? ctp.green("  \u2190 current") : "";
       const ctxInfo = m.contextWindow ? t.dim(` ${Math.round(m.contextWindow / 1000)}k ctx`) : "";
-      this.registerClickRow(lines.length, itemIdx);
+
 
       if (isSelected) {
         lines.push(`      ${cursor}${t.bold(m.displayName)}${ctxInfo}${current}`);

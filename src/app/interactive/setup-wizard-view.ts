@@ -128,7 +128,7 @@ export class SetupWizardView extends InteractiveView {
   }
 
   protected override render(): void {
-    this.rowToItem.clear();
+
     const contentLines = this.renderLines();
     const title = this.getPanelTitle();
     const footer = this.getPanelFooter();
@@ -264,7 +264,7 @@ export class SetupWizardView extends InteractiveView {
       }
 
       const isSelected = selectableIdx === this.selectedIndex;
-      this.registerClickRow(lines.length, selectableIdx);
+
 
       const prefix = item.detected ? t.success("✓") : " ";
       const cursor = isSelected ? t.primary("▸") : t.dim("│");
@@ -515,8 +515,6 @@ export class SetupWizardView extends InteractiveView {
 
     for (let i = 0; i < this.models.length; i++) {
       const isSelected = i === this.selectedIndex;
-      this.registerClickRow(lines.length, i);
-
       const model = this.models[i]!;
       const cursor = isSelected ? t.primary("▸") : t.dim("│");
       lines.push(`  ${cursor} ${isSelected ? t.bold(model) : model}`);
