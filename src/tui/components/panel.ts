@@ -22,7 +22,7 @@ export interface PanelOptions {
 export function renderPanel(options: PanelOptions, contentLines: string[]): string[] {
   const border = options.borderColor ?? ctp.surface1;
   const titleFn = options.titleColor ?? ctp.mauve;
-  const w = Math.min(options.width ?? 60, 70);
+  const w = Math.min(options.width ?? 60, 100);
   const output: string[] = [];
 
   // Top border with title

@@ -1,13 +1,16 @@
 /**
- * TUI-native setup wizard — 5-step flow for configuring a provider.
- * State machine: DETECT → PROVIDER → API_KEY → MODEL → CONFIRM
+ * TUI-native setup wizard — 4-step flow for configuring a provider.
+ * State machine: PROVIDER → API_KEY → MODEL → CONFIRM
+ *
+ * PROVIDER step auto-detects available providers and shows ALL providers
+ * from the catalog with detected ones sorted to top and marked.
  */
 import type { KeyEvent } from "../../tui/core/input.js";
 import type { TUI } from "../../tui/core/tui.js";
 import type { DetectedProvider } from "../../providers/detect.js";
-import type { ProviderMeta } from "../../providers/provider-catalog.js";
 import type { OpenPawlGlobalConfig, ProviderConfigEntry } from "../../core/global-config.js";
 import { InteractiveView } from "./base-view.js";
+import { renderPanel } from "../../tui/components/panel.js";
 import { detectProviders } from "../../providers/detect.js";
 import { PROVIDER_CATALOG, getProviderMeta } from "../../providers/provider-catalog.js";
 import { validateApiKey } from "../../providers/validate.js";
@@ -17,19 +20,18 @@ import { readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js
 import { CredentialStore } from "../../credentials/credential-store.js";
 import { maskCredential } from "../../credentials/masking.js";
 
-enum WizardStep { DETECT, PROVIDER, API_KEY, MODEL, CONFIRM }
+enum WizardStep { PROVIDER, API_KEY, MODEL, CONFIRM }
 
 interface ProviderItem {
-  type: "provider" | "separator";
+  type: "provider" | "separator" | "header";
   id?: string;
   label: string;
   hint?: string;
   detected?: boolean;
 }
 
-
 export class SetupWizardView extends InteractiveView {
-  private step = WizardStep.DETECT;
+  private step = WizardStep.PROVIDER;
   private detected: DetectedProvider[] = [];
   private providerItems: ProviderItem[] = [];
   private selectedProvider = "";
@@ -52,8 +54,11 @@ export class SetupWizardView extends InteractiveView {
   }
 
   override activate(): void {
-    this.step = WizardStep.DETECT;
+    this.step = WizardStep.PROVIDER;
     this.selectedIndex = 0;
+    this.loading = true;
+    this.loadingText = "Scanning for providers...";
+    this.buildProviderItems(); // show all providers immediately (no detection yet)
     super.activate();
     void this.runDetection();
   }
@@ -62,7 +67,6 @@ export class SetupWizardView extends InteractiveView {
 
   protected getItemCount(): number {
     switch (this.step) {
-      case WizardStep.DETECT: return 0;
       case WizardStep.PROVIDER: return this.getSelectableProviderCount();
       case WizardStep.API_KEY: return 1;
       case WizardStep.MODEL: return this.models.length;
@@ -81,15 +85,13 @@ export class SetupWizardView extends InteractiveView {
   }
 
   protected handleCustomKey(event: KeyEvent): boolean {
-    // Global: Shift+Tab = go back
     if (event.type === "tab" && event.shift) {
       this.goBack();
       return true;
     }
 
-    // Override escape from base class — go back instead of close
     if (event.type === "escape") {
-      if (this.step === WizardStep.DETECT || this.step === WizardStep.PROVIDER) {
+      if (this.step === WizardStep.PROVIDER) {
         this.deactivate();
       } else {
         this.goBack();
@@ -98,7 +100,6 @@ export class SetupWizardView extends InteractiveView {
     }
 
     switch (this.step) {
-      case WizardStep.DETECT: return this.handleDetectKey(event);
       case WizardStep.PROVIDER: return this.handleProviderKey(event);
       case WizardStep.API_KEY: return this.handleApiKeyKey(event);
       case WizardStep.MODEL: return this.handleModelKey(event);
@@ -109,28 +110,36 @@ export class SetupWizardView extends InteractiveView {
   protected override getPanelTitle(): string {
     const stepNum = this.step + 1;
     const titles: Record<WizardStep, string> = {
-      [WizardStep.DETECT]: "Detecting Providers",
       [WizardStep.PROVIDER]: "Select Provider",
       [WizardStep.API_KEY]: "API Key",
       [WizardStep.MODEL]: "Select Model",
-      [WizardStep.CONFIRM]: "Confirm Setup",
+      [WizardStep.CONFIRM]: "Confirm",
     };
-    return `Setup (${stepNum}/5) — ${titles[this.step]}`;
+    return `Setup (${stepNum}/4) — ${titles[this.step]}`;
   }
 
   protected override getPanelFooter(): string {
     switch (this.step) {
-      case WizardStep.DETECT: return this.loading ? "Detecting..." : "Enter continue · Esc close";
-      case WizardStep.PROVIDER: return "↑↓ navigate · Enter select · Esc close";
-      case WizardStep.API_KEY: return "Enter validate · Esc back";
+      case WizardStep.PROVIDER: return this.loading ? "Scanning..." : "↑↓ navigate · Enter select · Esc close";
+      case WizardStep.API_KEY: return "Type key, Enter to validate · Esc back";
       case WizardStep.MODEL: return "↑↓ navigate · Enter select · Esc back";
       case WizardStep.CONFIRM: return "Enter save · Esc back";
     }
   }
 
+  protected override render(): void {
+    this.rowToItem.clear();
+    const contentLines = this.renderLines();
+    const title = this.getPanelTitle();
+    const footer = this.getPanelFooter();
+    const cols = this.tui.getTerminal().columns;
+    const width = Math.max(60, Math.min(cols - 6, 90));
+    const panelLines = renderPanel({ title, footer, width }, contentLines);
+    this.tui.setInteractiveView(panelLines);
+  }
+
   protected renderLines(): string[] {
     switch (this.step) {
-      case WizardStep.DETECT: return this.renderDetect();
       case WizardStep.PROVIDER: return this.renderProvider();
       case WizardStep.API_KEY: return this.renderApiKey();
       case WizardStep.MODEL: return this.renderModel();
@@ -138,140 +147,93 @@ export class SetupWizardView extends InteractiveView {
     }
   }
 
-  // ── Step: DETECT ──────────────────────────────────────────
+  // ── Step: PROVIDER (merged with detection) ────────────────
 
   private async runDetection(): Promise<void> {
-    this.loading = true;
-    this.loadingText = "Detecting providers...";
-    this.render();
-
     try {
       this.detected = await detectProviders();
     } catch {
       this.detected = [];
     }
-
     this.loading = false;
+    this.buildProviderItems();
     this.render();
   }
-
-  private handleDetectKey(event: KeyEvent): boolean {
-    if (this.loading) return true; // consume all keys while detecting
-    if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
-      this.step = WizardStep.PROVIDER;
-      this.selectedIndex = 0;
-      this.buildProviderItems();
-      this.render();
-      return true;
-    }
-    return true;
-  }
-
-  private renderDetect(): string[] {
-    const t = this.theme;
-    const lines: string[] = [""];
-
-    if (this.loading) {
-      lines.push(`  ${t.dim(this.loadingText || "Detecting providers...")}`);
-      lines.push("");
-      return lines;
-    }
-
-    // Show detection results
-    for (const d of this.detected) {
-      if (d.available) {
-        const detail = d.source === "env" ? `${d.envKey} found` : d.models ? `${d.models.length} models` : "detected";
-        lines.push(`  ${t.success("✓")} ${d.type} (${detail})`);
-      } else {
-        lines.push(`  ${t.dim("·")} ${d.type} — not found`);
-      }
-    }
-
-    if (this.detected.length === 0) {
-      lines.push(`  ${t.dim("No providers detected")}`);
-    }
-
-    lines.push("");
-    lines.push(`  ${t.dim("Press Enter to continue")}`);
-    lines.push("");
-    return lines;
-  }
-
-  // ── Step: PROVIDER ────────────────────────────────────────
 
   private buildProviderItems(): void {
     this.providerItems = [];
     const detectedIds = new Set(this.detected.filter((d) => d.available).map((d) => d.type));
-    const detectedMap = new Map(this.detected.filter((d) => d.available).map((d) => [d.type, d]));
 
-    // Detected providers first (sorted to top with ✓)
-    for (const d of this.detected) {
-      if (!d.available) continue;
-      const meta = getProviderMeta(d.type);
-      this.providerItems.push({
-        type: "provider",
-        id: d.type,
-        label: meta?.name ?? d.type,
-        hint: d.source === "env" ? `via ${d.envKey ?? "env"}` : d.models?.length ? `${d.models.length} models` : "detected",
-        detected: true,
-      });
-    }
-
+    // Detected providers section
     if (detectedIds.size > 0) {
-      this.providerItems.push({ type: "separator", label: "───────" });
+      this.providerItems.push({ type: "header", label: "Detected" });
+      for (const d of this.detected) {
+        if (!d.available) continue;
+        const meta = getProviderMeta(d.type);
+        const detail = d.source === "env"
+          ? `${d.envKey} found in environment`
+          : d.models?.length
+            ? `${d.models.length} models available`
+            : "running locally";
+        this.providerItems.push({
+          type: "provider",
+          id: d.type,
+          label: meta?.name ?? d.type,
+          hint: detail,
+          detected: true,
+        });
+      }
+      this.providerItems.push({ type: "separator", label: "" });
     }
 
-    // All remaining providers from catalog (skip detected ones and group variants)
+    // All providers section
+    this.providerItems.push({ type: "header", label: "All Providers" });
     for (const [id, meta] of Object.entries(PROVIDER_CATALOG)) {
       if (detectedIds.has(id) || meta.group) continue;
       this.providerItems.push({
         type: "provider",
         id,
         label: meta.name,
+        hint: meta.authMethod === "local" ? "local" : undefined,
       });
     }
   }
 
   private getSelectableProviderCount(): number {
-    return this.providerItems.filter((i) => i.type !== "separator").length;
+    return this.providerItems.filter((i) => i.type === "provider").length;
   }
 
   private getSelectableIndex(visualIndex: number): ProviderItem | undefined {
-    let selectableCount = 0;
+    let count = 0;
     for (const item of this.providerItems) {
-      if (item.type === "separator") continue;
-      if (selectableCount === visualIndex) return item;
-      selectableCount++;
+      if (item.type !== "provider") continue;
+      if (count === visualIndex) return item;
+      count++;
     }
     return undefined;
   }
 
   private handleProviderKey(event: KeyEvent): boolean {
-    if (event.type === "backspace") {
-      this.deactivate();
-      return true;
-    }
+    if (this.loading) return true; // consume while detecting
 
     if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
       const item = this.getSelectableIndex(this.selectedIndex);
-      if (!item) return true;
+      if (!item || item.type !== "provider" || !item.id) return true;
 
-      if (item.type === "provider" && item.id) {
-        this.selectedProvider = item.id;
-        const meta = getProviderMeta(item.id);
-        this.needsKey = meta?.authMethod !== "local";
+      this.selectedProvider = item.id;
+      const meta = getProviderMeta(item.id);
+      this.needsKey = meta?.authMethod !== "local";
 
-        if (this.needsKey) {
-          this.prepareApiKeyStep();
-          this.step = WizardStep.API_KEY;
-        } else {
-          this.step = WizardStep.MODEL;
-          this.selectedIndex = 0;
-          void this.loadModels();
-        }
-        this.render();
-        return true;
+      if (this.needsKey) {
+        this.prepareApiKeyStep();
+        this.step = WizardStep.API_KEY;
+      } else {
+        this.step = WizardStep.MODEL;
+        this.selectedIndex = 0;
+        void this.loadModels();
       }
+      this.render();
+      return true;
     }
 
     return true;
@@ -279,14 +241,25 @@ export class SetupWizardView extends InteractiveView {
 
   private renderProvider(): string[] {
     const t = this.theme;
-    const lines: string[] = [""];
-    let selectableIdx = 0;
+    const lines: string[] = [];
 
-    for (let i = 0; i < this.providerItems.length; i++) {
-      const item = this.providerItems[i]!;
+    if (this.loading) {
+      lines.push("");
+      lines.push(`  ${t.dim(this.loadingText)}`);
+      lines.push("");
+    }
+
+    let selectableIdx = 0;
+    for (const item of this.providerItems) {
+      if (item.type === "header") {
+        lines.push("");
+        lines.push(`  ${t.bold(item.label)}`);
+        lines.push(`  ${"─".repeat(40)}`);
+        continue;
+      }
 
       if (item.type === "separator") {
-        lines.push(`  ${"─".repeat(35)}`);
+        lines.push("");
         continue;
       }
 
@@ -294,13 +267,10 @@ export class SetupWizardView extends InteractiveView {
       this.registerClickRow(lines.length, selectableIdx);
 
       const prefix = item.detected ? t.success("✓") : " ";
-      const cursor = isSelected ? "▸" : "│";
-      const hint = item.hint ? t.dim(` (${item.hint})`) : "";
-      if (isSelected) {
-        lines.push(`  ${t.primary(cursor)} ${prefix} ${t.bold(item.label)}${hint}`);
-      } else {
-        lines.push(`  ${t.dim(cursor)} ${prefix} ${item.label}${hint}`);
-      }
+      const cursor = isSelected ? t.primary("▸") : t.dim("│");
+      const hint = item.hint ? t.dim(` — ${item.hint}`) : "";
+      const label = isSelected ? t.bold(item.label) : item.label;
+      lines.push(`  ${cursor} ${prefix} ${label}${hint}`);
       selectableIdx++;
     }
 
@@ -317,7 +287,6 @@ export class SetupWizardView extends InteractiveView {
     this.apiKey = "";
     this.envKeySource = null;
 
-    // Check if env var already has the key
     const det = this.detected.find((d) => d.type === this.selectedProvider && d.available && d.source === "env");
     if (det?.envKey && process.env[det.envKey]) {
       this.apiKey = process.env[det.envKey]!;
@@ -331,7 +300,6 @@ export class SetupWizardView extends InteractiveView {
       return true;
     }
 
-    // If env key is auto-filled, Enter advances
     if (this.envKeySource) {
       if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
         void this.validateAndAdvance();
@@ -340,7 +308,6 @@ export class SetupWizardView extends InteractiveView {
       return true;
     }
 
-    // Password input editing
     if (event.type === "char" && !event.ctrl && !event.alt) {
       this.editBuffer = this.editBuffer.slice(0, this.editCursor) + event.char + this.editBuffer.slice(this.editCursor);
       this.editCursor++;
@@ -380,8 +347,6 @@ export class SetupWizardView extends InteractiveView {
       void this.validateAndAdvance();
       return true;
     }
-
-    // Paste support
     if (event.type === "paste") {
       this.editBuffer = this.editBuffer.slice(0, this.editCursor) + event.text + this.editBuffer.slice(this.editCursor);
       this.editCursor += event.text.length;
@@ -412,14 +377,11 @@ export class SetupWizardView extends InteractiveView {
 
     this.healthLatency = result.value.latencyMs;
 
-    // Store credential
     try {
       const store = new CredentialStore();
       await store.initialize();
       await store.setCredential(this.selectedProvider, "apiKey", this.apiKey);
-    } catch {
-      // Best-effort credential storage
-    }
+    } catch { /* best-effort */ }
 
     this.loading = false;
     this.step = WizardStep.MODEL;
@@ -430,37 +392,42 @@ export class SetupWizardView extends InteractiveView {
 
   private renderApiKey(): string[] {
     const t = this.theme;
-    const lines: string[] = [""];
+    const lines: string[] = [];
     const meta = getProviderMeta(this.selectedProvider);
     const providerName = meta?.name ?? this.selectedProvider;
 
+    lines.push("");
     lines.push(`  ${t.bold("Provider:")} ${providerName}`);
     lines.push("");
 
     if (this.envKeySource) {
-      lines.push(`  ${t.success("✓")} Using key from ${t.bold(this.envKeySource)}`);
-      lines.push(`  ${t.dim(maskCredential(this.apiKey))}`);
+      lines.push(`  ${t.success("✓")} API key found in environment`);
+      lines.push(`    ${t.dim("Source:")} ${t.bold(this.envKeySource)}`);
+      lines.push(`    ${t.dim("Value:")}  ${maskCredential(this.apiKey)}`);
+      lines.push("");
       if (this.loading) {
-        lines.push("");
         lines.push(`  ${t.dim(this.loadingText)}`);
+      } else {
+        lines.push(`  ${t.dim("Press Enter to validate and continue")}`);
       }
     } else if (this.loading) {
       lines.push(`  ${t.dim(this.loadingText)}`);
     } else {
+      lines.push(`  ${t.dim("Enter your API key for")} ${providerName}`);
       if (meta?.keyUrl) {
-        lines.push(`  ${t.dim("Get your key:")} ${t.primary(meta.keyUrl)}`);
-        lines.push("");
+        lines.push(`  ${t.dim("Get one at:")} ${t.primary(meta.keyUrl)}`);
       }
-      lines.push(`  API Key:`);
+      lines.push("");
       const display = "•".repeat(this.editBuffer.length);
       const before = display.slice(0, this.editCursor);
       const after = display.slice(this.editCursor);
-      lines.push(`  │  ${before}${t.primary("█")}${after}`);
-      lines.push(`  │  ${t.dim("(input is masked)")}`);
+      lines.push(`  ${t.dim("Key:")} ${before}${t.primary("█")}${after}`);
+      lines.push(`        ${t.dim("(input is masked)")}`);
     }
 
     if (this.validationError) {
-      lines.push(`  │  ${t.error("✗ " + this.validationError)}`);
+      lines.push("");
+      lines.push(`  ${t.error("✗ " + this.validationError)}`);
     }
 
     lines.push("");
@@ -471,11 +438,10 @@ export class SetupWizardView extends InteractiveView {
 
   private async loadModels(): Promise<void> {
     this.loading = true;
-    this.loadingText = "Fetching models...";
+    this.loadingText = "Fetching available models...";
     this.models = [];
     this.render();
 
-    // Try cache first
     const cached = await getCachedModels(this.selectedProvider);
     if (cached && cached.length > 0) {
       this.models = cached;
@@ -484,18 +450,14 @@ export class SetupWizardView extends InteractiveView {
       return;
     }
 
-    // Fetch live
     try {
       const result = await fetchModelsForProvider(this.selectedProvider, this.apiKey);
       if (result.models.length > 0) {
         this.models = result.models.map((m) => m.id);
         void setCachedModels(this.selectedProvider, this.models);
       }
-    } catch {
-      // Fallback
-    }
+    } catch { /* fallback */ }
 
-    // Fallback to catalog models
     if (this.models.length === 0) {
       const meta = getProviderMeta(this.selectedProvider);
       if (meta) {
@@ -518,7 +480,6 @@ export class SetupWizardView extends InteractiveView {
         this.selectedModel = this.models[this.selectedIndex]!;
         this.step = WizardStep.CONFIRM;
         this.selectedIndex = 0;
-        this.healthLatency = 0;
         this.render();
       }
       return true;
@@ -529,7 +490,12 @@ export class SetupWizardView extends InteractiveView {
 
   private renderModel(): string[] {
     const t = this.theme;
-    const lines: string[] = [""];
+    const lines: string[] = [];
+    const meta = getProviderMeta(this.selectedProvider);
+
+    lines.push("");
+    lines.push(`  ${t.bold("Provider:")} ${meta?.name ?? this.selectedProvider}`);
+    lines.push("");
 
     if (this.loading) {
       lines.push(`  ${t.dim(this.loadingText)}`);
@@ -538,22 +504,22 @@ export class SetupWizardView extends InteractiveView {
     }
 
     if (this.models.length === 0) {
-      lines.push(`  ${t.dim("No models available")}`);
+      lines.push(`  ${t.error("No models available for this provider")}`);
+      lines.push(`  ${t.dim("Press Esc to go back and try another provider")}`);
       lines.push("");
       return lines;
     }
+
+    lines.push(`  ${t.dim("Choose a default model:")}`);
+    lines.push("");
 
     for (let i = 0; i < this.models.length; i++) {
       const isSelected = i === this.selectedIndex;
       this.registerClickRow(lines.length, i);
 
       const model = this.models[i]!;
-      const cursor = isSelected ? "▸" : "│";
-      if (isSelected) {
-        lines.push(`  ${t.primary(cursor)} ${t.bold(model)}`);
-      } else {
-        lines.push(`  ${t.dim(cursor)} ${model}`);
-      }
+      const cursor = isSelected ? t.primary("▸") : t.dim("│");
+      lines.push(`  ${cursor} ${isSelected ? t.bold(model) : model}`);
     }
 
     lines.push("");
@@ -567,25 +533,32 @@ export class SetupWizardView extends InteractiveView {
       this.saveConfig();
       return true;
     }
-
     return true;
   }
 
   private renderConfirm(): string[] {
     const t = this.theme;
-    const lines: string[] = [""];
+    const lines: string[] = [];
     const meta = getProviderMeta(this.selectedProvider);
 
-    lines.push(`  ${t.bold("Provider:")}  ${meta?.name ?? this.selectedProvider}`);
-    lines.push(`  ${t.bold("Model:")}     ${this.selectedModel}`);
+    lines.push("");
+    lines.push(`  ${t.bold("Review your configuration:")}`);
+    lines.push("");
+    lines.push(`    ${t.dim("Provider")}   ${t.bold(meta?.name ?? this.selectedProvider)}`);
+    lines.push(`    ${t.dim("Model")}      ${t.bold(this.selectedModel)}`);
+    if (this.needsKey) {
+      lines.push(`    ${t.dim("API Key")}    ${maskCredential(this.apiKey)}`);
+    }
     lines.push("");
 
     if (this.healthLatency > 0) {
-      lines.push(`  ${t.success("✓")} Connected (${this.healthLatency}ms)`);
+      lines.push(`  ${t.success("✓")} Connection verified (${this.healthLatency}ms)`);
+    } else {
+      lines.push(`  ${t.dim("Connection will be verified on first use")}`);
     }
 
     lines.push("");
-    lines.push(`  ${t.dim("Press Enter to save configuration")}`);
+    lines.push(`  ${t.dim("Press Enter to save and start using OpenPawl")}`);
     lines.push("");
     return lines;
   }
@@ -609,11 +582,10 @@ export class SetupWizardView extends InteractiveView {
     this.deactivate();
   }
 
-  // ── Navigation helpers ────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────
 
   private goBack(): void {
     switch (this.step) {
-      case WizardStep.DETECT:
       case WizardStep.PROVIDER:
         this.deactivate();
         break;
@@ -640,33 +612,33 @@ export class SetupWizardView extends InteractiveView {
     this.render();
   }
 
-  // ── Override base handleKey to intercept escape before base class ──
+  // ── Key handler override ──────────────────────────────────
 
   override handleKey(event: KeyEvent): boolean {
     if (!this.active) return false;
 
-    // Ctrl+C always closes
+    // Ctrl+C closes wizard
     if (event.type === "char" && event.char === "c" && event.ctrl) {
       this.deactivate();
       return true;
     }
 
-    // Consume all other Ctrl+key combos — don't let them trigger selection or navigation
+    // Consume all other Ctrl+key combos
     if (event.type === "char" && event.ctrl) {
       return true;
     }
 
-    // Override 'q' to not close during wizard
+    // Don't let 'q' close the wizard
     if (event.type === "char" && event.char === "q" && !this.isEditing()) {
-      return true; // consume but don't close
+      return true;
     }
 
-    // Intercept escape before base class handles it
+    // Escape handled by handleCustomKey
     if (event.type === "escape") {
       return this.handleCustomKey(event);
     }
 
-    // Consume Ctrl+arrow — don't navigate with modifiers
+    // Consume Ctrl+arrow
     if (event.type === "arrow" && event.ctrl) {
       return true;
     }

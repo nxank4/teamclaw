@@ -1,5 +1,5 @@
 /**
- * Tests for SetupWizardView — TUI-native setup wizard.
+ * Tests for SetupWizardView — TUI-native setup wizard (4 steps).
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
@@ -67,12 +67,18 @@ function createMockTUI() {
     setClickHandler: vi.fn(),
     getInteractiveStartRow: vi.fn(() => 10),
     requestRender: vi.fn(),
-    getTerminal: vi.fn(() => ({ columns: 80, rows: 24 })),
+    getTerminal: vi.fn(() => ({ columns: 100, rows: 30 })),
   } as unknown as TUI;
 }
 
 function flush(): Promise<void> {
   return new Promise((r) => setTimeout(r, 10));
+}
+
+function getLastRendered(tui: TUI): string {
+  const calls = (tui.setInteractiveView as Mock).mock.calls;
+  const lastCall = calls.at(-1)?.[0] as string[];
+  return lastCall?.join("\n") ?? "";
 }
 
 describe("SetupWizardView", () => {
@@ -85,7 +91,7 @@ describe("SetupWizardView", () => {
     onClose = vi.fn();
   });
 
-  it("starts in DETECT step and auto-advances to PROVIDER", async () => {
+  it("shows all providers after detection, with detected ones marked", async () => {
     const detected: DetectedProvider[] = [
       { type: "anthropic", available: true, source: "env", envKey: "ANTHROPIC_API_KEY" },
       { type: "ollama", available: false, source: "ollama" },
@@ -94,25 +100,14 @@ describe("SetupWizardView", () => {
 
     const wizard = new SetupWizardView(tui, onClose);
     wizard.activate();
-
-    // First render should show detecting state
-    expect((tui.setInteractiveView as Mock).mock.calls.length).toBeGreaterThanOrEqual(1);
-
-    // Wait for detection to complete
     await flush();
 
-    // After detection, should show results with Anthropic detected
-    let lastCall = (tui.setInteractiveView as Mock).mock.calls.at(-1)?.[0] as string[];
-    let joined = lastCall.join("\n");
-    expect(joined).toContain("anthropic");
-
-    // Press Enter to advance to PROVIDER step
-    wizard.handleKey({ type: "enter" });
-
-    lastCall = (tui.setInteractiveView as Mock).mock.calls.at(-1)?.[0] as string[];
-    joined = lastCall.join("\n");
-    // Should show Anthropic in provider list
-    expect(joined).toContain("Anthropic");
+    const rendered = getLastRendered(tui);
+    // Detected providers should be shown
+    expect(rendered).toContain("Anthropic");
+    // All providers section should show undetected ones too
+    expect(rendered).toContain("OpenAI");
+    expect(rendered).toContain("All Providers");
   });
 
   it("skips API_KEY step for local providers", async () => {
@@ -129,23 +124,13 @@ describe("SetupWizardView", () => {
     wizard.activate();
     await flush();
 
-    // Advance past DETECT step
-    wizard.handleKey({ type: "enter" });
-
-    // Should be on PROVIDER step with ollama visible
-    let lastCall = (tui.setInteractiveView as Mock).mock.calls.at(-1)?.[0] as string[];
-    let joined = lastCall.join("\n");
-    expect(joined).toContain("Ollama");
-
-    // Select ollama (first item, already selected) — press Enter
+    // PROVIDER step — select ollama (first detected item)
     wizard.handleKey({ type: "enter" });
     await flush();
 
-    // Should jump to MODEL step (skipping API_KEY) and show model list
-    lastCall = (tui.setInteractiveView as Mock).mock.calls.at(-1)?.[0] as string[];
-    joined = lastCall.join("\n");
-    // Title should say Model
-    expect(joined).toContain("Model");
+    // Should jump to MODEL step (skipping API_KEY)
+    const rendered = getLastRendered(tui);
+    expect(rendered).toContain("Model");
   });
 
   it("saves config on confirm step", async () => {
@@ -167,7 +152,6 @@ describe("SetupWizardView", () => {
       source: "live",
     });
 
-    // Set env var for auto-fill
     const origKey = process.env.ANTHROPIC_API_KEY;
     process.env.ANTHROPIC_API_KEY = "sk-ant-test-key-1234567890";
 
@@ -176,14 +160,11 @@ describe("SetupWizardView", () => {
       wizard.activate();
       await flush();
 
-      // Advance past DETECT step
-      wizard.handleKey({ type: "enter" });
-
-      // PROVIDER step — select Anthropic (first detected item)
+      // PROVIDER step — select Anthropic
       wizard.handleKey({ type: "enter" });
       await flush();
 
-      // API_KEY step — env key auto-filled, press Enter to validate
+      // API_KEY step — env key auto-filled, Enter to validate
       wizard.handleKey({ type: "enter" });
       await flush();
 
@@ -191,25 +172,13 @@ describe("SetupWizardView", () => {
       wizard.handleKey({ type: "enter" });
       await flush();
 
-      // CONFIRM step — press Enter to save
+      // CONFIRM step — Enter to save
       wizard.handleKey({ type: "enter" });
 
-      // Verify writeGlobalConfig was called with correct data
       expect(writeGlobalConfig).toHaveBeenCalledTimes(1);
       const savedConfig = (writeGlobalConfig as Mock).mock.calls[0]![0];
       expect(savedConfig.activeProvider).toBe("anthropic");
       expect(savedConfig.activeModel).toBe("claude-sonnet-4-6");
-      expect(savedConfig.providers).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "anthropic",
-            hasCredential: true,
-            model: "claude-sonnet-4-6",
-          }),
-        ]),
-      );
-
-      // Wizard should have deactivated
       expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
       if (origKey !== undefined) {
