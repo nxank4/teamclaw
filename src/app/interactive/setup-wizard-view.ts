@@ -20,14 +20,13 @@ import { maskCredential } from "../../credentials/masking.js";
 enum WizardStep { DETECT, PROVIDER, API_KEY, MODEL, CONFIRM }
 
 interface ProviderItem {
-  type: "provider" | "separator" | "expand";
+  type: "provider" | "separator";
   id?: string;
   label: string;
   hint?: string;
   detected?: boolean;
 }
 
-const POPULAR_IDS = ["anthropic", "openai", "ollama"];
 
 export class SetupWizardView extends InteractiveView {
   private step = WizardStep.DETECT;
@@ -43,7 +42,6 @@ export class SetupWizardView extends InteractiveView {
   private validationError: string | null = null;
   private loading = false;
   private loadingText = "";
-  private expanded = false;
   private healthLatency = 0;
   private prefill?: OpenPawlGlobalConfig;
   private envKeySource: string | null = null;
@@ -204,60 +202,33 @@ export class SetupWizardView extends InteractiveView {
   private buildProviderItems(): void {
     this.providerItems = [];
     const detectedIds = new Set(this.detected.filter((d) => d.available).map((d) => d.type));
+    const detectedMap = new Map(this.detected.filter((d) => d.available).map((d) => [d.type, d]));
 
-    // Detected providers first
+    // Detected providers first (sorted to top with ✓)
+    for (const d of this.detected) {
+      if (!d.available) continue;
+      const meta = getProviderMeta(d.type);
+      this.providerItems.push({
+        type: "provider",
+        id: d.type,
+        label: meta?.name ?? d.type,
+        hint: d.source === "env" ? `via ${d.envKey ?? "env"}` : d.models?.length ? `${d.models.length} models` : "detected",
+        detected: true,
+      });
+    }
+
     if (detectedIds.size > 0) {
-      for (const d of this.detected) {
-        if (!d.available) continue;
-        const meta = getProviderMeta(d.type);
-        this.providerItems.push({
-          type: "provider",
-          id: d.type,
-          label: meta?.name ?? d.type,
-          hint: d.source === "env" ? `via ${d.envKey ?? "env"}` : d.source,
-          detected: true,
-        });
-      }
       this.providerItems.push({ type: "separator", label: "───────" });
     }
 
-    // Popular providers not already detected
-    const popularNotDetected = POPULAR_IDS.filter((id) => !detectedIds.has(id));
-    for (const id of popularNotDetected) {
-      const meta = getProviderMeta(id);
-      if (meta) {
-        this.providerItems.push({
-          type: "provider",
-          id,
-          label: meta.name,
-          hint: meta.category,
-        });
-      }
-    }
-
-    // Separator before expand toggle
-    if (popularNotDetected.length > 0) {
-      this.providerItems.push({ type: "separator", label: "───────" });
-    }
-
-    // Expand toggle
-    this.providerItems.push({
-      type: "expand",
-      label: this.expanded ? "Hide extra providers" : "Show all providers...",
-    });
-
-    // Expanded: all remaining from catalog
-    if (this.expanded) {
-      const shown = new Set([...detectedIds, ...POPULAR_IDS]);
-      for (const [id, meta] of Object.entries(PROVIDER_CATALOG)) {
-        if (shown.has(id) || meta.group) continue;
-        this.providerItems.push({
-          type: "provider",
-          id,
-          label: meta.name,
-          hint: meta.category,
-        });
-      }
+    // All remaining providers from catalog (skip detected ones and group variants)
+    for (const [id, meta] of Object.entries(PROVIDER_CATALOG)) {
+      if (detectedIds.has(id) || meta.group) continue;
+      this.providerItems.push({
+        type: "provider",
+        id,
+        label: meta.name,
+      });
     }
   }
 
@@ -284,13 +255,6 @@ export class SetupWizardView extends InteractiveView {
     if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
       const item = this.getSelectableIndex(this.selectedIndex);
       if (!item) return true;
-
-      if (item.type === "expand") {
-        this.expanded = !this.expanded;
-        this.buildProviderItems();
-        this.render();
-        return true;
-      }
 
       if (item.type === "provider" && item.id) {
         this.selectedProvider = item.id;
@@ -329,18 +293,13 @@ export class SetupWizardView extends InteractiveView {
       const isSelected = selectableIdx === this.selectedIndex;
       this.registerClickRow(lines.length, selectableIdx);
 
-      if (item.type === "expand") {
-        const cursor = isSelected ? "▸" : "│";
-        lines.push(`  ${isSelected ? t.primary(cursor) : t.dim(cursor)} ${isSelected ? t.primary(item.label) : t.dim(item.label)}`);
+      const prefix = item.detected ? t.success("✓") : " ";
+      const cursor = isSelected ? "▸" : "│";
+      const hint = item.hint ? t.dim(` (${item.hint})`) : "";
+      if (isSelected) {
+        lines.push(`  ${t.primary(cursor)} ${prefix} ${t.bold(item.label)}${hint}`);
       } else {
-        const prefix = item.detected ? t.success("✓") : " ";
-        const cursor = isSelected ? "▸" : "│";
-        const hint = item.hint ? t.dim(` (${item.hint})`) : "";
-        if (isSelected) {
-          lines.push(`  ${t.primary(cursor)} ${prefix} ${t.bold(item.label)}${hint}`);
-        } else {
-          lines.push(`  ${t.dim(cursor)} ${prefix} ${item.label}${hint}`);
-        }
+        lines.push(`  ${t.dim(cursor)} ${prefix} ${item.label}${hint}`);
       }
       selectableIdx++;
     }
