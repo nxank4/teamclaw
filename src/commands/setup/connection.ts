@@ -3,9 +3,8 @@
  */
 
 import {
-    confirm,
-    isCancel,
     cancel,
+    confirm,
     select,
     spinner,
     text,
@@ -33,13 +32,8 @@ export interface WizardState {
     anthropicApiKey?: string;
 }
 
-export function handleCancel<T>(v: T): T {
-    if (isCancel(v)) {
-        cancel("Cancelled.");
-        process.exit(0);
-    }
-    return v;
-}
+import { handleCancel } from "../../onboard/setup-flow.js";
+export { handleCancel };
 
 type ProviderType = ProviderConfigEntry["type"];
 

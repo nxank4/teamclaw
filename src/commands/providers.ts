@@ -22,6 +22,7 @@ import {
   type ProviderConfigEntry,
 } from "../core/global-config.js";
 import { validateApiKeyFormat, maskApiKey } from "../core/errors.js";
+import { handleCancel } from "../onboard/setup-flow.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { logger } from "../core/logger.js";
 import pc from "picocolors";
@@ -149,14 +150,6 @@ async function testProviders(): Promise<void> {
 }
 
 // ── Add provider ─────────────────────────────────────────────────────────
-
-function handleCancel<T>(v: T): T {
-  if (isCancel(v)) {
-    cancel("Cancelled.");
-    process.exit(0);
-  }
-  return v;
-}
 
 export async function addProvider(args: string[]): Promise<void> {
   const directId = args[0];

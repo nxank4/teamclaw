@@ -4,21 +4,12 @@
  */
 
 import {
-  cancel,
-  isCancel,
   password,
   select,
   text,
 } from "@clack/prompts";
 import { clampSelectOptions } from "../../utils/searchable-select.js";
-
-function handleCancel<T>(v: T): T {
-  if (isCancel(v)) {
-    cancel("Cancelled.");
-    process.exit(0);
-  }
-  return v;
-}
+import { handleCancel } from "../../onboard/setup-flow.js";
 
 export interface AdvancedState {
   creativity: number;

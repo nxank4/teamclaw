@@ -82,11 +82,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
   }
 }
 
-/** Mask API key: show first 6 + last 4, mask middle with dots. */
-export function maskApiKey(key: string): string {
-  if (key.length <= 12) return "•".repeat(key.length);
-  return key.slice(0, 6) + "•".repeat(Math.min(key.length - 10, 8)) + key.slice(-4);
-}
+export { maskCredential as maskApiKey } from "../credentials/masking.js";
 
 // ─── Project Detection ───────────────────────────────────────────────────────
 
