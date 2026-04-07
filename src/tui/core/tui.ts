@@ -16,13 +16,15 @@ import { SelectionManager } from "./selection.js";
 import { KeybindingManager, type KeyContext } from "../keyboard/keybindings.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
-import { CopyManager } from "../text/copy-manager.js";
+import { CopyManager, cleanCopyText } from "../text/copy-manager.js";
+import { computeLayout, DEFAULT_LAYOUT, type LayoutConfig } from "../layout/responsive.js";
 
 export class TUI {
   readonly keybindings: KeybindingManager;
   private terminal: Terminal;
   private renderer: DiffRenderer;
   private root: Container;
+  private layout: LayoutConfig = DEFAULT_LAYOUT;
   private inputParser: InputParser;
   private focusedComponent: Component | null = null;
   private overlayComponent: Component | null = null;
@@ -54,11 +56,7 @@ export class TUI {
   private interactiveLines: string[] | null = null;
   private interactiveStartRow = 0; // screen row where interactive content starts (1-based)
 
-  // Ctrl+C double-press state
-  private ctrlCPending = false;
-  private ctrlCTimer: ReturnType<typeof setTimeout> | null = null;
-
-  /** Called when the TUI exits (Ctrl+C double-press or Ctrl+D). */
+  /** Called when the TUI exits (Ctrl+C or Ctrl+D). */
   onExit?: () => void;
   /** Called when Ctrl+C should abort a running task. Return true if handled. */
   onAbort?: () => boolean;
@@ -66,6 +64,12 @@ export class TUI {
   onSystemMessage?: (msg: string) => void;
   /** Called to show a brief flash notification (e.g., "Copied!"). */
   onFlashMessage?: (msg: string) => void;
+  /** Called to jump scroll to a prompt boundary. Returns the total content lines at that prompt. */
+  onScrollToPrompt?: (direction: "prev" | "next") => number | null;
+  /** Called to toggle collapse on the message currently in view. */
+  onToggleCollapse?: () => boolean;
+  /** Called when scroll position changes. */
+  onScrollPositionChanged?: (scrollOffset: number, totalLines: number) => void;
 
   constructor(terminal?: Terminal, preset?: PresetName) {
     this.keybindings = new KeybindingManager(preset ?? detectPlatform());
@@ -74,6 +78,11 @@ export class TUI {
     this.root = new Container("__root__");
     this.inputParser = new InputParser();
     this.inputParser.onEvent = this.handleEvent.bind(this);
+  }
+
+  /** Get the current responsive layout config (recomputed each render frame). */
+  getLayout(): LayoutConfig {
+    return this.layout;
   }
 
   // ── Lifecycle ───────────────────────────────────────────
@@ -142,10 +151,28 @@ export class TUI {
     component.onMount?.();
   }
 
+  /** Hide or show a fixed-bottom component by ID. */
+  setFixedBottomHidden(id: string, hidden: boolean): void {
+    for (const comp of this.fixedBottomComponents) {
+      if (comp.id === id) {
+        comp.hidden = hidden;
+        break;
+      }
+    }
+  }
+
+  /** Hide or show the scrollable content (messages area). */
+  setScrollableHidden(hidden: boolean): void {
+    if (this.scrollableComponent) {
+      this.scrollableComponent.hidden = hidden;
+    }
+  }
+
   /** Scroll the messages area up (shows older content). */
   scrollUp(lines = 3): void {
     this.scrollOffset += lines;
     this.autoScroll = false;
+    this.updateBreadcrumb();
     this.requestRender();
   }
 
@@ -153,6 +180,7 @@ export class TUI {
   scrollDown(lines = 3): void {
     this.scrollOffset = Math.max(0, this.scrollOffset - lines);
     if (this.scrollOffset === 0) this.autoScroll = true;
+    this.updateBreadcrumb();
     this.requestRender();
   }
 
@@ -160,7 +188,14 @@ export class TUI {
   scrollToBottom(): void {
     this.scrollOffset = 0;
     this.autoScroll = true;
+    this.updateBreadcrumb();
     this.requestRender();
+  }
+
+  /** Update the divider breadcrumb label based on current scroll position. */
+  private updateBreadcrumb(): void {
+    // Delegate to the app layer which knows about the divider and messages
+    this.onScrollPositionChanged?.(this.scrollOffset, this.lastFullContentLines.length);
   }
 
   /** Notify that new content was added — auto-scrolls if at bottom. */
@@ -175,11 +210,21 @@ export class TUI {
   /** Push a key handler that takes priority over normal input routing. */
   pushKeyHandler(handler: { handleKey: (event: KeyEvent) => boolean }): void {
     this.keyHandlerStack.push(handler);
+    this.updateEditorSuppressHistory();
   }
 
   /** Remove the most recent key handler. */
   popKeyHandler(): void {
     this.keyHandlerStack.pop();
+    this.updateEditorSuppressHistory();
+  }
+
+  /** Suppress editor history when an interactive view is active. */
+  private updateEditorSuppressHistory(): void {
+    const editor = this.focusedComponent as Component & { suppressHistory?: boolean };
+    if (editor && "suppressHistory" in editor) {
+      editor.suppressHistory = this.keyHandlerStack.length > 0;
+    }
   }
 
   /** Set interactive view content (renders at bottom of scrollable area). */
@@ -289,6 +334,18 @@ export class TUI {
   }
 
   private doRender(): void {
+    // Recompute responsive layout each frame
+    this.layout = computeLayout(this.terminal.columns, this.terminal.rows);
+
+    // Minimum terminal size guard
+    if (this.terminal.columns < 40 || this.terminal.rows < 10) {
+      const msg = "Terminal too small. Resize to at least 40\u00d710.";
+      const pad = Math.max(0, Math.floor((this.terminal.columns - msg.length) / 2));
+      this.renderer.render(this.terminal, ["", " ".repeat(pad) + msg, ""]);
+      this.terminal.write(hideCursor);
+      return;
+    }
+
     if (this.overlayComponent) {
       this.renderOverlay();
       return;
@@ -471,9 +528,6 @@ export class TUI {
     // App-level actions handled by TUI (quit, abort, scroll, modes)
     if (action && this.handleAppAction(action, event)) return;
 
-    // Reset double-press on non-abort keys
-    this.ctrlCPending = false;
-
     // Clear selection on keyboard input
     if (this.selectionManager.hasSelection() && !this.selectionManager.isSelecting()) {
       this.selectionManager.clearSelection();
@@ -514,7 +568,8 @@ export class TUI {
 
     // Clipboard copy (only when selection exists — already resolved)
     if (action === "editor.clipboard.copy" && this.selectionManager.hasSelection()) {
-      const text = this.selectionManager.getSelectedText(this.lastFullContentLines);
+      const raw = this.selectionManager.getSelectedText(this.lastFullContentLines);
+      const text = cleanCopyText(raw);
       if (text.trim()) {
         void this.copyManager.copyToClipboard(text);
         this.onFlashMessage?.("Copied!");
@@ -537,6 +592,26 @@ export class TUI {
     }
     if (action === "messages.scroll.top") { this.scrollUp(999999); return true; }
     if (action === "messages.scroll.bottom") { this.scrollToBottom(); return true; }
+    if (action === "messages.scroll.prevPrompt" || action === "messages.scroll.nextPrompt") {
+      const dir = action === "messages.scroll.prevPrompt" ? "prev" : "next";
+      const targetLine = this.onScrollToPrompt?.(dir);
+      if (targetLine != null) {
+        // Convert content line index to scroll offset
+        const totalLines = this.lastFullContentLines.length;
+        const visibleHeight = this.terminal.rows - this.getFixedHeight();
+        this.scrollOffset = Math.max(0, totalLines - targetLine - visibleHeight);
+        this.autoScroll = this.scrollOffset === 0;
+        this.updateBreadcrumb();
+        this.requestRender();
+      }
+      return true;
+    }
+    if (action === "messages.collapse.toggle") {
+      if (this.onToggleCollapse?.()) {
+        this.requestRender();
+      }
+      return true;
+    }
 
     // Mode switching
     if (action.startsWith("mode.")) {
@@ -580,40 +655,18 @@ export class TUI {
     switch (action) {
       case "nav.up": return { type: "arrow", direction: "up", ctrl: false, alt: false };
       case "nav.down": return { type: "arrow", direction: "down", ctrl: false, alt: false };
-      case "nav.select": return { type: "enter" };
+      case "nav.select": return { type: "enter", shift: false };
       case "nav.back": return { type: "escape" };
       default: return null;
     }
   }
 
-  /** Contextual Ctrl+C: copy selection → cancel edit → close view → clear input → abort → exit. */
+  /** Contextual Ctrl+C: copy selection → close view → abort task → exit. */
   private handleCtrlC(): void {
     // Priority 0: If there's a text selection → copy to clipboard, consume event
     if (this.selectionManager.hasSelection()) {
-      const text = this.selectionManager.getSelectedText(this.lastFullContentLines);
-
-      // DEBUG: log selection state to /tmp for diagnosis (TEMPORARY)
-      void (async () => {
-        try {
-          const fs = await import("node:fs");
-          const sel = this.selectionManager.getSelection();
-          const scrollOff = this.selectionManager.getScrollOffset();
-          fs.appendFileSync("/tmp/openpawl-copy-debug.log", JSON.stringify({
-            timestamp: new Date().toISOString(),
-            hasSelection: true,
-            selection: sel,
-            scrollOffset: scrollOff,
-            totalContentLines: this.lastFullContentLines.length,
-            contentRowEnd: this.contentRowEnd,
-            editorRowStart: this.editorRowStart,
-            textLength: text.length,
-            textTrimmedLength: text.trim().length,
-            textPreview: text.slice(0, 200),
-            selStartLine: sel ? this.lastFullContentLines[sel.startRow - 1]?.slice(0, 80) : null,
-            selEndLine: sel ? this.lastFullContentLines[sel.endRow - 1]?.slice(0, 80) : null,
-          }) + "\n");
-        } catch { /* ignore debug errors */ }
-      })();
+      const raw = this.selectionManager.getSelectedText(this.lastFullContentLines);
+      const text = cleanCopyText(raw);
 
       if (text.trim()) {
         void this.copyManager.copyToClipboard(text);
@@ -624,29 +677,10 @@ export class TUI {
       return;
     }
 
-    // Priority 1: If an interactive view is open → send Ctrl+C to it
-    // (the view decides: cancel edit if editing, close if navigating)
+    // Priority 1: If an interactive view is open → send Ctrl+C to close it
     if (this.keyHandlerStack.length > 0) {
       const top = this.keyHandlerStack[this.keyHandlerStack.length - 1]!;
       top.handleKey({ type: "char", char: "c", ctrl: true, alt: false, shift: false });
-      this.requestRender();
-      return;
-    }
-
-    // Priority 2: If editor has text → clear it
-    const fc = this.focusedComponent as Component & {
-      getText?: () => string;
-      clear?: () => void;
-      isAutocompleteActive?: () => boolean;
-      dismissAutocomplete?: () => void;
-    };
-    if (fc?.isAutocompleteActive?.()) {
-      fc.dismissAutocomplete?.();
-      this.requestRender();
-      return;
-    }
-    if (fc?.getText && fc?.clear && fc.getText().trim().length > 0) {
-      fc.clear();
       this.requestRender();
       return;
     }
@@ -656,18 +690,8 @@ export class TUI {
       return;
     }
 
-    // Priority 3: Double Ctrl+C to exit
-    if (this.ctrlCPending) {
-      this.gracefulExit();
-      return;
-    }
-
-    this.ctrlCPending = true;
-    this.onSystemMessage?.("Press Ctrl+C again to exit, or Ctrl+D to quit.");
-    if (this.ctrlCTimer) clearTimeout(this.ctrlCTimer);
-    this.ctrlCTimer = setTimeout(() => {
-      this.ctrlCPending = false;
-    }, 2000);
+    // Priority 3: Exit immediately
+    this.gracefulExit();
   }
 
   /** Catch uncaught errors — show in TUI instead of crashing to raw terminal. */
@@ -685,7 +709,6 @@ export class TUI {
   }
 
   private gracefulExit(): void {
-    if (this.ctrlCTimer) { clearTimeout(this.ctrlCTimer); this.ctrlCTimer = null; }
     this.onExit?.();
     this.stop();
   }

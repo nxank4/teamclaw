@@ -399,6 +399,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // Handle editor submit — text + optional attached files
   layout.editor.onSubmit = async (text: string, attachedFiles?: string[]) => {
+    welcomeMessageActive = false;
     layout.editor.pushHistory(text);
     const parsed = parseInput(text);
 
@@ -530,25 +531,79 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     // Use default version
   }
 
+  const BANNER_ART = [
+    "                                            \u2584\u2584 ",
+    "                                            \u2588\u2588 ",
+    "\u2584\u2588\u2588\u2588\u2584 \u2588\u2588\u2588\u2588\u2584 \u2584\u2588\u2580\u2588\u2584 \u2588\u2588\u2588\u2588\u2584 \u2588\u2588\u2588\u2588\u2584  \u2580\u2580\u2588\u2584 \u2588\u2588   \u2588\u2588 \u2588\u2588 ",
+    "\u2588\u2588 \u2588\u2588 \u2588\u2588 \u2588\u2588 \u2588\u2588\u2584\u2588\u2580 \u2588\u2588 \u2588\u2588 \u2588\u2588 \u2588\u2588 \u2584\u2588\u2580\u2588\u2588 \u2588\u2588 \u2588 \u2588\u2588 \u2588\u2588 ",
+    "\u2580\u2588\u2588\u2588\u2580 \u2588\u2588\u2588\u2588\u2580 \u2580\u2588\u2584\u2584\u2584 \u2588\u2588 \u2588\u2588 \u2588\u2588\u2588\u2588\u2580 \u2580\u2588\u2584\u2588\u2588  \u2588\u2588\u2580\u2588\u2588  \u2588\u2588 ",
+    "      \u2588\u2588                \u2588\u2588                     ",
+    "      \u2580\u2580                \u2580\u2580                     ",
+  ];
+  const BANNER_WIDTH = 52;
+
+  /** Build the welcome banner content, freshly computed for current terminal width. */
+  const buildWelcomeContent = (): string => {
+    const termWidth = process.stdout.columns ?? 80;
+    const currentLayout = layout.tui.getLayout();
+    const lines: string[] = [];
+
+    if (currentLayout.showAsciiArt || termWidth >= 54) {
+      const pad = Math.max(0, Math.floor((termWidth - BANNER_WIDTH) / 2));
+      const padding = " ".repeat(pad);
+      lines.push("");
+      for (const line of BANNER_ART) {
+        lines.push(ctp.surface2(padding + line));
+      }
+      lines.push("");
+    } else {
+      const fallback = "OPENPAWL";
+      const pad = Math.max(0, Math.floor((termWidth - fallback.length) / 2));
+      lines.push("");
+      lines.push(ctp.mauve(" ".repeat(pad) + fallback));
+      lines.push("");
+    }
+
+    const tagline = "Your AI team, one prompt away.";
+    const tagPad = Math.max(0, Math.floor((termWidth - tagline.length) / 2));
+    lines.push(ctp.overlay0(" ".repeat(tagPad) + tagline));
+    const verLine = `v${versionStr}`;
+    const verPad = Math.max(0, Math.floor((termWidth - verLine.length) / 2));
+    lines.push(ctp.surface2(" ".repeat(verPad) + verLine));
+    lines.push("");
+
+    const ruleWidth = Math.min(60, termWidth - 4);
+    lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
+    lines.push("");
+    lines.push(`  ${ctp.blue("/help")}       Show commands       ${ctp.blue("@coder")}     Route to Coder`);
+    lines.push(`  ${ctp.blue("/settings")}   Configure provider  ${ctp.blue("@reviewer")}  Route to Reviewer`);
+    lines.push(`  ${ctp.blue("/agents")}     List agents         ${ctp.blue("@planner")}   Route to Planner`);
+    lines.push(`  ${ctp.peach("!command")}    Run shell command   ${ctp.blue("@tester")}    Route to Tester`);
+    lines.push(`  ${ctp.blue("@file")}       Reference a file    ${ctp.blue("@debugger")}  Route to Debugger`);
+    lines.push("");
+    lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
+
+    return lines.join("\n");
+  };
+
+  let welcomeMessageActive = false;
+
   const addWelcomeMessage = () => {
     layout.messages.addMessage({
       role: "system",
-      content: [
-        ctp.mauve(`\u2726  O P E N P A W L`) + "  " + ctp.overlay1(`v${versionStr}`),
-        "",
-        ctp.subtext0("Terminal-native AI workspace. Just type what you want to build."),
-        "",
-        `  ${ctp.blue("/help")}       Show commands       ${ctp.blue("@coder")}     Route to Coder`,
-        `  ${ctp.blue("/settings")}   Configure provider  ${ctp.blue("@reviewer")}  Route to Reviewer`,
-        `  ${ctp.blue("/agents")}     List agents         ${ctp.blue("@planner")}   Route to Planner`,
-        `  ${ctp.peach("!command")}    Run shell command   ${ctp.blue("@tester")}    Route to Tester`,
-        `  ${ctp.blue("@file")}       Reference a file    ${ctp.blue("@debugger")}  Route to Debugger`,
-        "",
-        ctp.surface1("\u2500".repeat(60)),
-      ].join("\n"),
+      content: buildWelcomeContent(),
       timestamp: new Date(),
     });
+    welcomeMessageActive = true;
   };
+
+  // Re-render welcome banner on terminal resize (recomputes centering)
+  process.stdout.on("resize", () => {
+    if (welcomeMessageActive && layout.messages.getMessageCount() === 1) {
+      layout.messages.replaceLast(buildWelcomeContent());
+      layout.tui.requestRender();
+    }
+  });
 
   // Status bar segments: provider | connection | mode | state | cost
   layout.statusBar.setSegments([
@@ -905,6 +960,49 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     }, 1500);
   };
 
+  // Prompt navigation — jump between user prompts with Ctrl+Up/Down
+  let currentPromptNavIndex = -1; // -1 = at bottom (latest)
+  layout.tui.onScrollToPrompt = (direction) => {
+    const boundaries = layout.messages.getPromptBoundaries();
+    if (boundaries.length === 0) return null;
+    if (direction === "prev") {
+      if (currentPromptNavIndex <= 0) currentPromptNavIndex = 0;
+      else currentPromptNavIndex--;
+    } else {
+      if (currentPromptNavIndex < 0) return null; // already at bottom
+      currentPromptNavIndex++;
+      if (currentPromptNavIndex >= boundaries.length) {
+        currentPromptNavIndex = -1;
+        layout.divider.setLabel(null);
+        return 0; // scroll to bottom
+      }
+    }
+    const b = boundaries[currentPromptNavIndex];
+    if (!b) return null;
+    layout.divider.setLabel(`prompt ${currentPromptNavIndex + 1}/${boundaries.length}`);
+    return b.lineIndex;
+  };
+
+  // Collapse toggle — toggle the message currently in view
+  layout.tui.onToggleCollapse = () => {
+    const boundaries = layout.messages.getPromptBoundaries();
+    if (boundaries.length === 0) return false;
+    // Toggle the message at current nav position (or the last one)
+    const idx = currentPromptNavIndex >= 0 && currentPromptNavIndex < boundaries.length
+      ? boundaries[currentPromptNavIndex]!.messageIndex
+      : boundaries[boundaries.length - 1]!.messageIndex;
+    // Toggle the assistant response after this user prompt (idx + 1)
+    return layout.messages.toggleCollapse(idx + 1);
+  };
+
+  // Update breadcrumb when scroll position changes
+  layout.tui.onScrollPositionChanged = (scrollOffset) => {
+    if (scrollOffset === 0) {
+      layout.divider.setLabel(null);
+      currentPromptNavIndex = -1;
+    }
+  };
+
   // Install crash handler for clean shutdown on uncaught errors
   try {
     const { CrashHandler } = await import("../recovery/crash-handler.js");
@@ -931,7 +1029,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     setLoggerMuted(false);
 
     // Force exit after 500ms no matter what
-    const forceExit = setTimeout(() => process.exit(0), 500);
+    const forceExit = setTimeout(() => process.exit(0), 200);
     forceExit.unref();
 
     // Best-effort cleanup in parallel (500ms budget)

@@ -4,6 +4,7 @@
  */
 import type { Component } from "../core/component.js";
 import type { KeyEvent } from "../core/input.js";
+import type { LayoutConfig } from "../layout/responsive.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
 import { defaultTheme, ctp } from "../themes/default.js";
@@ -31,6 +32,15 @@ export class EditorComponent implements Component {
   private placeholder: string;
   private borderColor: (s: string) => string;
   private focused = false;
+  /** When true, arrow keys don't trigger history navigation (e.g. interactive view is active). */
+  suppressHistory = false;
+
+  // Responsive layout
+  private layoutProvider?: () => LayoutConfig;
+
+  // Multiline scroll state
+  private maxVisibleLines = 8;
+  private inputScrollOffset = 0;
 
   // Autocomplete state
   private acSuggestions: AutocompleteSuggestion[] = [];
@@ -52,6 +62,9 @@ export class EditorComponent implements Component {
   }
 
   render(width: number): string[] {
+    // Update max visible lines from responsive layout
+    this.maxVisibleLines = this.layoutProvider?.().maxInputLines ?? 8;
+
     const result: string[] = [];
     const innerWidth = width - 4; // borders + padding
 
@@ -80,15 +93,13 @@ export class EditorComponent implements Component {
       }
     }
 
-    // Top border
-    const border = this.focused ? this.borderColor : defaultTheme.dim;
-    result.push(border("┌" + "─".repeat(width - 2) + "┐"));
+    // Ensure scroll offset keeps cursor visible
+    this.adjustInputScroll();
 
-    // Content lines or placeholder — prompt symbol ❯ on first line
+    const border = this.focused ? this.borderColor : defaultTheme.dim;
     const promptSymbol = ctp.mauve("❯");
     const promptWidth = 2; // "❯ " = 2 visible chars
     const contentWidth = innerWidth - promptWidth;
-    // File tags prefix (shown before prompt text on first line)
     const fileTags = this.attachedFiles.length > 0
       ? this.attachedFiles.map((f) => ctp.blue(`[@${f.split("/").pop()}]`)).join(" ") + " "
       : "";
@@ -96,12 +107,28 @@ export class EditorComponent implements Component {
     const textContentWidth = contentWidth - fileTagsWidth;
 
     const isEmpty = this.lines.length === 1 && this.lines[0] === "";
+    const hasAbove = this.inputScrollOffset > 0;
+    const visibleCount = Math.min(this.lines.length, this.maxVisibleLines);
+    const hasBelow = this.inputScrollOffset + visibleCount < this.lines.length;
+
+    // Top border with optional ▲ indicator
+    if (hasAbove) {
+      const indicator = ` ▲ ${this.inputScrollOffset} `;
+      const fill = Math.max(0, width - 2 - indicator.length);
+      result.push(border("┌" + "─".repeat(fill)) + ctp.overlay0(indicator) + border("┐"));
+    } else {
+      result.push(border("┌" + "─".repeat(width - 2) + "┐"));
+    }
+
+    // Content lines
     if (isEmpty && !this.focused && this.attachedFiles.length === 0) {
       const truncatedPlaceholder = truncate(this.placeholder, contentWidth, "");
       const placeholderPad = Math.max(0, contentWidth - visibleWidth(truncatedPlaceholder));
       result.push(border("│") + " " + promptSymbol + " " + ctp.overlay0(truncatedPlaceholder) + " ".repeat(placeholderPad) + " " + border("│"));
     } else {
-      for (let i = 0; i < this.lines.length; i++) {
+      const startLine = this.inputScrollOffset;
+      const endLine = Math.min(this.lines.length, startLine + this.maxVisibleLines);
+      for (let i = startLine; i < endLine; i++) {
         const prefix = i === 0 ? promptSymbol + " " + fileTags : "  ";
         const availWidth = i === 0 ? Math.max(1, textContentWidth) : contentWidth;
         const display = truncate(this.lines[i]!, availWidth, "");
@@ -110,8 +137,15 @@ export class EditorComponent implements Component {
       }
     }
 
-    // Bottom border
-    result.push(border("└" + "─".repeat(width - 2) + "┘"));
+    // Bottom border with optional ▼ indicator
+    if (hasBelow) {
+      const belowCount = this.lines.length - this.inputScrollOffset - visibleCount;
+      const indicator = ` ▼ ${belowCount} `;
+      const fill = Math.max(0, width - 2 - indicator.length);
+      result.push(border("└" + "─".repeat(fill)) + ctp.overlay0(indicator) + border("┘"));
+    } else {
+      result.push(border("└" + "─".repeat(width - 2) + "┘"));
+    }
 
     return result;
   }
@@ -172,8 +206,15 @@ export class EditorComponent implements Component {
       this.dismissAutocomplete();
     }
 
+    // Shift+Enter → insert newline
+    if (event.type === "enter" && event.shift) {
+      this.insertNewline();
+      this.onChange?.(this.getText());
+      return true;
+    }
+
     // Enter → submit with attached files
-    if (event.type === "enter") {
+    if (event.type === "enter" && !event.shift) {
       const text = this.getText();
       if (text.trim() || this.attachedFiles.length > 0) {
         this.pushHistory(text);
@@ -229,8 +270,8 @@ export class EditorComponent implements Component {
         return true;
       }
       if (event.direction === "up") {
-        // History navigation
-        if (this.cursorRow === 0 && this.history.length > 0) {
+        // Alt+Up: history navigation
+        if (event.alt && !this.suppressHistory && this.history.length > 0) {
           if (this.historyIndex === -1) this.historyIndex = this.history.length;
           if (this.historyIndex > 0) {
             this.historyIndex--;
@@ -238,14 +279,16 @@ export class EditorComponent implements Component {
           }
           return true;
         }
-        if (this.cursorRow > 0) {
+        // Plain Up: cursor movement
+        if (!event.alt && this.cursorRow > 0) {
           this.cursorRow--;
           this.cursorCol = Math.min(this.cursorCol, this.lines[this.cursorRow]?.length ?? 0);
         }
         return true;
       }
       if (event.direction === "down") {
-        if (this.historyIndex >= 0) {
+        // Alt+Down: history navigation
+        if (event.alt && !this.suppressHistory && this.historyIndex >= 0) {
           this.historyIndex++;
           if (this.historyIndex >= this.history.length) {
             this.historyIndex = -1;
@@ -255,7 +298,8 @@ export class EditorComponent implements Component {
           }
           return true;
         }
-        if (this.cursorRow < this.lines.length - 1) {
+        // Plain Down: cursor movement
+        if (!event.alt && this.cursorRow < this.lines.length - 1) {
           this.cursorRow++;
           this.cursorCol = Math.min(this.cursorCol, this.lines[this.cursorRow]?.length ?? 0);
         }
@@ -318,6 +362,16 @@ export class EditorComponent implements Component {
       return true;
     }
 
+    // Escape — clear editor text (Ctrl+C no longer clears input)
+    if (event.type === "escape") {
+      if (this.getText().trim().length > 0) {
+        this.clear();
+        this.onChange?.(this.getText());
+        return true;
+      }
+      return false;
+    }
+
     // Paste
     if (event.type === "paste") {
       this.insertText(event.text);
@@ -376,6 +430,10 @@ export class EditorComponent implements Component {
     this.placeholder = text;
   }
 
+  setLayoutProvider(fn: () => LayoutConfig): void {
+    this.layoutProvider = fn;
+  }
+
   setAutocompleteProvider(provider: AutocompleteProvider): void {
     this.autocompleteProvider = provider;
   }
@@ -411,13 +469,17 @@ export class EditorComponent implements Component {
 
   getCursorPosition(): { row: number; col: number } | null {
     if (!this.focused) return null;
+    const visibleRow = this.cursorRow - this.inputScrollOffset;
+    if (visibleRow < 0 || visibleRow >= Math.min(this.lines.length, this.maxVisibleLines)) {
+      return null; // cursor not in visible area
+    }
     const acLines = this.getAutocompleteLineCount();
     // col offset: border(1) + space(1) + prompt "❯ "(2) + file tags + cursorCol
     const fileTagsWidth = this.cursorRow === 0 && this.attachedFiles.length > 0
       ? this.attachedFiles.reduce((w, f) => w + f.split("/").pop()!.length + 3, 0) + 1 // [@name] + spaces
       : 0;
     return {
-      row: acLines + 1 + this.cursorRow + 1,
+      row: acLines + 1 + visibleRow + 1,
       col: this.cursorCol + 5 + fileTagsWidth,
     };
   }
@@ -459,6 +521,29 @@ export class EditorComponent implements Component {
     const line = this.lines[this.cursorRow]!;
     this.lines[this.cursorRow] = line.slice(0, this.cursorCol) + char + line.slice(this.cursorCol);
     this.cursorCol += char.length;
+  }
+
+  private adjustInputScroll(): void {
+    if (this.lines.length <= this.maxVisibleLines) {
+      this.inputScrollOffset = 0;
+      return;
+    }
+    if (this.cursorRow < this.inputScrollOffset) {
+      this.inputScrollOffset = this.cursorRow;
+    }
+    if (this.cursorRow >= this.inputScrollOffset + this.maxVisibleLines) {
+      this.inputScrollOffset = this.cursorRow - this.maxVisibleLines + 1;
+    }
+  }
+
+  private insertNewline(): void {
+    const line = this.lines[this.cursorRow]!;
+    const before = line.slice(0, this.cursorCol);
+    const after = line.slice(this.cursorCol);
+    this.lines[this.cursorRow] = before;
+    this.lines.splice(this.cursorRow + 1, 0, after);
+    this.cursorRow++;
+    this.cursorCol = 0;
   }
 
   private insertText(text: string): void {

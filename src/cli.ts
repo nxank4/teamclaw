@@ -173,12 +173,6 @@ async function main(): Promise<void> {
             return;
         }
 
-        // Check if first-run setup is needed
-        const { existsSync } = await import("node:fs");
-        const { join } = await import("node:path");
-        const { homedir } = await import("node:os");
-        const configPath = join(homedir(), ".openpawl", "config.json");
-
         // TUI handles first-run setup via SetupWizardView when no config exists
         const { launchTUI } = await import("./app/index.js");
         await launchTUI();

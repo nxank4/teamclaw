@@ -395,6 +395,7 @@ export async function runWeb(args: string[]): Promise<void> {
         clearInterval(keepAlive);
       }
     }, 30_000);
+    keepAlive.unref();
 
     req.raw.on("close", () => {
       clearInterval(keepAlive);

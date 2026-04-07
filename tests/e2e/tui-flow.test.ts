@@ -78,9 +78,9 @@ describe("TUI E2E", { timeout: 10_000 }, () => {
       harness = new TUIHarness();
       await harness.start();
 
-      await harness.waitFor("O P E N P A W L", 5000);
+      await harness.waitFor("one prompt away", 5000);
       const output = harness.getVisibleOutput();
-      expect(output).toContain("O P E N P A W L");
+      expect(output).toContain("one prompt away");
     });
 
     it("shows /help hint in welcome", async () => {
@@ -90,7 +90,7 @@ describe("TUI E2E", { timeout: 10_000 }, () => {
       await harness.waitFor("/help", 5000);
       const output = harness.getVisibleOutput();
       expect(output).toContain("/help");
-      expect(output).toContain("Just type");
+      expect(output).toContain("one prompt away");
     });
   });
 

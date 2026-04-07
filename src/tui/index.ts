@@ -39,6 +39,9 @@ export { KeybindingManager, type KeyContext } from "./keyboard/keybindings.js";
 export { ACTIONS, type ActionId } from "./keyboard/actions.js";
 export { PRESETS, type PresetName, type KeymapPreset } from "./keyboard/keymap-presets.js";
 
+// Layout
+export { computeLayout, getBreakpoint, DEFAULT_LAYOUT, type LayoutConfig, type Breakpoint } from "./layout/index.js";
+
 // Utils
 export { visibleWidth, charWidth, stripAnsi } from "./utils/text-width.js";
 export { truncate } from "./utils/truncate.js";

@@ -1,6 +1,6 @@
 import { ok, err, type Result } from "neverthrow";
 import { runSetup } from "./setup-flow.js";
-import type { FirstRunResult, OnboardError } from "./types.js";
+import type { FirstRunResult, OnboardError, DetectedEnvironment } from "./types.js";
 
 export async function handleFirstRun(): Promise<Result<FirstRunResult, OnboardError>> {
   if (!process.stdout.isTTY) {
@@ -13,7 +13,7 @@ export async function handleFirstRun(): Promise<Result<FirstRunResult, OnboardEr
       configPath: "~/.openpawl/config.json",
       isNewSetup: true,
       isExistingConfig: false,
-      environment: {} as any,
+      environment: {} as unknown as DetectedEnvironment,
       suggestions: [],
     });
   } catch {

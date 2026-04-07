@@ -42,6 +42,7 @@ export class SetupWizardView extends InteractiveView {
   private models: string[] = [];
   private selectedModel = "";
   private validationError: string | null = null;
+  private validationWarning: string | null = null;
   private loading = false;
   private loadingText = "";
   private healthLatency = 0;
@@ -56,6 +57,7 @@ export class SetupWizardView extends InteractiveView {
 
   constructor(tui: TUI, onClose: () => void, prefill?: OpenPawlGlobalConfig) {
     super(tui, onClose);
+    this.fullscreen = true;
     this.prefill = prefill;
   }
 
@@ -618,6 +620,7 @@ export class SetupWizardView extends InteractiveView {
     }
 
     this.healthLatency = result.value.latencyMs;
+    this.validationWarning = result.value.warning ?? null;
 
     try {
       const store = new CredentialStore();
@@ -817,6 +820,9 @@ export class SetupWizardView extends InteractiveView {
 
     if (this.healthLatency > 0) {
       lines.push(`  ${t.success("✓")} Connection verified (${this.healthLatency}ms)`);
+      if (this.validationWarning) {
+        lines.push(`  ${t.warning("⚠")} ${this.validationWarning}`);
+      }
     } else {
       lines.push(`  ${t.dim("Connection will be verified on first use")}`);
     }

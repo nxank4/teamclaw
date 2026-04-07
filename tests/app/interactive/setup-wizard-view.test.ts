@@ -64,6 +64,14 @@ function createMockTUI() {
     popKeyHandler: vi.fn(),
     setInteractiveView: vi.fn(),
     clearInteractiveView: vi.fn(),
+    setFixedBottomHidden: vi.fn(),
+    setScrollableHidden: vi.fn(),
+    getLayout: vi.fn(() => ({
+      breakpoint: "md", cols: 100, rows: 30, maxInputLines: 8,
+      maxSelectItems: 10, showBorder: true, showAsciiArt: true,
+      contentPadding: 2, messageBubblePercent: 0.70,
+      heightBreakpoint: "medium",
+    })),
     setClickHandler: vi.fn(),
     getInteractiveStartRow: vi.fn(() => 10),
     requestRender: vi.fn(),
@@ -125,7 +133,7 @@ describe("SetupWizardView", () => {
     await flush();
 
     // PROVIDER step — select ollama (first detected item)
-    wizard.handleKey({ type: "enter" });
+    wizard.handleKey({ type: "enter", shift: false });
     await flush();
 
     // Should jump to MODEL step (skipping API_KEY)
@@ -161,19 +169,19 @@ describe("SetupWizardView", () => {
       await flush();
 
       // PROVIDER step — select Anthropic
-      wizard.handleKey({ type: "enter" });
+      wizard.handleKey({ type: "enter", shift: false });
       await flush();
 
       // API_KEY step — env key auto-filled, Enter to validate
-      wizard.handleKey({ type: "enter" });
+      wizard.handleKey({ type: "enter", shift: false });
       await flush();
 
       // MODEL step — select first model
-      wizard.handleKey({ type: "enter" });
+      wizard.handleKey({ type: "enter", shift: false });
       await flush();
 
       // CONFIRM step — Enter to save
-      wizard.handleKey({ type: "enter" });
+      wizard.handleKey({ type: "enter", shift: false });
 
       expect(writeGlobalConfig).toHaveBeenCalledTimes(1);
       const savedConfig = (writeGlobalConfig as Mock).mock.calls[0]![0];

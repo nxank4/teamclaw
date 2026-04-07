@@ -3,6 +3,7 @@
  * Supports streaming append for token-by-token display.
  */
 import type { Component } from "../core/component.js";
+import type { LayoutConfig } from "../layout/responsive.js";
 import { wrapText } from "../utils/wrap.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { defaultTheme, ctp } from "../themes/default.js";
@@ -19,12 +20,20 @@ export interface ChatMessage {
   collapsed?: boolean;
 }
 
+/** Lines above which a message is considered collapsible. */
+const COLLAPSE_THRESHOLD = 15;
+/** Number of preview lines shown when collapsed. */
+const COLLAPSE_PREVIEW = 3;
+
 export class MessagesComponent implements Component {
   readonly id: string;
   readonly focusable = true;
   hidden = false;
 
   private messages: ChatMessage[] = [];
+  /** Line index where each message starts (into the rendered allLines array). */
+  private messageBoundaries: number[] = [];
+  private layoutProvider?: () => LayoutConfig;
 
   constructor(id: string) {
     this.id = id;
@@ -32,9 +41,13 @@ export class MessagesComponent implements Component {
 
   render(width: number): string[] {
     const allLines: string[] = [];
-    const maxBubbleWidth = Math.min(Math.floor(width * 0.70), width - 8);
+    const bubblePct = this.layoutProvider?.().messageBubblePercent ?? 0.70;
+    const maxBubbleWidth = Math.min(Math.floor(width * bubblePct), width - 8);
+    this.messageBoundaries = [];
 
     for (const msg of this.messages) {
+      this.messageBoundaries.push(allLines.length);
+
       switch (msg.role) {
         case "user": {
           // RIGHT aligned bordered bubble
@@ -44,12 +57,15 @@ export class MessagesComponent implements Component {
           const boxWidth = contentWidth + 4; // border + padding each side
           const leftPad = " ".repeat(Math.max(0, width - boxWidth));
 
-          allLines.push(leftPad + ctp.surface1("┌" + "─".repeat(boxWidth - 2) + "┐"));
+          const msgLines: string[] = [];
+          msgLines.push(leftPad + ctp.surface1("┌" + "─".repeat(boxWidth - 2) + "┐"));
           for (const line of wrapped) {
             const padRight = contentWidth - visibleWidth(line);
-            allLines.push(leftPad + ctp.surface1("│") + " " + ctp.text(line) + " ".repeat(padRight) + " " + ctp.surface1("│"));
+            msgLines.push(leftPad + ctp.surface1("│") + " " + ctp.text(line) + " ".repeat(padRight) + " " + ctp.surface1("│"));
           }
-          allLines.push(leftPad + ctp.surface1("└" + "─".repeat(boxWidth - 2) + "┘"));
+          msgLines.push(leftPad + ctp.surface1("└" + "─".repeat(boxWidth - 2) + "┘"));
+
+          this.pushMaybeCollapsed(allLines, msgLines, msg, width);
           break;
         }
         case "assistant":
@@ -59,11 +75,14 @@ export class MessagesComponent implements Component {
           const nameFn = msg.agentColor ?? defaultTheme.agentName;
           const accentBorder = msg.agentColor ?? ctp.overlay2;
 
-          allLines.push("  " + accentBorder("┃") + " " + nameFn(`[${nameLabel}]`));
+          const msgLines: string[] = [];
+          msgLines.push("  " + accentBorder("┃") + " " + nameFn(`[${nameLabel}]`));
           const mdLines = renderMarkdown(msg.content || "", maxBubbleWidth - 4);
           for (const line of mdLines) {
-            allLines.push("  " + accentBorder("┃") + " " + line);
+            msgLines.push("  " + accentBorder("┃") + " " + line);
           }
+
+          this.pushMaybeCollapsed(allLines, msgLines, msg, width);
           break;
         }
         case "error": {
@@ -103,7 +122,37 @@ export class MessagesComponent implements Component {
     return allLines;
   }
 
+  /** Push message lines, applying collapse if needed. */
+  private pushMaybeCollapsed(
+    allLines: string[],
+    msgLines: string[],
+    msg: ChatMessage,
+    _width: number,
+  ): void {
+    if (msgLines.length >= COLLAPSE_THRESHOLD) {
+      msg.collapsible = true;
+    }
+    if (msg.collapsed && msg.collapsible) {
+      const preview = msgLines.slice(0, COLLAPSE_PREVIEW);
+      allLines.push(...preview);
+      const hidden = msgLines.length - COLLAPSE_PREVIEW;
+      allLines.push("  " + ctp.overlay0(`  ▸ ${hidden} more lines — Enter to expand`));
+    } else {
+      allLines.push(...msgLines);
+    }
+  }
+
   addMessage(msg: ChatMessage): void {
+    // Auto-collapse previous long assistant/agent messages
+    for (const prev of this.messages) {
+      if (
+        (prev.role === "assistant" || prev.role === "agent") &&
+        prev.collapsible &&
+        prev.collapsed === undefined
+      ) {
+        prev.collapsed = true;
+      }
+    }
     this.messages.push(msg);
   }
 
@@ -154,11 +203,54 @@ export class MessagesComponent implements Component {
   }
 
   /** Get the content of the last agent response (for /copy). */
+  setLayoutProvider(fn: () => LayoutConfig): void {
+    this.layoutProvider = fn;
+  }
+
   getLastResponse(): string | null {
     for (let i = this.messages.length - 1; i >= 0; i--) {
       const msg = this.messages[i]!;
       if (msg.role === "agent" || msg.role === "assistant") return msg.content;
     }
     return null;
+  }
+
+  /** Toggle collapsed state for a message by index. Returns true if toggled. */
+  toggleCollapse(index: number): boolean {
+    const msg = this.messages[index];
+    if (!msg || !msg.collapsible) return false;
+    msg.collapsed = !msg.collapsed;
+    return true;
+  }
+
+  /** Collapse all collapsible messages. */
+  collapseAll(): void {
+    for (const msg of this.messages) {
+      if (msg.collapsible) msg.collapsed = true;
+    }
+  }
+
+  /** Get rendered line indices where each user message starts (for prompt navigation). */
+  getPromptBoundaries(): { lineIndex: number; messageIndex: number }[] {
+    const result: { lineIndex: number; messageIndex: number }[] = [];
+    for (let i = 0; i < this.messages.length; i++) {
+      if (this.messages[i]!.role === "user" && this.messageBoundaries[i] !== undefined) {
+        result.push({ lineIndex: this.messageBoundaries[i]!, messageIndex: i });
+      }
+    }
+    return result;
+  }
+
+  /** Get total number of user prompts. */
+  getPromptCount(): number {
+    return this.messages.filter((m) => m.role === "user").length;
+  }
+
+  /** Find which message index corresponds to a given rendered line index. */
+  getMessageAtLine(lineIndex: number): number {
+    for (let i = this.messageBoundaries.length - 1; i >= 0; i--) {
+      if (this.messageBoundaries[i]! <= lineIndex) return i;
+    }
+    return 0;
   }
 }

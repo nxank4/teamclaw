@@ -42,7 +42,7 @@ describe("InputParser", () => {
   describe("special keys", () => {
     it("parses Enter (CR)", () => {
       parser.feed(Buffer.from("\r"));
-      expect(events).toEqual([{ type: "enter" }]);
+      expect(events).toEqual([{ type: "enter", shift: false }]);
     });
 
     it("parses Backspace (DEL)", () => {

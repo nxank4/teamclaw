@@ -41,6 +41,12 @@ export function createLayout(terminal?: Terminal): AppLayout {
   tui.addFixedBottom(editor);
   tui.addFixedBottom(statusBar);
 
+  // Wire responsive layout providers
+  const layoutProvider = () => tui.getLayout();
+  editor.setLayoutProvider(layoutProvider);
+  messages.setLayoutProvider(layoutProvider);
+  statusBar.setLayoutProvider(layoutProvider);
+
   tui.setFocus(editor);
 
   return { tui, statusBar, messages, editor, divider };

@@ -60,7 +60,7 @@ const PRESETS: Record<OpenAIPreset, { baseURL: string; envKey: string; defaultMo
   zai: { baseURL: "https://api.z.ai/api/paas/v4", envKey: "ZAI_API_KEY", defaultModel: "glm-5" },
   minimax: { baseURL: "https://api.minimax.io/v1", envKey: "MINIMAX_API_KEY", defaultModel: "minimax-m2.7" },
   cohere: { baseURL: "https://api.cohere.com/v2", envKey: "COHERE_API_KEY", defaultModel: "command-a-03-2025" },
-  "opencode-zen": { baseURL: "https://opencode.ai/zen/v1", envKey: "OPENCODE_API_KEY", defaultModel: "claude-sonnet-4-6" },
+  "opencode-zen": { baseURL: "https://opencode.ai/zen/v1", envKey: "OPENCODE_ZEN_API_KEY", defaultModel: "claude-sonnet-4-6" },
   "opencode-go": { baseURL: "https://opencode.ai/zen/go/v1", envKey: "OPENCODE_GO_API_KEY", defaultModel: "kimi-k2.5" },
   azure: { baseURL: "", envKey: "AZURE_OPENAI_API_KEY", defaultModel: "gpt-4o" },
   lmstudio: { baseURL: "http://localhost:1234/v1", envKey: "", defaultModel: "" },
@@ -89,7 +89,9 @@ export class OpenAICompatibleProvider implements StreamProvider {
     const preset = PRESETS[config.preset];
     this.name = config.name ?? config.preset;
     this.baseURL = config.baseURL ?? preset.baseURL;
-    this.apiKey = config.apiKey ?? (preset.envKey ? (process.env[preset.envKey] ?? null) : null);
+    this.apiKey = config.apiKey
+      ?? (preset.envKey ? (process.env[preset.envKey] ?? null) : null)
+      ?? (config.preset.startsWith("opencode-") ? (process.env["OPENCODE_API_KEY"] ?? null) : null);
     this.model = config.model ?? preset.defaultModel;
 
     if (!this.baseURL && config.preset === "custom") {

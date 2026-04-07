@@ -17,10 +17,16 @@ import { renderPanel } from "../../tui/components/panel.js";
 export abstract class InteractiveView {
   protected selectedIndex = 0;
   protected scrollOffset = 0;
-  protected maxVisible = 10;
   protected active = false;
   protected filterEnabled = false;
   protected filterText = "";
+  /** When true, hides editor + status bar while the view is active. */
+  protected fullscreen = false;
+
+  /** Max visible items — reads from responsive layout. */
+  protected get maxVisible(): number {
+    return this.tui.getLayout().maxSelectItems;
+  }
 
   constructor(
     protected tui: TUI,
@@ -31,6 +37,12 @@ export abstract class InteractiveView {
     this.active = true;
     this.selectedIndex = 0;
     this.scrollOffset = 0;
+    if (this.fullscreen) {
+      this.tui.setFixedBottomHidden("editor", true);
+      this.tui.setFixedBottomHidden("status", true);
+      this.tui.setFixedBottomHidden("divider", true);
+      this.tui.setScrollableHidden(true);
+    }
     this.tui.pushKeyHandler(this);
     this.render();
   }
@@ -38,6 +50,12 @@ export abstract class InteractiveView {
   deactivate(): void {
     if (!this.active) return;
     this.active = false;
+    if (this.fullscreen) {
+      this.tui.setScrollableHidden(false);
+      this.tui.setFixedBottomHidden("divider", false);
+      this.tui.setFixedBottomHidden("editor", false);
+      this.tui.setFixedBottomHidden("status", false);
+    }
     this.tui.popKeyHandler();
     this.tui.clearInteractiveView();
     this.onClose();

@@ -135,6 +135,31 @@ function commandExists(cmd: string): boolean {
   }
 }
 
+/**
+ * Clean copied text: strip box-drawing characters, ANSI escapes,
+ * and normalize leading whitespace so all lines start at column 0.
+ */
+export function cleanCopyText(text: string): string {
+  const lines = text.split("\n");
+  // Strip box-drawing borders and decorative chars
+  const cleaned = lines.map((line) => {
+    // Remove box-drawing chars used in user message borders and agent accent borders
+    let s = line.replace(/[┌┐└┘│─┃▸◆●○✗⚙]/g, " ");
+    // Collapse runs of spaces from removed chars
+    s = s.replace(/^ {2,}/, (match) => match); // preserve leading indent for now
+    return s;
+  });
+  // Strip common leading whitespace (dedent)
+  const nonEmpty = cleaned.filter((l) => l.trim().length > 0);
+  if (nonEmpty.length === 0) return text;
+  const minIndent = nonEmpty.reduce(
+    (min, l) => Math.min(min, (l.match(/^\s*/) ?? [""])[0]!.length),
+    Infinity,
+  );
+  if (!Number.isFinite(minIndent) || minIndent === 0) return cleaned.join("\n");
+  return cleaned.map((l) => l.slice(Math.min(minIndent, l.length))).join("\n");
+}
+
 /** Reset cached method (for testing). */
 export function resetClipboardCache(): void {
   cachedMethod = null;

@@ -136,7 +136,7 @@ describe("SelectListComponent", () => {
     list.setItems(items);
     list.onSelect = onSelect;
 
-    list.onKey({ type: "enter" });
+    list.onKey({ type: "enter", shift: false });
     expect(onSelect).toHaveBeenCalledWith(items[0]);
   });
 
@@ -232,7 +232,7 @@ describe("EditorComponent", () => {
     editor.onSubmit = onSubmit;
     editor.onKey({ type: "char", char: "h", ctrl: false, alt: false, shift: false });
     editor.onKey({ type: "char", char: "i", ctrl: false, alt: false, shift: false });
-    editor.onKey({ type: "enter" });
+    editor.onKey({ type: "enter", shift: false });
     expect(onSubmit).toHaveBeenCalledWith("hi", undefined);
     expect(editor.getText()).toBe(""); // cleared after submit
   });
@@ -241,29 +241,29 @@ describe("EditorComponent", () => {
     const onSubmit = vi.fn();
     const editor = new EditorComponent("ed1");
     editor.onSubmit = onSubmit;
-    editor.onKey({ type: "enter" });
+    editor.onKey({ type: "enter", shift: false });
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("navigates history with up/down arrows", () => {
+  it("navigates history with Alt+up/down arrows", () => {
     const editor = new EditorComponent("ed1");
     editor.pushHistory("first command");
     editor.pushHistory("second command");
 
-    // Up → shows "second command"
-    editor.onKey({ type: "arrow", direction: "up", ctrl: false, alt: false });
+    // Alt+Up → shows "second command"
+    editor.onKey({ type: "arrow", direction: "up", ctrl: false, alt: true });
     expect(editor.getText()).toBe("second command");
 
-    // Up again → shows "first command"
-    editor.onKey({ type: "arrow", direction: "up", ctrl: false, alt: false });
+    // Alt+Up again → shows "first command"
+    editor.onKey({ type: "arrow", direction: "up", ctrl: false, alt: true });
     expect(editor.getText()).toBe("first command");
 
-    // Down → back to "second command"
-    editor.onKey({ type: "arrow", direction: "down", ctrl: false, alt: false });
+    // Alt+Down → back to "second command"
+    editor.onKey({ type: "arrow", direction: "down", ctrl: false, alt: true });
     expect(editor.getText()).toBe("second command");
 
-    // Down → back to empty
-    editor.onKey({ type: "arrow", direction: "down", ctrl: false, alt: false });
+    // Alt+Down → back to empty
+    editor.onKey({ type: "arrow", direction: "down", ctrl: false, alt: true });
     expect(editor.getText()).toBe("");
   });
 
@@ -304,7 +304,7 @@ describe("OverlayComponent", () => {
     const onKey = vi.fn().mockReturnValue(true);
     const child = { id: "inner", render: () => ["test"], onKey };
     const overlay = new OverlayComponent("overlay1", child, 30);
-    const handled = overlay.onKey({ type: "enter" });
+    const handled = overlay.onKey({ type: "enter", shift: false });
     expect(handled).toBe(true);
     expect(onKey).toHaveBeenCalled();
   });

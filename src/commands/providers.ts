@@ -5,7 +5,6 @@ import {
   confirm,
   note,
   spinner,
-  isCancel,
   cancel,
 } from "@clack/prompts";
 import {

@@ -157,17 +157,12 @@ describe("TUI", () => {
   });
 
   describe("lifecycle", () => {
-    it("double Ctrl+C triggers onExit", async () => {
+    it("Ctrl+C triggers onExit immediately", async () => {
       const exitHandler = vi.fn();
       tui.onExit = exitHandler;
       tui.start();
 
-      // First Ctrl+C — shows warning, does NOT exit
-      term.simulateInput(Buffer.from([0x03]));
-      await new Promise(r => process.nextTick(r));
-      expect(exitHandler).not.toHaveBeenCalled();
-
-      // Second Ctrl+C — exits
+      // Single Ctrl+C — exits immediately
       term.simulateInput(Buffer.from([0x03]));
       await new Promise(r => process.nextTick(r));
       expect(exitHandler).toHaveBeenCalled();

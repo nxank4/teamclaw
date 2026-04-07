@@ -89,6 +89,12 @@ export class ProcessTerminal implements Terminal {
     process.stdout.write("\x1b[?1049h"); // enter alt screen
     process.stdout.write("\x1b[H");      // cursor to top-left
 
+    // Disable mouse reporting (prevent scroll wheel → arrow key translation)
+    process.stdout.write("\x1b[?1000l"); // disable basic mouse
+    process.stdout.write("\x1b[?1002l"); // disable button-event tracking
+    process.stdout.write("\x1b[?1003l"); // disable all-motion tracking
+    process.stdout.write("\x1b[?1006l"); // disable SGR extended mode
+
     // Hide cursor and enable bracketed paste
     process.stdout.write("\x1b[?25l"); // hide cursor
     process.stdout.write("\x1b[?2004h"); // bracketed paste on
@@ -105,6 +111,10 @@ export class ProcessTerminal implements Terminal {
     }
 
     // Restore terminal state
+    process.stdout.write("\x1b[?1000l"); // disable mouse tracking
+    process.stdout.write("\x1b[?1002l");
+    process.stdout.write("\x1b[?1003l");
+    process.stdout.write("\x1b[?1006l");
     process.stdout.write("\x1b[?25h"); // show cursor
     process.stdout.write("\x1b[?2004l"); // bracketed paste off
     process.stdout.write("\x1b[0m"); // reset styles
