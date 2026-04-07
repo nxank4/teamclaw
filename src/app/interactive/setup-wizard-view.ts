@@ -1,6 +1,6 @@
 /**
- * TUI-native setup wizard — 4-step flow for configuring a provider.
- * State machine: PROVIDER → API_KEY → MODEL → CONFIRM
+ * TUI-native setup wizard — multi-step flow for configuring a provider.
+ * State machine: PROVIDER → [DEVICE_AUTH | OAUTH_AUTH | API_KEY] → MODEL → CONFIRM
  *
  * PROVIDER step auto-detects available providers and shows ALL providers
  * from the catalog with detected ones sorted to top and marked.
@@ -20,7 +20,7 @@ import { readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js
 import { CredentialStore } from "../../credentials/credential-store.js";
 import { maskCredential } from "../../credentials/masking.js";
 
-enum WizardStep { PROVIDER, API_KEY, MODEL, CONFIRM }
+enum WizardStep { PROVIDER, DEVICE_AUTH, OAUTH_AUTH, API_KEY, MODEL, CONFIRM }
 
 interface ProviderItem {
   type: "provider" | "separator" | "header";
@@ -47,6 +47,12 @@ export class SetupWizardView extends InteractiveView {
   private healthLatency = 0;
   private prefill?: OpenPawlGlobalConfig;
   private envKeySource: string | null = null;
+  private deviceUserCode = "";
+  private deviceVerificationUri = "";
+  private devicePolling = false;
+  private deviceError: string | null = null;
+  private oauthError: string | null = null;
+  private oauthAuthUrl = "";
 
   constructor(tui: TUI, onClose: () => void, prefill?: OpenPawlGlobalConfig) {
     super(tui, onClose);
@@ -70,6 +76,8 @@ export class SetupWizardView extends InteractiveView {
   protected getItemCount(): number {
     switch (this.step) {
       case WizardStep.PROVIDER: return this.getFilteredProviders().length;
+      case WizardStep.DEVICE_AUTH: return 1;
+      case WizardStep.OAUTH_AUTH: return 1;
       case WizardStep.API_KEY: return 1;
       case WizardStep.MODEL: return this.getFilteredModels().length;
       case WizardStep.CONFIRM: return 1;
@@ -103,6 +111,8 @@ export class SetupWizardView extends InteractiveView {
 
     switch (this.step) {
       case WizardStep.PROVIDER: return this.handleProviderKey(event);
+      case WizardStep.DEVICE_AUTH: return this.handleDeviceAuthKey(event);
+      case WizardStep.OAUTH_AUTH: return this.handleOAuthAuthKey(event);
       case WizardStep.API_KEY: return this.handleApiKeyKey(event);
       case WizardStep.MODEL: return this.handleModelKey(event);
       case WizardStep.CONFIRM: return this.handleConfirmKey(event);
@@ -110,19 +120,31 @@ export class SetupWizardView extends InteractiveView {
   }
 
   protected override getPanelTitle(): string {
-    const stepNum = this.step + 1;
+    // Auth steps replace API_KEY, so visible step count is always 4
+    const stepMap: Record<WizardStep, number> = {
+      [WizardStep.PROVIDER]: 1,
+      [WizardStep.DEVICE_AUTH]: 2,
+      [WizardStep.OAUTH_AUTH]: 2,
+      [WizardStep.API_KEY]: 2,
+      [WizardStep.MODEL]: 3,
+      [WizardStep.CONFIRM]: 4,
+    };
     const titles: Record<WizardStep, string> = {
       [WizardStep.PROVIDER]: "Select Provider",
+      [WizardStep.DEVICE_AUTH]: "GitHub Copilot",
+      [WizardStep.OAUTH_AUTH]: "ChatGPT Login",
       [WizardStep.API_KEY]: "API Key",
       [WizardStep.MODEL]: "Select Model",
       [WizardStep.CONFIRM]: "Confirm",
     };
-    return `Setup (${stepNum}/4) — ${titles[this.step]}`;
+    return `Setup (${stepMap[this.step]}/4) — ${titles[this.step]}`;
   }
 
   protected override getPanelFooter(): string {
     switch (this.step) {
       case WizardStep.PROVIDER: return this.loading ? "Scanning..." : "↑↓ navigate · Enter select · Type to filter · Esc close";
+      case WizardStep.DEVICE_AUTH: return "Waiting for authorization... · Esc cancel";
+      case WizardStep.OAUTH_AUTH: return "Waiting for browser login... · Esc cancel";
       case WizardStep.API_KEY: return "Type key, Enter to validate · Esc back";
       case WizardStep.MODEL: return "↑↓ navigate · Enter select · Type to filter · Esc back";
       case WizardStep.CONFIRM: return "Enter save · Esc back";
@@ -143,6 +165,8 @@ export class SetupWizardView extends InteractiveView {
   protected renderLines(): string[] {
     switch (this.step) {
       case WizardStep.PROVIDER: return this.renderProvider();
+      case WizardStep.DEVICE_AUTH: return this.renderDeviceAuth();
+      case WizardStep.OAUTH_AUTH: return this.renderOAuthAuth();
       case WizardStep.API_KEY: return this.renderApiKey();
       case WizardStep.MODEL: return this.renderModel();
       case WizardStep.CONFIRM: return this.renderConfirm();
@@ -219,16 +243,30 @@ export class SetupWizardView extends InteractiveView {
 
       this.selectedProvider = item.id;
       const meta = getProviderMeta(item.id);
-      this.needsKey = meta?.authMethod !== "local";
       this.filterText = "";
 
-      if (this.needsKey) {
-        this.prepareApiKeyStep();
-        this.step = WizardStep.API_KEY;
-      } else {
-        this.step = WizardStep.MODEL;
-        this.selectedIndex = 0;
-        void this.loadModels();
+      switch (meta?.authMethod) {
+        case "local":
+          this.step = WizardStep.MODEL;
+          this.selectedIndex = 0;
+          this.needsKey = false;
+          void this.loadModels();
+          break;
+        case "device-oauth":
+          this.step = WizardStep.DEVICE_AUTH;
+          this.needsKey = false;
+          void this.startDeviceAuth();
+          break;
+        case "oauth":
+          this.step = WizardStep.OAUTH_AUTH;
+          this.needsKey = false;
+          void this.startOAuthAuth();
+          break;
+        default: // "apikey" and others
+          this.needsKey = true;
+          this.prepareApiKeyStep();
+          this.step = WizardStep.API_KEY;
+          break;
       }
       this.render();
       return true;
@@ -290,6 +328,180 @@ export class SetupWizardView extends InteractiveView {
         lines.push(`  ${cursor}   ${isSelected ? t.bold(item.label) : item.label}${hint}`);
         idx++;
       }
+    }
+
+    lines.push("");
+    return lines;
+  }
+
+  // ── Step: DEVICE_AUTH (GitHub Copilot) ────────────────────
+
+  private async startDeviceAuth(): Promise<void> {
+    this.loading = true;
+    this.loadingText = "Starting device authorization...";
+    this.deviceError = null;
+    this.render();
+
+    try {
+      const { runCopilotDeviceFlow } = await import("../../providers/copilot-provider.js");
+      const json = await runCopilotDeviceFlow();
+      const data = JSON.parse(json) as {
+        device_code: string;
+        user_code: string;
+        verification_uri: string;
+        interval?: number;
+      };
+
+      this.deviceUserCode = data.user_code;
+      this.deviceVerificationUri = data.verification_uri;
+
+      try {
+        const { default: openBrowser } = await import("open");
+        await openBrowser(data.verification_uri);
+      } catch { /* browser open is best-effort */ }
+
+      this.loading = false;
+      this.devicePolling = true;
+      this.render();
+
+      void this.pollDeviceToken(data.device_code, data.interval ?? 5);
+    } catch (e) {
+      this.loading = false;
+      this.deviceError = `Failed to start device flow: ${e instanceof Error ? e.message : String(e)}`;
+      this.render();
+    }
+  }
+
+  private async pollDeviceToken(deviceCode: string, interval: number): Promise<void> {
+    try {
+      const { pollCopilotDeviceToken } = await import("../../providers/copilot-provider.js");
+
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, interval * 1000));
+        if (!this.devicePolling || !this.active) return;
+
+        const token = await pollCopilotDeviceToken(deviceCode);
+        if (token) {
+          this.apiKey = token;
+          this.devicePolling = false;
+          this.step = WizardStep.MODEL;
+          this.selectedIndex = 0;
+          void this.loadModels();
+          this.render();
+          return;
+        }
+      }
+
+      this.deviceError = "Authorization timed out — please try again";
+      this.devicePolling = false;
+      this.render();
+    } catch (e) {
+      this.deviceError = `Polling error: ${e instanceof Error ? e.message : String(e)}`;
+      this.devicePolling = false;
+      this.render();
+    }
+  }
+
+  private handleDeviceAuthKey(_event: KeyEvent): boolean {
+    // Consume all keys while polling; Esc is handled by handleCustomKey
+    return true;
+  }
+
+  private renderDeviceAuth(): string[] {
+    const t = this.theme;
+    const lines: string[] = [];
+
+    lines.push("");
+    lines.push(`  ${t.bold("Login with GitHub Copilot")}`);
+    lines.push("");
+
+    if (this.loading) {
+      lines.push(`  ${t.dim(this.loadingText)}`);
+    } else if (this.devicePolling) {
+      lines.push(`  Go to: ${t.primary(this.deviceVerificationUri)}`);
+      lines.push(`  Enter code: ${t.bold(this.deviceUserCode)}`);
+      lines.push("");
+      lines.push(`  ${t.dim("Waiting for authorization...")}`);
+    } else if (this.deviceError) {
+      lines.push(`  ${t.error("✗ " + this.deviceError)}`);
+      lines.push("");
+      lines.push(`  ${t.dim("Press Esc to go back")}`);
+    }
+
+    lines.push("");
+    return lines;
+  }
+
+  // ── Step: OAUTH_AUTH (ChatGPT) ───────────────────────────
+
+  private async startOAuthAuth(): Promise<void> {
+    this.loading = true;
+    this.loadingText = "Starting ChatGPT login...";
+    this.oauthError = null;
+    this.render();
+
+    try {
+      const { generatePKCE, buildChatGPTAuthUrl, runChatGPTOAuthFlow } =
+        await import("../../providers/chatgpt-auth.js");
+
+      const { challenge } = generatePKCE();
+      this.oauthAuthUrl = buildChatGPTAuthUrl(challenge);
+      this.loading = false;
+      this.render();
+
+      const result = await runChatGPTOAuthFlow();
+      if (result.isOk()) {
+        this.apiKey = result.value.accessToken;
+
+        // Persist refresh token via credential store
+        try {
+          const store = new CredentialStore();
+          await store.initialize();
+          await store.setCredential(this.selectedProvider, "oauthToken", result.value.accessToken);
+          await store.setCredential(this.selectedProvider, "refreshToken", result.value.refreshToken);
+        } catch { /* best-effort */ }
+
+        this.step = WizardStep.MODEL;
+        this.selectedIndex = 0;
+        void this.loadModels();
+        this.render();
+      } else {
+        this.oauthError = result.error.message;
+        this.render();
+      }
+    } catch (e) {
+      this.loading = false;
+      this.oauthError = `Login failed: ${e instanceof Error ? e.message : String(e)}`;
+      this.render();
+    }
+  }
+
+  private handleOAuthAuthKey(_event: KeyEvent): boolean {
+    // Consume all keys while waiting; Esc is handled by handleCustomKey
+    return true;
+  }
+
+  private renderOAuthAuth(): string[] {
+    const t = this.theme;
+    const lines: string[] = [];
+
+    lines.push("");
+    lines.push(`  ${t.bold("Login with ChatGPT")}`);
+    lines.push("");
+
+    if (this.loading) {
+      lines.push(`  ${t.dim(this.loadingText)}`);
+    } else if (this.oauthError) {
+      lines.push(`  ${t.error("✗ " + this.oauthError)}`);
+      lines.push("");
+      lines.push(`  ${t.dim("Press Esc to go back")}`);
+    } else {
+      lines.push(`  ${t.dim("Opening browser for authentication...")}`);
+      lines.push("");
+      lines.push(`  ${t.dim("If browser didn't open, go to:")}`);
+      lines.push(`  ${t.primary(this.oauthAuthUrl)}`);
+      lines.push("");
+      lines.push(`  ${t.dim("Waiting for login...")}`);
     }
 
     lines.push("");
@@ -598,9 +810,18 @@ export class SetupWizardView extends InteractiveView {
   private saveConfig(): void {
     const entry: ProviderConfigEntry = {
       type: this.selectedProvider as ProviderConfigEntry["type"],
-      hasCredential: this.needsKey,
       model: this.selectedModel,
     };
+
+    if (this.selectedProvider === "copilot") {
+      entry.githubToken = this.apiKey;
+      entry.authMethod = "device-oauth";
+    } else if (this.selectedProvider === "chatgpt") {
+      entry.oauthToken = this.apiKey;
+      entry.authMethod = "oauth";
+    } else {
+      entry.hasCredential = this.needsKey;
+    }
     const existing = readGlobalConfig();
     const otherProviders = existing?.providers?.filter((p) => p.type !== this.selectedProvider) ?? [];
     const config: OpenPawlGlobalConfig = {
@@ -621,6 +842,17 @@ export class SetupWizardView extends InteractiveView {
     switch (this.step) {
       case WizardStep.PROVIDER:
         this.deactivate();
+        break;
+      case WizardStep.DEVICE_AUTH:
+        this.devicePolling = false;
+        this.step = WizardStep.PROVIDER;
+        this.selectedIndex = 0;
+        this.buildProviderItems();
+        break;
+      case WizardStep.OAUTH_AUTH:
+        this.step = WizardStep.PROVIDER;
+        this.selectedIndex = 0;
+        this.buildProviderItems();
         break;
       case WizardStep.API_KEY:
         this.step = WizardStep.PROVIDER;
