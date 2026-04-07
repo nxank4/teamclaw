@@ -692,14 +692,24 @@ export class SetupWizardView extends InteractiveView {
       return true;
     }
 
+    // Consume all other Ctrl+key combos — don't let them trigger selection or navigation
+    if (event.type === "char" && event.ctrl) {
+      return true;
+    }
+
     // Override 'q' to not close during wizard
-    if (event.type === "char" && event.char === "q" && !event.ctrl && !this.isEditing()) {
+    if (event.type === "char" && event.char === "q" && !this.isEditing()) {
       return true; // consume but don't close
     }
 
     // Intercept escape before base class handles it
     if (event.type === "escape") {
       return this.handleCustomKey(event);
+    }
+
+    // Consume Ctrl+arrow — don't navigate with modifiers
+    if (event.type === "arrow" && event.ctrl) {
+      return true;
     }
 
     // Arrow navigation in non-editing steps
