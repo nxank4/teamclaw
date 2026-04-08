@@ -72,7 +72,7 @@ jobs:
         if: matrix.node == '20'
         run: bun run test:coverage
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=6144"
 
   build:
     name: Build
