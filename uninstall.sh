@@ -1,6 +1,6 @@
 #!/bin/sh
-# TeamClaw Uninstaller
-# Usage: curl -fsSL https://raw.githubusercontent.com/nxank4/teamclaw/main/uninstall.sh | sh
+# OpenPawl Uninstaller
+# Usage: curl -fsSL https://raw.githubusercontent.com/nxank4/openpawl/main/uninstall.sh | sh
 #
 # Flags:
 #   --yes          Skip confirmation prompts
@@ -13,7 +13,7 @@
 set -e
 
 # --- Configuration ---
-INSTALL_DIR="${HOME}/.teamclaw"
+INSTALL_DIR="${HOME}/.openpawl"
 BIN_DIR="${INSTALL_DIR}/bin"
 SOURCE_DIR="${INSTALL_DIR}/source"
 
@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
             NO_COLOR=true
             ;;
         --help|-h)
-            echo "TeamClaw Uninstaller"
+            echo "OpenPawl Uninstaller"
             echo ""
             echo "Usage: sh uninstall.sh [OPTIONS]"
             echo ""
@@ -102,28 +102,28 @@ ask_yes_no() {
 
 # --- Remove binary ---
 remove_binary() {
-    if [ -x "${BIN_DIR}/teamclaw" ]; then
-        rm -f "${BIN_DIR}/teamclaw"
-        success "Removed ${BIN_DIR}/teamclaw"
+    if [ -x "${BIN_DIR}/openpawl" ]; then
+        rm -f "${BIN_DIR}/openpawl"
+        success "Removed ${BIN_DIR}/openpawl"
     else
-        info "No binary found at ${BIN_DIR}/teamclaw"
+        info "No binary found at ${BIN_DIR}/openpawl"
     fi
 
     # Also check for npm global install
     _npm_bin=""
-    if command -v teamclaw >/dev/null 2>&1; then
-        _npm_bin=$(command -v teamclaw 2>/dev/null)
+    if command -v openpawl >/dev/null 2>&1; then
+        _npm_bin=$(command -v openpawl 2>/dev/null)
         # Only remove if it's an npm global install (not our own bin)
         case "$_npm_bin" in
             */node_modules/*)
                 warn "Found npm global install at ${_npm_bin}"
-                warn "Remove with: npm uninstall -g @teamclaw/cli"
+                warn "Remove with: npm uninstall -g @openpawl/cli"
                 ;;
-            "${BIN_DIR}/teamclaw")
+            "${BIN_DIR}/openpawl")
                 # Already handled above
                 ;;
             *)
-                info "teamclaw binary also found at: ${_npm_bin}"
+                info "openpawl binary also found at: ${_npm_bin}"
                 ;;
         esac
     fi
@@ -147,10 +147,10 @@ remove_path_entries() {
         "${HOME}/.zshrc" \
         "${HOME}/.profile"
     do
-        if [ -f "$_profile" ] && grep -qF '.teamclaw/bin' "$_profile" 2>/dev/null; then
-            # Create temp file without teamclaw PATH lines
+        if [ -f "$_profile" ] && grep -qF '.openpawl/bin' "$_profile" 2>/dev/null; then
+            # Create temp file without openpawl PATH lines
             _tmp=$(mktemp)
-            grep -v '.teamclaw/bin' "$_profile" | grep -v '# TeamClaw' > "$_tmp" || true
+            grep -v '.openpawl/bin' "$_profile" | grep -v '# OpenPawl' > "$_tmp" || true
             # Remove trailing blank lines that were left behind
             mv "$_tmp" "$_profile"
             success "Removed PATH entry from ~/${_profile##*/}"
@@ -159,7 +159,7 @@ remove_path_entries() {
     done
 
     # Handle fish
-    _fish_config="${HOME}/.config/fish/conf.d/teamclaw.fish"
+    _fish_config="${HOME}/.config/fish/conf.d/openpawl.fish"
     if [ -f "$_fish_config" ]; then
         rm -f "$_fish_config"
         success "Removed fish config"
@@ -174,7 +174,7 @@ remove_path_entries() {
 # --- Remove config ---
 remove_config() {
     if [ -f "${INSTALL_DIR}/config.json" ]; then
-        if [ "$PURGE" = true ] || ask_yes_no "  Remove config (~/.teamclaw/config.json)?"; then
+        if [ "$PURGE" = true ] || ask_yes_no "  Remove config (~/.openpawl/config.json)?"; then
             rm -f "${INSTALL_DIR}/config.json"
             success "Removed config"
         else
@@ -186,7 +186,7 @@ remove_config() {
 # --- Remove memory/data ---
 remove_memory() {
     if [ -d "${INSTALL_DIR}/memory" ] || [ -d "${INSTALL_DIR}/data" ]; then
-        if [ "$PURGE" = true ] || ask_yes_no "  Remove learned data (~/.teamclaw/memory/)? This cannot be undone."; then
+        if [ "$PURGE" = true ] || ask_yes_no "  Remove learned data (~/.openpawl/memory/)? This cannot be undone."; then
             rm -rf "${INSTALL_DIR}/memory" "${INSTALL_DIR}/data"
             success "Removed memory data"
         else
@@ -207,20 +207,20 @@ cleanup_dirs() {
         # Check if directory is empty (or only has empty subdirs)
         if [ -z "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
             rmdir "$INSTALL_DIR" 2>/dev/null || true
-            success "Removed ~/.teamclaw/ (empty)"
+            success "Removed ~/.openpawl/ (empty)"
         else
-            info "Kept ~/.teamclaw/ (still has files)"
+            info "Kept ~/.openpawl/ (still has files)"
         fi
     fi
 }
 
 # --- Main ---
 main() {
-    printf "\n${BOLD}${CYAN}Uninstalling TeamClaw...${RESET}\n\n"
+    printf "\n${BOLD}${CYAN}Uninstalling OpenPawl...${RESET}\n\n"
 
     # Confirm
     if [ "$AUTO_YES" = false ]; then
-        if ! ask_yes_no "Remove TeamClaw from this system?"; then
+        if ! ask_yes_no "Remove OpenPawl from this system?"; then
             echo "Cancelled."
             exit 0
         fi
@@ -241,7 +241,7 @@ main() {
     cleanup_dirs
 
     echo ""
-    printf "${BOLD}${GREEN}TeamClaw has been uninstalled.${RESET}\n\n"
+    printf "${BOLD}${GREEN}OpenPawl has been uninstalled.${RESET}\n\n"
 }
 
 main

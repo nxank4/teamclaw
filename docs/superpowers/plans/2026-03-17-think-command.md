@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement `teamclaw think` — a lightweight structured debate between Tech Lead and RFC Author perspectives that produces a recommendation with tradeoffs and optionally saves to the decision journal.
+**Goal:** Implement `openpawl think` — a lightweight structured debate between Tech Lead and RFC Author perspectives that produces a recommendation with tradeoffs and optionally saves to the decision journal.
 
 **Architecture:** Direct sequential ProxyService.stream() calls (no LangGraph graph). CLI mode uses ProxyService directly; dashboard uses POST /api/think SSE endpoint. Context loaded async from journal/memory/profiles. History stored in global.db think_history table (LanceDB with dummy vector).
 
@@ -90,7 +90,7 @@ export type ThinkEvent =
 
 - [ ] **Step 2: Verify types compile**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS (no errors related to think/types.ts)
 
 - [ ] **Step 3: Commit**
@@ -212,7 +212,7 @@ describe("buildFollowUpContext", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm run test -- tests/think-prompts.test.ts`
+Run: `bun run test -- tests/think-prompts.test.ts`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement prompts**
@@ -240,7 +240,7 @@ export function buildTechLeadPrompt(
   question: string,
   decisions: Decision[],
 ): string {
-  return `You are TeamClaw's Tech Lead. Your role is to give a pragmatic, implementation-focused perspective on this question.
+  return `You are OpenPawl's Tech Lead. Your role is to give a pragmatic, implementation-focused perspective on this question.
 
 Past decisions relevant to this question:
 ${formatDecisionContext(decisions)}
@@ -255,7 +255,7 @@ export function buildRfcAuthorPrompt(
   question: string,
   decisions: Decision[],
 ): string {
-  return `You are TeamClaw's RFC Author. Your role is to consider longer-term architectural implications and edge cases.
+  return `You are OpenPawl's RFC Author. Your role is to consider longer-term architectural implications and edge cases.
 
 Past decisions relevant to this question:
 ${formatDecisionContext(decisions)}
@@ -270,7 +270,7 @@ export function buildCoordinatorPrompt(
   techLeadPerspective: string,
   rfcAuthorPerspective: string,
 ): string {
-  return `You are TeamClaw's Coordinator. Two experts have weighed in:
+  return `You are OpenPawl's Coordinator. Two experts have weighed in:
 
 Tech Lead: ${techLeadPerspective}
 
@@ -307,7 +307,7 @@ export function buildFollowUpContext(previousRounds: ThinkRound[]): string {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm run test -- tests/think-prompts.test.ts`
+Run: `bun run test -- tests/think-prompts.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -466,7 +466,7 @@ describe("loadThinkContext", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm run test -- tests/think-context-loader.test.ts`
+Run: `bun run test -- tests/think-context-loader.test.ts`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement context loader**
@@ -578,7 +578,7 @@ Note: This creates multiple VectorMemory/GlobalMemoryManager instances across th
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm run test -- tests/think-context-loader.test.ts`
+Run: `bun run test -- tests/think-context-loader.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -722,7 +722,7 @@ describe("executeThinkRound", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm run test -- tests/think-executor.test.ts`
+Run: `bun run test -- tests/think-executor.test.ts`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement executor**
@@ -841,7 +841,7 @@ export async function executeThinkRound(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm run test -- tests/think-executor.test.ts`
+Run: `bun run test -- tests/think-executor.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -952,7 +952,7 @@ describe("ThinkHistoryStore", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm run test -- tests/think-history.test.ts`
+Run: `bun run test -- tests/think-history.test.ts`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement history store**
@@ -1072,7 +1072,7 @@ export class ThinkHistoryStore {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm run test -- tests/think-history.test.ts`
+Run: `bun run test -- tests/think-history.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1252,7 +1252,7 @@ describe("sprint handoff", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm run test -- tests/think-session.test.ts`
+Run: `bun run test -- tests/think-session.test.ts`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Implement session orchestrator**
@@ -1427,7 +1427,7 @@ Note: Tag extraction reuses the existing `extractTags` function from `src/journa
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm run test -- tests/think-session.test.ts`
+Run: `bun run test -- tests/think-session.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1464,7 +1464,7 @@ export { ThinkHistoryStore } from "./history.js";
 
 - [ ] **Step 2: Verify types compile**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -1488,7 +1488,7 @@ git commit -m "feat(think): add barrel export"
 ```typescript
 // src/commands/think.ts
 /**
- * CLI command: teamclaw think
+ * CLI command: openpawl think
  * Lightweight structured thinking mode — rubber duck debugging.
  */
 
@@ -1596,14 +1596,14 @@ export async function runThinkCommand(args: string[]): Promise<void> {
   // Help
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     logger.plain([
-      pc.bold("teamclaw think") + " — Rubber duck mode: structured thinking with agent perspectives",
+      pc.bold("openpawl think") + " — Rubber duck mode: structured thinking with agent perspectives",
       "",
       "Usage:",
-      '  teamclaw think "your question"               Interactive think session',
-      '  teamclaw think "question" --save              Auto-save to journal',
-      '  teamclaw think "question" --no-stream         Show results at end (no streaming)',
-      "  teamclaw think history                        List past think sessions",
-      "  teamclaw think history --session <id>         Show specific session",
+      '  openpawl think "your question"               Interactive think session',
+      '  openpawl think "question" --save              Auto-save to journal',
+      '  openpawl think "question" --no-stream         Show results at end (no streaming)',
+      "  openpawl think history                        List past think sessions",
+      "  openpawl think history --session <id>         Show specific session",
     ].join("\n"));
     return;
   }
@@ -1775,9 +1775,9 @@ export async function runThinkCommand(args: string[]): Promise<void> {
 
       // Dynamic import to avoid circular dependency
       const { spawn } = await import("node:child_process");
-      spawn("npx", ["teamclaw", "work"], {
+      spawn("npx", ["openpawl", "work"], {
         stdio: "inherit",
-        env: { ...process.env, TEAMCLAW_SUGGESTED_GOAL: goal },
+        env: { ...process.env, OPENPAWL_SUGGESTED_GOAL: goal },
       });
       return;
     }
@@ -1813,7 +1813,7 @@ Add to `src/cli.ts` (before the final `else` block around line 370):
 
 - [ ] **Step 3: Verify types compile**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
@@ -2004,7 +2004,7 @@ fastify.post<{ Params: { sessionId: string } }>(
 
 - [ ] **Step 2: Verify types compile**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -2340,7 +2340,7 @@ import { ThinkPanel } from "./ThinkPanel";
 
 - [ ] **Step 4: Verify types compile**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -2410,7 +2410,7 @@ try {
 
 - [ ] **Step 2: Verify types compile**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -2426,22 +2426,22 @@ git commit -m "feat(think): surface recent think sessions in briefing"
 
 - [ ] **Step 1: Run all think tests**
 
-Run: `pnpm run test -- tests/think-prompts.test.ts tests/think-context-loader.test.ts tests/think-executor.test.ts tests/think-history.test.ts tests/think-session.test.ts`
+Run: `bun run test -- tests/think-prompts.test.ts tests/think-context-loader.test.ts tests/think-executor.test.ts tests/think-history.test.ts tests/think-session.test.ts`
 Expected: All PASS
 
 - [ ] **Step 2: Run typecheck**
 
-Run: `pnpm run typecheck`
+Run: `bun run typecheck`
 Expected: PASS
 
 - [ ] **Step 3: Run full test suite**
 
-Run: `pnpm run test`
+Run: `bun run test`
 Expected: All existing tests still pass, no regressions
 
 - [ ] **Step 4: Run lint**
 
-Run: `pnpm run lint`
+Run: `bun run lint`
 Expected: PASS (fix any issues)
 
 - [ ] **Step 5: Final commit if any fixes needed**

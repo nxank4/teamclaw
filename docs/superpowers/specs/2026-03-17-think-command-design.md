@@ -6,7 +6,7 @@ Users need to think through hard decisions without starting a full sprint. They 
 
 ## Solution
 
-`teamclaw think` — a lightweight structured thinking mode that debates a question between Tech Lead and RFC Author perspectives, synthesizes a recommendation via Coordinator, and optionally saves to the decision journal.
+`openpawl think` — a lightweight structured thinking mode that debates a question between Tech Lead and RFC Author perspectives, synthesizes a recommendation via Coordinator, and optionally saves to the decision journal.
 
 ## Architecture
 
@@ -131,7 +131,7 @@ When saving a `ThinkRecommendation` to the decision journal, fields map as follo
 ### Tech Lead
 
 ```
-You are TeamClaw's Tech Lead. Your role is to give a pragmatic,
+You are OpenPawl's Tech Lead. Your role is to give a pragmatic,
 implementation-focused perspective on this question.
 
 Past decisions relevant to this question:
@@ -148,7 +148,7 @@ End with your recommended choice in one sentence.
 ### RFC Author
 
 ```
-You are TeamClaw's RFC Author. Your role is to consider
+You are OpenPawl's RFC Author. Your role is to consider
 longer-term architectural implications and edge cases.
 
 Past decisions relevant to this question:
@@ -165,7 +165,7 @@ End with your recommended choice in one sentence.
 ### Coordinator Synthesis
 
 ```
-You are TeamClaw's Coordinator. Two experts have weighed in:
+You are OpenPawl's Coordinator. Two experts have weighed in:
 
 Tech Lead: {techLeadPerspective}
 RFC Author: {rfcAuthorPerspective}
@@ -252,24 +252,24 @@ When user chooses "Save to decision journal":
 
 When user chooses "Start a sprint based on this decision":
 1. Save decision to journal first
-2. Launch `teamclaw work` with the question as context
+2. Launch `openpawl work` with the question as context
 3. Pre-populate goal suggestion: "Implement: [recommendation.choice]"
 
 ## CLI Interface
 
 ```bash
-teamclaw think "your question here"        # interactive think session
-teamclaw think "question" --save           # auto-save to journal
-teamclaw think "question" --no-stream      # show results at end
-teamclaw think history                     # list past think sessions
-teamclaw think history --session <id>      # show specific session
+openpawl think "your question here"        # interactive think session
+openpawl think "question" --save           # auto-save to journal
+openpawl think "question" --no-stream      # show results at end
+openpawl think history                     # list past think sessions
+openpawl think history --session <id>      # show specific session
 ```
 
 ## Think History
 
 - Stored in global.db `think_history` table (LanceDB)
 - LanceDB requires a vector column — use `vector: [0]` dummy vector (same pattern as `ClarityHistoryStore`)
-- Survives `teamclaw clean` (clean only removes global memory with `--include-global`, no change needed)
+- Survives `openpawl clean` (clean only removes global memory with `--include-global`, no change needed)
 - Surfaced in session briefing: "You thought about X recently — decision saved"
 
 ## Requirements
@@ -288,7 +288,7 @@ teamclaw think history --session <id>      # show specific session
 - No LangGraph graph for think sessions — direct proxy calls only
 - No new LLM client instance — use ProxyService only
 - No modifications to drift, journal, clarity, standup, or proxy layers
-- Not included in `teamclaw demo` command
+- Not included in `openpawl demo` command
 
 ## Tests
 

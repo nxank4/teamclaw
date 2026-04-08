@@ -2,11 +2,11 @@
  * CLI command for generating and importing CONTEXT.md handoff files.
  *
  * Usage:
- *   teamclaw handoff              — generate from last session
- *   teamclaw handoff --session X  — generate for specific session
- *   teamclaw handoff --out path   — custom output path
- *   teamclaw handoff --preview    — print to terminal only
- *   teamclaw handoff import       — import CONTEXT.md from cwd
+ *   openpawl handoff              — generate from last session
+ *   openpawl handoff --session X  — generate for specific session
+ *   openpawl handoff --out path   — custom output path
+ *   openpawl handoff --preview    — print to terminal only
+ *   openpawl handoff import       — import CONTEXT.md from cwd
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
@@ -51,7 +51,7 @@ export async function runHandoffCommand(args: string[]): Promise<void> {
 }
 
 function printUsage(): void {
-  logger.plain("Usage: teamclaw handoff [options]");
+  logger.plain("Usage: openpawl handoff [options]");
   logger.plain("");
   logger.plain("Generate a CONTEXT.md handoff file from session data.");
   logger.plain("");
@@ -167,7 +167,7 @@ async function handleGenerate(
   logger.success(`Handoff written to ${pc.cyan(dest)}`);
 
   // Timestamped copy in session dir
-  const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", targetSessionId);
+  const sessionDir = path.join(os.homedir(), ".openpawl", "sessions", targetSessionId);
   try {
     await mkdir(sessionDir, { recursive: true });
     await writeFile(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");

@@ -1,9 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
-
-vi.mock("../../src/core/logger.js", () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), plain: vi.fn(), success: vi.fn() },
-}));
-
+import { describe, it, expect } from "bun:test";
 import { classifyProviderError, safeAsync, ok, err } from "../../src/core/result-types.js";
 import { formatProviderErrorType } from "../../src/core/errors.js";
 
@@ -85,7 +80,7 @@ describe("formatProviderErrorType", () => {
   it("formats auth_failed", () => {
     const msg = formatProviderErrorType({ type: "auth_failed", provider: "anthropic", message: "bad key" });
     expect(msg).toContain("Authentication failed");
-    expect(msg).toContain("teamclaw providers add");
+    expect(msg).toContain("openpawl providers add");
   });
 
   it("formats model_not_found", () => {

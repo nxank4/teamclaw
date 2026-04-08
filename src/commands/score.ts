@@ -123,14 +123,14 @@ function renderHistory(scores: VibeScoreEntry[]): void {
 export async function runScoreCommand(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     logger.plain([
-      pc.bold("teamclaw score") + " — View your vibe coding score",
+      pc.bold("openpawl score") + " — View your vibe coding score",
       "",
       "Usage:",
-      "  teamclaw score                   Show current score",
-      "  teamclaw score --history         Week-by-week history",
-      "  teamclaw score --since 30d       Time window (default: 7d)",
-      "  teamclaw score --events          Show scoring events",
-      "  teamclaw score --dimension trust Show single dimension detail",
+      "  openpawl score                   Show current score",
+      "  openpawl score --history         Week-by-week history",
+      "  openpawl score --since 30d       Time window (default: 7d)",
+      "  openpawl score --events          Show scoring events",
+      "  openpawl score --dimension trust Show single dimension detail",
     ].join("\n"));
     return;
   }

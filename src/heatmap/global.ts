@@ -8,7 +8,7 @@ import path from "node:path";
 import os from "node:os";
 import type { AgentUtilization, GlobalUtilizationEntry } from "./types.js";
 
-const GLOBAL_DIR = path.join(os.homedir(), ".teamclaw", "memory");
+const GLOBAL_DIR = path.join(os.homedir(), ".openpawl", "memory");
 const STORE_FILE = path.join(GLOBAL_DIR, "utilization-history.json");
 
 function ensureDir(): void {

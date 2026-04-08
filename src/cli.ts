@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * TeamClaw CLI entry point.
+ * OpenPawl CLI entry point.
  *
  * 4-Pillar Architecture:
- *   Pillar 1 — `teamclaw setup` / `teamclaw init`  : Dedicated setup phase
- *   Pillar 2 — `teamclaw work`                     : Zero-config execution
+ *   Pillar 1 — `openpawl setup` / `openpawl init`  : Dedicated setup phase
+ *   Pillar 2 — `openpawl work`                     : Zero-config execution
  *   Pillar 3 — Smart error recovery (inside work)  : Structured diagnostics
  *   Pillar 4 — Web Dashboard auto-start on `work`  : Background dashboard
  *
@@ -17,6 +17,7 @@ import { intro, outro } from "@clack/prompts";
 import { logger } from "./core/logger.js";
 import { COMMANDS, findClosestCommand, findClosestSubcommand } from "./cli/fuzzy-matcher.js";
 import { handleUnknownCommand, handleUnknownSubcommand } from "./cli/unknown-command.js";
+import { findCommand, generateHelp, generateCommandHelp, getAllCommandNames } from "./cli/command-registry.js";
 
 function parseGoalArg(args: string[]): { goal?: string; rest: string[] } {
     let goal: string | undefined;
@@ -51,85 +52,87 @@ function parseGoalArg(args: string[]): { goal?: string; rest: string[] } {
 //   Pillar 4 — (auto, work): Web Dashboard auto-start
 
 function printHelp(): void {
-    const require = createRequire(import.meta.url);
-    const { version } = require("../package.json") as { version: string };
-
-    const section = (s: string) => pc.bold(pc.yellow(s));
-    const cmd = (c: string) => pc.green(c);
-    const desc = (d: string) => pc.dim(d);
-    const exCmd = (c: string) => pc.cyan(c);
-    const pad = (s: string, w = 15) => s + " ".repeat(Math.max(1, w - s.length));
-
-    const lines = [
-        "",
-        pc.bold(pc.cyan("TeamClaw")) + " — Your AI team for shipping goals" + "  " + pc.dim(`v${version}`),
-        "",
-        section("USAGE"),
-        "  teamclaw <command> [options]",
-        "",
-        section("GETTING STARTED"),
-        "  " + cmd(pad("setup")) + desc("Configure TeamClaw for the first time"),
-        "  " + cmd(pad("check")) + desc("Verify your setup is working"),
-        "  " + cmd(pad("demo")) + desc("See TeamClaw in action (no API key needed)"),
-        "",
-        section("DAILY WORKFLOW"),
-        "  " + cmd(pad("work")) + desc("Start a sprint toward a goal"),
-        "  " + cmd(pad("standup")) + desc("See what was done, blocked, and next"),
-        "  " + cmd(pad("think")) + desc("Debate a question with your AI team"),
-        "  " + cmd(pad("clarity")) + desc("Check goal clarity before sprinting"),
-        "",
-        section("MEMORY & DECISIONS"),
-        "  " + cmd(pad("journal")) + desc("Search and manage architectural decisions"),
-        "  " + cmd(pad("drift")) + desc("Check if a goal conflicts with past decisions"),
-        "  " + cmd(pad("lessons")) + desc("Export what your team has learned"),
-        "  " + cmd(pad("handoff")) + desc("Generate CONTEXT.md handoff file"),
-        "",
-        section("TEAM & PROVIDERS"),
-        "  " + cmd(pad("templates")) + desc("Browse and install team templates"),
-        "  " + cmd(pad("model")) + desc("Manage AI models per agent"),
-        "  " + cmd(pad("providers")) + desc("Configure and test AI providers"),
-        "  " + cmd(pad("agent")) + desc("Add custom agents"),
-        "  " + cmd(pad("config")) + desc("Manage configuration"),
-        "",
-        section("HISTORY & ANALYSIS"),
-        "  " + cmd(pad("replay")) + desc("Replay past sessions"),
-        "  " + cmd(pad("audit")) + desc("Export decision logs"),
-        "  " + cmd(pad("heatmap")) + desc("Agent performance visualization"),
-        "  " + cmd(pad("forecast")) + desc("Estimate run cost before execution"),
-        "  " + cmd(pad("diff")) + desc("Compare runs"),
-        "  " + cmd(pad("score")) + desc("Your vibe coding collaboration score"),
-        "",
-        section("UTILITIES"),
-        "  " + cmd(pad("memory")) + desc("Global memory: health, promote, export"),
-        "  " + cmd(pad("cache")) + desc("Response cache management"),
-        "  " + cmd(pad("logs")) + desc("View session and gateway logs"),
-        "  " + cmd(pad("profile")) + desc("Agent performance profiles"),
-        "  " + cmd(pad("web")) + desc("Start web dashboard"),
-        "  " + cmd(pad("clean")) + desc("Remove session data"),
-        "  " + cmd(pad("update")) + desc("Self-update TeamClaw"),
-        "",
-        section("OPTIONS"),
-        "  " + cmd(pad("--help, -h")) + desc("Show this help"),
-        "  " + cmd(pad("--version")) + desc("Show version"),
-        "  " + cmd(pad("--no-web")) + desc("Disable dashboard"),
-        "  " + cmd(pad("--no-interactive")) + desc("Skip post-session menu"),
-        "  " + cmd(pad("--no-stream")) + desc("Hide streaming LLM output"),
-        "  " + cmd(pad("--mock-llm")) + desc("Use mock responses (testing)"),
-        "",
-        section("EXAMPLES"),
-        "  " + exCmd("teamclaw setup") + "                          " + desc("Get started"),
-        "  " + exCmd('teamclaw work --goal "Build a CLI"') + "      " + desc("Run with a goal"),
-        "  " + exCmd("teamclaw check") + "                          " + desc("Verify setup"),
-        "",
-        desc("Run teamclaw <command> --help for details on any command."),
-        "",
-    ];
-    console.log(lines.join("\n"));
+    console.log(generateHelp());
 }
 
 async function main(): Promise<void> {
+    // ── Proxy auto-detection ──────────────────────────────────────────────
+    // Node's fetch (undici) ignores HTTP_PROXY/HTTPS_PROXY. On Node >= 22.8,
+    // re-exec with --use-env-proxy so corporate proxies work.
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY
+      || process.env.https_proxy || process.env.http_proxy;
+
+    if (proxyUrl && !process.execArgv.includes("--use-env-proxy")) {
+      const [major] = process.versions.node.split(".").map(Number) as [number];
+      if (major >= 22) {
+        // Suppress the experimental warning from undici's EnvHttpProxyAgent
+        const nodeOpts = process.env.NODE_OPTIONS ?? "";
+        const env = {
+          ...process.env,
+          NODE_OPTIONS: nodeOpts.includes("--no-warnings") ? nodeOpts : `${nodeOpts} --no-warnings=ExperimentalWarning`.trim(),
+        };
+
+        logger.plain(pc.dim(`  Proxy detected (${proxyUrl}). Routing network requests through proxy...`));
+
+        const { spawnSync } = await import("node:child_process");
+        const result = spawnSync(
+          process.execPath,
+          ["--use-env-proxy", ...process.argv.slice(1)],
+          { stdio: "inherit", env },
+        );
+        process.exit(result.status ?? 1);
+      } else {
+        logger.warn(
+          `Proxy detected (${proxyUrl}) but Node ${process.versions.node} does not support --use-env-proxy (requires >= 22).`
+          + "\n  Network requests may fail. Upgrade Node or set NODE_OPTIONS=--use-env-proxy manually.",
+        );
+      }
+    }
+
     const args = process.argv.slice(2);
-    if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
+
+    // ── TUI entry points (before any commander parsing) ──────────────────
+
+    // No args → first-run check, then launch interactive TUI
+    if (args.length === 0) {
+        if (!process.stdin.isTTY) {
+            printHelp();
+            return;
+        }
+
+        // TUI handles first-run setup via SetupWizardView when no config exists
+        const { launchTUI } = await import("./app/index.js");
+        await launchTUI();
+        return;
+    }
+
+    // -p / --print <prompt> → non-interactive print mode
+    const printIdx = args.findIndex((a) => a === "-p" || a === "--print");
+    if (printIdx !== -1) {
+        const prompt = args[printIdx + 1];
+        if (!prompt) {
+            logger.error("Usage: openpawl -p <prompt>");
+            process.exit(1);
+        }
+        const { runPrintMode } = await import("./app/index.js");
+        await runPrintMode(prompt);
+        return;
+    }
+
+    // -c / --continue → resume last TUI session
+    if (args.includes("-c") || args.includes("--continue")) {
+        if (!process.stdin.isTTY) {
+            logger.error("Cannot resume TUI session in non-interactive mode.");
+            process.exit(1);
+        }
+        const { launchTUI } = await import("./app/index.js");
+        await launchTUI({ resume: true });
+        return;
+    }
+
+    // ── Standard CLI flags ───────────────────────────────────────────────
+
+    if (args[0] === "--help" || args[0] === "-h") {
         printHelp();
         return;
     }
@@ -143,22 +146,40 @@ async function main(): Promise<void> {
 
     // Unknown flag (starts with --)
     if (rawCmd.startsWith("--") || rawCmd.startsWith("-")) {
-        logger.error(`Unknown flag "${rawCmd}". Run \`teamclaw --help\` for usage.`);
+        logger.error(`Unknown flag "${rawCmd}". Run \`openpawl --help\` for usage.`);
         process.exit(1);
     }
 
-    // Case-insensitive command resolution
-    const cmd = COMMANDS.find((c) => c === rawCmd.toLowerCase()) ?? rawCmd;
+    // Case-insensitive command resolution (use both old COMMANDS array and new registry)
+    const allNames = getAllCommandNames();
+    const cmd = allNames.find((c) => c === rawCmd.toLowerCase()) ?? COMMANDS.find((c) => c === rawCmd.toLowerCase()) ?? rawCmd;
+
+    // Per-command --help: openpawl <command> --help
+    if (args.includes("--help") || args.includes("-h")) {
+        const cmdDef = findCommand(cmd);
+        if (cmdDef) {
+            console.log(generateCommandHelp(cmdDef));
+            return;
+        }
+    }
 
     // -------------------------------------------------------------------------
-    // Pillar 1: teamclaw setup
+    // Pillar 1: openpawl setup
     // -------------------------------------------------------------------------
     if (cmd === "setup" || cmd === "init") {
-        const { runSetup } = await import("./commands/setup.js");
-        await runSetup();
+        if (args.includes("--reset")) {
+            const { existsSync, unlinkSync } = await import("node:fs");
+            const { getGlobalConfigPath } = await import("./core/global-config.js");
+            const cfgPath = getGlobalConfigPath();
+            if (existsSync(cfgPath)) unlinkSync(cfgPath);
+        }
+        const { readGlobalConfig } = await import("./core/global-config.js");
+        const { runSetup } = await import("./onboard/setup-flow.js");
+        const existing = readGlobalConfig();
+        await runSetup({ prefill: existing ?? undefined });
 
     // -------------------------------------------------------------------------
-    // Pillar 2 + 3 + 4: teamclaw work — zero-config, auto-web, smart recovery
+    // Pillar 2 + 3 + 4: openpawl work — zero-config, auto-web, smart recovery
     // -------------------------------------------------------------------------
     } else if (cmd === "work") {
         const commandArgs = args.slice(1);
@@ -176,7 +197,7 @@ async function main(): Promise<void> {
         if (canRenderSpinner) {
             const { isMockLlmEnabled } = await import("./core/mock-llm.js");
             const mockLabel = isMockLlmEnabled() ? " [mock mode]" : "";
-            intro(`TeamClaw Work Session${mockLabel}`);
+            intro(`OpenPawl Work Session${mockLabel}`);
         }
 
         const { runWork } = await import("./work-runner.js");
@@ -234,7 +255,7 @@ async function main(): Promise<void> {
                     logger.plain(`Daemon state says running on port ${result.webPort} but health check failed`);
                 }
             } else {
-                logger.plain("Not running — start with: teamclaw web start");
+                logger.plain("Not running — start with: openpawl web start");
             }
             return;
         }
@@ -281,7 +302,7 @@ async function main(): Promise<void> {
             process.stdout.isTTY && process.stderr.isTTY,
         );
         if (canRenderSpinner) {
-            intro("TeamClaw Web Server");
+            intro("OpenPawl Web Server");
         }
         const { runWeb } = await import("./web/server.js");
         await runWeb(args.slice(1));
@@ -312,7 +333,7 @@ async function main(): Promise<void> {
         if (sub === "get") {
             const key = args[2];
             if (!key) {
-                logger.error("Usage: teamclaw config get <KEY> [--raw]");
+                logger.error("Usage: openpawl config get <KEY> [--raw]");
                 process.exit(1);
             }
             const raw = args.includes("--raw");
@@ -330,12 +351,12 @@ async function main(): Promise<void> {
             const key = args[2];
             const value = args.slice(3).join(" ");
             if (!key || value.length === 0) {
-                logger.error("Usage: teamclaw config set <KEY> <VALUE>");
+                logger.error("Usage: openpawl config set <KEY> <VALUE>");
                 process.exit(1);
             }
             if (isSecretKey(key)) {
                 logger.warn(
-                    "This may leak into shell history; prefer `teamclaw config` interactive mode for secrets.",
+                    "This may leak into shell history; prefer `openpawl config` interactive mode for secrets.",
                 );
             }
             const res = setConfigValue(key, value);
@@ -350,7 +371,7 @@ async function main(): Promise<void> {
         if (sub === "unset") {
             const key = args[2];
             if (!key) {
-                logger.error("Usage: teamclaw config unset <KEY>");
+                logger.error("Usage: openpawl config unset <KEY>");
                 process.exit(1);
             }
             const res = unsetConfigKey(key);
@@ -459,9 +480,25 @@ async function main(): Promise<void> {
         const { runProvidersCommand } = await import("./commands/providers.js");
         await runProvidersCommand(args.slice(1));
 
+    } else if (cmd === "sessions" || cmd === "session") {
+        const { runSessionsCommand } = await import("./commands/sessions.js");
+        await runSessionsCommand(args.slice(1));
+
+    } else if (cmd === "chat") {
+        const { runChatCommand } = await import("./commands/chat.js");
+        await runChatCommand(args.slice(1));
+
     } else if (cmd === "demo") {
         const { runDemo } = await import("./commands/demo.js");
         await runDemo(args.slice(1));
+
+    } else if (cmd === "settings") {
+        const { runSettings } = await import("./commands/settings.js");
+        await runSettings(args.slice(1));
+
+    } else if (cmd === "uninstall") {
+        const { runUninstall } = await import("./commands/uninstall.js");
+        await runUninstall(args.slice(1));
 
     } else {
         const match = findClosestCommand(rawCmd);

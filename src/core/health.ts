@@ -29,7 +29,7 @@ function summarizeStatus(checks: HealthCheckResult[]): HealthLevel {
 
 export async function runGatewayHealthCheck(): Promise<GatewayHealthReport> {
   const checks: HealthCheckResult[] = [];
-  const pm = getGlobalProviderManager();
+  const pm = await getGlobalProviderManager();
   const providers = pm.getProviders();
 
   if (providers.length === 0) {
@@ -40,7 +40,7 @@ export async function runGatewayHealthCheck(): Promise<GatewayHealthReport> {
       latency: -1,
       authStatus: "unknown",
       checks: [{ name: "providers", level: "fail", message: "No LLM providers configured" }],
-      tip: "Tip: Run `teamclaw setup` to configure an LLM provider.",
+      tip: "Tip: Run `openpawl setup` to configure an LLM provider.",
     };
   }
 

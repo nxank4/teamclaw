@@ -1,5 +1,5 @@
 /**
- * WorkerAdapter — LLM interface for TeamClaw agent tasks.
+ * WorkerAdapter — LLM interface for OpenPawl agent tasks.
  * Uses ProviderManager for LLM completions (no external binary needed).
  */
 
@@ -156,7 +156,7 @@ export class UniversalWorkerAdapter implements WorkerAdapter {
     try {
       if (signal?.aborted) throw new Error("Aborted");
 
-      const mgr = getGlobalProviderManager();
+      const mgr = await getGlobalProviderManager();
       const timeoutSignal = AbortSignal.timeout(this.timeout);
       const combinedSignal = signal
         ? AbortSignal.any([signal, timeoutSignal])

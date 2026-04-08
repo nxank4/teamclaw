@@ -1,8 +1,6 @@
 import {
-    cancel,
     confirm,
     intro,
-    isCancel,
     note,
     outro,
     select,
@@ -11,14 +9,14 @@ import {
 import pc from "picocolors";
 import { clampSelectOptions } from "../utils/searchable-select.js";
 import {
-    readTeamclawConfig,
-    writeTeamclawConfig,
+    readOpenpawlConfig,
+    writeOpenpawlConfig,
 } from "../core/jsonConfigManager.js";
 import {
     readGlobalConfig,
     readGlobalConfigWithDefaults,
     writeGlobalConfig,
-    type TeamClawGlobalConfig,
+    type OpenPawlGlobalConfig,
     type ProviderConfigEntry,
 } from "../core/global-config.js";
 import { clearTeamConfigCache, loadTeamConfig } from "../core/team-config.js";
@@ -26,6 +24,7 @@ import { modelManagementMenu } from "./config/model-menu.js";
 import { advancedSettingsMenu, type AdvancedState } from "./config/advanced-menu.js";
 import { addProvider, listProviders } from "./providers.js";
 import { maskApiKey } from "../core/errors.js";
+import { handleCancel } from "../onboard/setup-flow.js";
 
 type MemoryBackend = "lancedb" | "local_json";
 type LoggingLevel = "info" | "verbose";
@@ -66,18 +65,10 @@ function asRecord(value: unknown): Record<string, unknown> {
         : {};
 }
 
-function handleCancel<T>(v: T): T {
-    if (isCancel(v)) {
-        cancel("Configuration editor cancelled.");
-        process.exit(0);
-    }
-    return v;
-}
-
 async function loadDashboardState(): Promise<DashboardState> {
     const globalCfg = readGlobalConfigWithDefaults();
     const parsed = await loadTeamConfig();
-    const cfg = readTeamclawConfig();
+    const cfg = readOpenpawlConfig();
     const data = asRecord(cfg.data);
 
     const memoryBackendRaw =
@@ -202,7 +193,7 @@ async function providerMenu(_state: DashboardState): Promise<void> {
         }
 
         if (choice === "add") {
-            // Reuse the full provider add flow from `teamclaw providers add`
+            // Reuse the full provider add flow from `openpawl providers add`
             await addProvider([]);
             continue;
         }
@@ -479,7 +470,7 @@ async function projectMenu(state: DashboardState): Promise<void> {
                 await text({
                     message: "Workspace directory (absolute path)",
                     initialValue: state.workspaceDir,
-                    placeholder: "~/teamclaw-workspace",
+                    placeholder: "~/openpawl-workspace",
                 }),
             ) as string;
             state.workspaceDir = raw.trim() || state.workspaceDir;
@@ -602,10 +593,10 @@ function saveState(state: DashboardState): void {
             webhookOnCycleEnd: state.webhookOnCycleEnd || undefined,
             webhookSecret: state.webhookSecret || undefined,
         }),
-    } as unknown as TeamClawGlobalConfig);
+    } as unknown as OpenPawlGlobalConfig);
 
     // Update project config (team + project-specific settings)
-    const cfg = readTeamclawConfig();
+    const cfg = readOpenpawlConfig();
     const next = {
         ...cfg.data,
         model: state.model,
@@ -623,7 +614,7 @@ function saveState(state: DashboardState): void {
         team_mode: state.teamMode,
         template: state.templateId || undefined,
     } as Record<string, unknown>;
-    writeTeamclawConfig(cfg.path, next);
+    writeOpenpawlConfig(cfg.path, next);
     clearTeamConfigCache();
 }
 
@@ -631,9 +622,9 @@ export async function runConfigDashboard(): Promise<void> {
     const existingConfig = readGlobalConfig();
 
     if (!existingConfig) {
-        intro(pc.bold(pc.cyan("TeamClaw Configuration")));
+        intro(pc.bold(pc.cyan("OpenPawl Configuration")));
         note(
-            `No configuration found.\nRun ${pc.bold("teamclaw setup")} first to configure providers,\nworkspace, and team — then use ${pc.bold("teamclaw config")} to fine-tune.`,
+            `No configuration found.\nRun ${pc.bold("openpawl setup")} first to configure providers,\nworkspace, and team — then use ${pc.bold("openpawl config")} to fine-tune.`,
             "Setup required",
         );
 
@@ -645,15 +636,15 @@ export async function runConfigDashboard(): Promise<void> {
         );
 
         if (shouldSetup) {
-            const { runSetup } = await import("./setup.js");
+            const { runSetup } = await import("../onboard/setup-flow.js");
             await runSetup();
         } else {
-            outro("Run " + pc.bold("teamclaw setup") + " when you're ready.");
+            outro("Run " + pc.bold("openpawl setup") + " when you're ready.");
         }
         return;
     }
 
-    intro(pc.bold(pc.cyan("TeamClaw Configuration Dashboard")));
+    intro(pc.bold(pc.cyan("OpenPawl Configuration Dashboard")));
     const state = await loadDashboardState();
 
     let keepRunning = true;

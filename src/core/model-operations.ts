@@ -1,8 +1,8 @@
 /**
- * Shared model persistence operations used by both `teamclaw config`
- * and `teamclaw model` commands.
+ * Shared model persistence operations used by both `openpawl config`
+ * and `openpawl model` commands.
  *
- * All persist* functions write to ~/.teamclaw/config.json via writeGlobalConfig()
+ * All persist* functions write to ~/.openpawl/config.json via writeGlobalConfig()
  * and update the runtime model-config layer.
  */
 
@@ -10,7 +10,7 @@ import {
   readGlobalConfig,
   writeGlobalConfig,
   buildDefaultGlobalConfig,
-  type TeamClawGlobalConfig,
+  type OpenPawlGlobalConfig,
 } from "./global-config.js";
 import {
   setDefaultModel,
@@ -32,7 +32,7 @@ export interface ModelSummary {
   availableModels: string[];
 }
 
-function readOrDefault(): TeamClawGlobalConfig {
+function readOrDefault(): OpenPawlGlobalConfig {
   return readGlobalConfig() ?? buildDefaultGlobalConfig();
 }
 

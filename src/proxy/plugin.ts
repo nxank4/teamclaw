@@ -10,7 +10,7 @@ async function proxyPluginImpl(
   opts: ProxyPluginOptions,
 ): Promise<void> {
   const basePath = opts.basePath ?? "/proxy";
-  const proxyService = createProxyService();
+  const proxyService = await createProxyService();
 
   fastify.addHook("onClose", async () => {
     await proxyService.shutdown();
@@ -116,5 +116,5 @@ async function proxyPluginImpl(
 }
 
 export const proxyPlugin = fp(proxyPluginImpl, {
-  name: "teamclaw-proxy",
+  name: "openpawl-proxy",
 });

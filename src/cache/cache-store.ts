@@ -1,7 +1,7 @@
 /**
  * Response cache store — filesystem-first with LanceDB for analytics.
  *
- * Filesystem at ~/.teamclaw/cache/<key>.json is the primary read path (fast).
+ * Filesystem at ~/.openpawl/cache/<key>.json is the primary read path (fast).
  * LanceDB table `response_cache` is for management and aggregate stats.
  */
 
@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import type { CacheEntry, CacheStats } from "./types.js";
 
-const CACHE_DIR = path.join(os.homedir(), ".teamclaw", "cache");
+const CACHE_DIR = path.join(os.homedir(), ".openpawl", "cache");
 
 /**
  * Build a deterministic cache key from prompt + model + agent role.

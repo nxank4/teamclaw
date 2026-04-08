@@ -26,7 +26,7 @@ export function formatSlackThinkResult(job: AsyncThinkJob): Record<string, unkno
       type: "header",
       text: {
         type: "plain_text",
-        text: "TeamClaw finished thinking",
+        text: "OpenPawl finished thinking",
         emoji: true,
       },
     },

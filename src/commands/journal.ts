@@ -87,7 +87,7 @@ function parseSinceDays(since: string): number {
 async function listDecisions(args: string[]): Promise<void> {
   const store = await getStore();
   if (!store) {
-    logger.error("Could not initialize decision store. Run `teamclaw setup` first.");
+    logger.error("Could not initialize decision store. Run `openpawl setup` first.");
     return;
   }
 
@@ -128,7 +128,7 @@ async function listDecisions(args: string[]): Promise<void> {
 async function searchDecisions(args: string[]): Promise<void> {
   const query = args.join(" ").trim();
   if (!query) {
-    logger.error("Usage: teamclaw journal search <query>");
+    logger.error("Usage: openpawl journal search <query>");
     return;
   }
 
@@ -154,7 +154,7 @@ async function searchDecisions(args: string[]): Promise<void> {
 async function showDecision(args: string[]): Promise<void> {
   const id = args[0];
   if (!id) {
-    logger.error("Usage: teamclaw journal show <decisionId | sessionId>");
+    logger.error("Usage: openpawl journal show <decisionId | sessionId>");
     return;
   }
 
@@ -188,7 +188,7 @@ async function showDecision(args: string[]): Promise<void> {
 async function reconsiderDecision(args: string[]): Promise<void> {
   const id = args[0];
   if (!id) {
-    logger.error("Usage: teamclaw journal reconsider <decisionId>");
+    logger.error("Usage: openpawl journal reconsider <decisionId>");
     return;
   }
 
@@ -240,7 +240,7 @@ async function exportJournal(): Promise<void> {
   };
 
   const lines = [
-    "# TeamClaw Decision Journal",
+    "# OpenPawl Decision Journal",
     `Generated: ${new Date().toISOString().slice(0, 10)}`,
     "",
   ];
@@ -272,7 +272,7 @@ export async function runJournalCommand(args: string[]): Promise<void> {
 
   if (!sub || sub === "--help" || sub === "-h") {
     logger.plain([
-      pc.bold("teamclaw journal") + " — Decision journal",
+      pc.bold("openpawl journal") + " — Decision journal",
       "",
       "Subcommands:",
       "  list                          All decisions, newest first",
@@ -304,7 +304,7 @@ export async function runJournalCommand(args: string[]): Promise<void> {
       break;
     case "permanent": {
       const permId = args[1];
-      if (!permId) { logger.error("Usage: teamclaw journal permanent <decisionId>"); break; }
+      if (!permId) { logger.error("Usage: openpawl journal permanent <decisionId>"); break; }
       const permStore = await getStore();
       if (!permStore) { logger.error("Could not initialize decision store."); break; }
       const permOk = await permStore.markPermanent(permId);
@@ -314,7 +314,7 @@ export async function runJournalCommand(args: string[]): Promise<void> {
     }
     case "unpermanent": {
       const unpermId = args[1];
-      if (!unpermId) { logger.error("Usage: teamclaw journal unpermanent <decisionId>"); break; }
+      if (!unpermId) { logger.error("Usage: openpawl journal unpermanent <decisionId>"); break; }
       const unpermStore = await getStore();
       if (!unpermStore) { logger.error("Could not initialize decision store."); break; }
       const unpermOk = await unpermStore.unmarkPermanent(unpermId);
@@ -326,6 +326,6 @@ export async function runJournalCommand(args: string[]): Promise<void> {
       await exportJournal();
       break;
     default:
-      logger.error(`Unknown journal subcommand: ${sub}. Run 'teamclaw journal --help' for usage.`);
+      logger.error(`Unknown journal subcommand: ${sub}. Run 'openpawl journal --help' for usage.`);
   }
 }

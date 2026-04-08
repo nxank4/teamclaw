@@ -72,7 +72,7 @@ export function formatSlackApprovalBatch(
       type: "header",
       text: {
         type: "plain_text",
-        text: `TeamClaw needs approval (${tasks.length} task${tasks.length > 1 ? "s" : ""})`,
+        text: `OpenPawl needs approval (${tasks.length} task${tasks.length > 1 ? "s" : ""})`,
         emoji: true,
       },
     },

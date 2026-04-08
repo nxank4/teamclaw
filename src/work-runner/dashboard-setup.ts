@@ -2,7 +2,7 @@
  * Dashboard auto-start, health verification, and bridge initialization.
  *
  * The dashboard is a persistent background service — it survives work session
- * restarts and only stops on explicit `teamclaw web stop` or process kill.
+ * restarts and only stops on explicit `openpawl web stop` or process kill.
  */
 
 import { logger } from "../core/logger.js";
@@ -13,7 +13,7 @@ export type DashboardSetupOptions = {
 };
 
 /**
- * Check if a TeamClaw dashboard is already serving on the given port.
+ * Check if a OpenPawl dashboard is already serving on the given port.
  * Uses the /health endpoint added specifically for persistence detection.
  */
 export async function isDashboardRunning(port: number): Promise<boolean> {

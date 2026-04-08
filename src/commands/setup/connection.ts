@@ -3,9 +3,8 @@
  */
 
 import {
-    confirm,
-    isCancel,
     cancel,
+    confirm,
     select,
     spinner,
     text,
@@ -33,13 +32,8 @@ export interface WizardState {
     anthropicApiKey?: string;
 }
 
-export function handleCancel<T>(v: T): T {
-    if (isCancel(v)) {
-        cancel("Cancelled.");
-        process.exit(0);
-    }
-    return v;
-}
+import { handleCancel } from "../../onboard/setup-flow.js";
+export { handleCancel };
 
 type ProviderType = ProviderConfigEntry["type"];
 
@@ -110,7 +104,7 @@ async function testProviderConnection(entry: ProviderConfigEntry): Promise<boole
     if (entry.type === "opencode-zen" || entry.type === "opencode-go") return true;
 
     const { providerFromConfig } = await import("../../providers/provider-factory.js");
-    const provider = providerFromConfig(entry);
+    const provider = await providerFromConfig(entry);
     if (!provider) return true;
 
     const s = spinner();
@@ -176,7 +170,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
                 `    1. Download from: ${pc.green("https://ollama.ai/download")}`,
                 `    2. Install and open it`,
                 `    3. Pull a model: ${pc.dim("ollama pull llama3")}`,
-                `    4. Come back and run: ${pc.dim("teamclaw setup")}`,
+                `    4. Come back and run: ${pc.dim("openpawl setup")}`,
                 "",
             ].join("\n"));
 
@@ -217,7 +211,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
         if (prefix) {
             console.log(`  Starts with: ${pc.dim(prefix)}`);
         }
-        console.log(`  ${pc.dim("Your key is stored locally in ~/.teamclaw/config.json")}`);
+        console.log(`  ${pc.dim("Your key is stored locally in ~/.openpawl/config.json")}`);
 
         const apiKey = handleCancel(
             await password({ message: `${providerLabel} API key:` }),
@@ -281,7 +275,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
                 console.log(`  Get your key at: ${pc.green(catalogMeta.keyUrl)}`);
             }
             if (prefix) console.log(`  Starts with: ${pc.dim(prefix)}`);
-            console.log(`  ${pc.dim("Your key is stored locally in ~/.teamclaw/config.json")}`);
+            console.log(`  ${pc.dim("Your key is stored locally in ~/.openpawl/config.json")}`);
 
             const apiKey = handleCancel(
                 await password({ message: "Google Gemini API key:" }),
@@ -353,7 +347,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
         if (prefix) {
             console.log(`  Starts with: ${pc.dim(prefix)}`);
         }
-        console.log(`  ${pc.dim("Your key is stored locally in ~/.teamclaw/config.json")}`);
+        console.log(`  ${pc.dim("Your key is stored locally in ~/.openpawl/config.json")}`);
 
         const apiKey = handleCancel(
             await password({
@@ -430,7 +424,7 @@ async function promptProviderEntry(): Promise<ProviderConfigEntry> {
                 s.stop(`${pc.green(`${result.models.length} models available`)}`);
             } else {
                 s.stop(pc.yellow("Could not fetch models \u2014 using defaults"));
-                if (result.error) logger.warn(`Model fetch: ${result.error}. Run ${pc.bold("teamclaw model refresh")} later to update.`);
+                if (result.error) logger.warn(`Model fetch: ${result.error}. Run ${pc.bold("openpawl model refresh")} later to update.`);
             }
         }
     }

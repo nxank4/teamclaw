@@ -1,6 +1,6 @@
 /**
- * Global configuration for TeamClaw.
- * Loads from Global JSON (~/.teamclaw/config.json) and Workspace JSON (teamclaw.config.json).
+ * Global configuration for OpenPawl.
+ * Loads from Global JSON (~/.openpawl/config.json) and Workspace JSON (openpawl.config.json).
  * Priority: CLI Flags → Global JSON → Workspace JSON → Defaults.
  */
 
@@ -51,7 +51,7 @@ export const CONFIG = {
     maxCycles: getGlobalNumber("maxCycles", 10),
     maxRuns: getGlobalNumber("maxRuns", 5),
 
-    workspaceDir: getGlobalString("workspaceDir", "./teamclaw-workspace"),
+    workspaceDir: getGlobalString("workspaceDir", "./openpawl-workspace"),
 
     vectorStorePath: getGlobalString("vectorStorePath", "data/vector_store"),
     memoryBackend: (getGlobalString("memoryBackend", "lancedb") as MemoryBackend),

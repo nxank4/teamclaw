@@ -4,11 +4,11 @@
 
 export { MarketplaceClient } from "./marketplace-client.js";
 export { LocalTemplateStore } from "./local-store.js";
-export { validateTemplate, TeamClawTemplateSchema } from "./validator.js";
+export { validateTemplate, OpenPawlTemplateSchema } from "./validator.js";
 export type { TemplateValidationResult, ValidatedTemplate } from "./validator.js";
 export { TemplatePublisher } from "./publisher.js";
 export type {
-  TeamClawTemplate,
+  OpenPawlTemplate,
   InstalledTemplate,
   TemplateAgent,
   TemplateIndex,

@@ -1,5 +1,5 @@
 /**
- * GlobalMemoryManager — owns the global LanceDB at ~/.teamclaw/memory/global.db.
+ * GlobalMemoryManager — owns the global LanceDB at ~/.openpawl/memory/global.db.
  * Reuses SuccessPatternStore via composition for pattern storage.
  */
 
@@ -14,7 +14,7 @@ import type { GlobalFailureLesson, MemoryHealth } from "./types.js";
 import { logger, isDebugMode } from "../../core/logger.js";
 
 const LESSONS_TABLE = "global_failure_lessons";
-const DEFAULT_DB_PATH = path.join(os.homedir(), ".teamclaw", "memory", "global.db");
+const DEFAULT_DB_PATH = path.join(os.homedir(), ".openpawl", "memory", "global.db");
 
 function log(msg: string): void {
   if (isDebugMode()) {

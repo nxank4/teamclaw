@@ -4,7 +4,7 @@ import { z } from "zod";
 // Schema
 // ---------------------------------------------------------------------------
 
-export const TeamClawConfigSchema = z.object({
+export const OpenPawlConfigSchema = z.object({
   // Legacy top-level version (kept for backward compat; prefer meta.version)
   version: z.union([z.literal(1), z.string()]).optional(),
 
@@ -98,7 +98,7 @@ export const TeamClawConfigSchema = z.object({
   workspaceDir: z.string().optional(),
 }).passthrough(); // allow extra fields we haven't schematized
 
-export type ValidatedConfig = z.infer<typeof TeamClawConfigSchema>;
+export type ValidatedConfig = z.infer<typeof OpenPawlConfigSchema>;
 
 // ---------------------------------------------------------------------------
 // Migration
@@ -141,7 +141,7 @@ export function migrateConfig(raw: unknown): unknown {
 
 export function validateConfig(raw: unknown): { success: true; data: ValidatedConfig } | { success: false; errors: string[] } {
   const migrated = migrateConfig(raw);
-  const result = TeamClawConfigSchema.safeParse(migrated);
+  const result = OpenPawlConfigSchema.safeParse(migrated);
   if (result.success) {
     return { success: true, data: result.data };
   }

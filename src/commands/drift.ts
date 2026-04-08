@@ -76,11 +76,11 @@ function renderDriftResult(result: DriftResult, verbose: boolean): void {
 export async function runDriftCommand(args: string[]): Promise<void> {
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
     logger.plain([
-      pc.bold("teamclaw drift") + " — Check goal for decision conflicts",
+      pc.bold("openpawl drift") + " — Check goal for decision conflicts",
       "",
       "Usage:",
-      '  teamclaw drift "Add Redis caching"        Check goal against decisions',
-      '  teamclaw drift "Add Redis caching" --verbose  Show all checked decisions',
+      '  openpawl drift "Add Redis caching"        Check goal against decisions',
+      '  openpawl drift "Add Redis caching" --verbose  Show all checked decisions',
     ].join("\n"));
     return;
   }

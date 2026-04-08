@@ -1,7 +1,7 @@
 /**
  * Model cache — avoids re-fetching model lists on every setup/command.
  *
- * Stores in ~/.teamclaw/model-cache.json with 24-hour TTL.
+ * Stores in ~/.openpawl/model-cache.json with 24-hour TTL.
  * Local providers (Ollama, LM Studio) bypass caching.
  */
 
@@ -9,7 +9,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
-const CACHE_PATH = join(homedir(), ".teamclaw", "model-cache.json");
+const CACHE_PATH = join(homedir(), ".openpawl", "model-cache.json");
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const LOCAL_PROVIDERS = new Set(["ollama", "lmstudio"]);

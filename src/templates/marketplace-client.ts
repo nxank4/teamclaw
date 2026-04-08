@@ -1,12 +1,12 @@
 /**
  * Marketplace client — fetches templates from GitHub raw URLs.
- * Caches index.json at ~/.teamclaw/templates/cache/ with 1 hour TTL.
+ * Caches index.json at ~/.openpawl/templates/cache/ with 1 hour TTL.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { TeamClawTemplate, TemplateIndex, TemplateIndexEntry } from "./types.js";
+import type { OpenPawlTemplate, TemplateIndex, TemplateIndexEntry } from "./types.js";
 import { DEFAULT_MARKETPLACE_CONFIG } from "./types.js";
 
 interface CacheEntry<T> {
@@ -15,7 +15,7 @@ interface CacheEntry<T> {
 }
 
 function getCacheDir(): string {
-  return path.join(os.homedir(), ".teamclaw", "templates", "cache");
+  return path.join(os.homedir(), ".openpawl", "templates", "cache");
 }
 
 function ensureCacheDir(): void {
@@ -75,13 +75,13 @@ export class MarketplaceClient {
     }
   }
 
-  async fetchTemplate(templatePath: string): Promise<TeamClawTemplate | null> {
+  async fetchTemplate(templatePath: string): Promise<OpenPawlTemplate | null> {
     try {
       const res = await fetch(`${this.baseUrl}/${templatePath}`, {
         signal: AbortSignal.timeout(this.timeout),
       });
       if (!res.ok) return null;
-      return (await res.json()) as TeamClawTemplate;
+      return (await res.json()) as OpenPawlTemplate;
     } catch {
       return null;
     }

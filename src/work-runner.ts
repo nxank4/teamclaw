@@ -1,16 +1,17 @@
 /**
  * Work Runner - Team orchestration sessions with lesson learning.
+ *
+ * @deprecated Sprint-based execution is superseded by Session-based
+ * interactive mode. See src/session/ for the new runtime.
+ * This module will be removed in v2.0.0.
  */
 
 import { createTeamOrchestration } from "./core/simulation.js";
 import { analyzeGoal } from "./agents/composition/analyzer.js";
 import type { TeamComposition } from "./agents/composition/types.js";
-import type { AgentInclusionRule } from "./agents/composition/rules.js";
 import { renderCompositionTable, promptCompositionAction, applyOverrides } from "./cli/composition-preview.js";
-import { AgentRegistryStore } from "./agents/registry/index.js";
 import { SessionRecorder, setActiveRecorder, createSession, finalizeSession } from "./replay/index.js";
-import { buildAuditTrail, renderAuditMarkdown } from "./audit/index.js";
-import type { BotDefinition } from "./core/bot-definitions.js";
+// buildAuditTrail, renderAuditMarkdown moved to session-finalize.ts
 import {
     buildTeamFromRoster,
     buildTeamFromTemplate,
@@ -28,7 +29,6 @@ import {
     CONFIG,
 } from "./core/config.js";
 import { validateStartup } from "./core/startup-validation.js";
-import { appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -50,7 +50,7 @@ import { promptPath } from "./utils/path-autocomplete.js";
 import { randomPhrase } from "./utils/spinner-phrases.js";
 
 import { collectBriefingData, renderBriefing, renderInterRunSummary } from "./briefing/index.js";
-import { resolveGoalFromFile, checkWorkspaceContent, promptGoalChoice, refineGoalWithAI, wrapText } from "./work-runner/goal-resolver.js";
+import { resolveGoalFromFile, checkWorkspaceContent, promptGoalChoice, runPreFlightChecks } from "./work-runner/goal-resolver.js";
 import {
     getBotName,
     printRunBanner,
@@ -79,176 +79,16 @@ import { PromotionEngine } from "./memory/global/promoter.js";
 import { GlobalPruner } from "./memory/global/pruner.js";
 import { finalizeSprintMemories } from "./memory/realtime-promoter.js";
 import { getSprintScratchpad } from "./memory/sprint-scratchpad.js";
+import { log, withConsoleRedirect, initLogPaths } from "./work-runner/log.js";
+import { UserCancelError, FatalSessionError } from "./work-runner/types.js";
+import { autoExportAudit, autoGenerateContext, buildCustomCompositionRules } from "./work-runner/session-finalize.js";
 
-let DEBUG_LOG_PATH = "";
-let WORK_HISTORY_LOG_PATH = "";
-
-function log(level: "info" | "warn" | "error", msg: string): void {
-    const levelUp = level.toUpperCase() as "INFO" | "WARN" | "ERROR";
-    if (level === "info") logger.info(msg);
-    else if (level === "warn") logger.warn(msg);
-    else logger.error(msg);
-    if (WORK_HISTORY_LOG_PATH) {
-        appendFile(
-            WORK_HISTORY_LOG_PATH,
-            logger.plainLine(levelUp, msg) + "\n",
-        ).catch(() => {});
-    }
-}
-
-async function withConsoleRedirect<T>(fn: () => Promise<T> | T): Promise<T> {
-    const originalLog = console.log;
-    const originalWarn = console.warn;
-    const originalError = console.error;
-
-    const write = (level: string, args: unknown[]): void => {
-        const line = `[${new Date().toISOString()}] ${level}: ${args
-            .map((a) => String(a))
-            .join(" ")}`;
-        originalLog(line);
-        if (DEBUG_LOG_PATH) {
-            appendFile(DEBUG_LOG_PATH, line + "\n").catch(() => {});
-        }
-    };
-
-    console.log = (...args: unknown[]) => write("INFO", args);
-    console.warn = (...args: unknown[]) => write("WARN", args);
-    console.error = (...args: unknown[]) => write("ERROR", args);
-
-    try {
-        return await fn();
-    } finally {
-        console.log = originalLog;
-        console.warn = originalWarn;
-        console.error = originalError;
-    }
-}
-
-/** Auto-export audit trail to markdown after run completes. Never blocks. */
-async function autoExportAudit(
-  sessionId: string,
-  runIndex: number,
-  finalState: Record<string, unknown>,
-  startTime: number,
-  team: BotDefinition[],
-): Promise<void> {
-  try {
-    const audit = await buildAuditTrail(sessionId, runIndex, finalState, startTime, Date.now(), team);
-    const md = renderAuditMarkdown(audit);
-    const { writeFile, mkdir } = await import("node:fs/promises");
-    const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(path.join(sessionDir, "audit.md"), md, "utf-8");
-  } catch {
-    // Non-critical — auto-export failure should never affect the session
-  }
-}
-
-/** Auto-generate CONTEXT.md handoff after session completes. Never blocks or throws. */
-async function autoGenerateContext(
-  sessionId: string,
-  goal: string,
-  finalState: Record<string, unknown>,
-  workspacePath: string,
-): Promise<void> {
-  try {
-    const { readGlobalConfigWithDefaults: readCfg } = await import("./core/global-config.js");
-    const cfg = readCfg();
-    if (cfg.handoff?.autoGenerate === false) return;
-
-    const { buildHandoffData, renderContextMarkdown } = await import("./handoff/index.js");
-
-    // Retrieve active decisions (best-effort)
-    let activeDecisions: import("./journal/types.js").Decision[] = [];
-    try {
-      const { DecisionStore } = await import("./journal/store.js");
-      const { GlobalMemoryManager } = await import("./memory/global/store.js");
-      const vm = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
-      await vm.init();
-      const embedder = vm.getEmbedder();
-      if (embedder) {
-        const gmm = new GlobalMemoryManager();
-        await gmm.init(embedder);
-        const db = gmm.getDb();
-        if (db) {
-          const store = new DecisionStore();
-          await store.init(db);
-          const recent = await store.getRecentDecisions(30);
-          activeDecisions = recent.filter((d) => d.status === "active");
-        }
-      }
-    } catch {
-      // Non-critical
-    }
-
-    const taskQueue = (finalState.task_queue ?? []) as Array<Record<string, unknown>>;
-    const nextSprintBacklog = (finalState.next_sprint_backlog ?? []) as Array<Record<string, unknown>>;
-    const promotedThisRun = (finalState.promoted_this_run ?? []) as string[];
-    const agentProfiles = (finalState.agent_profiles ?? []) as Array<Record<string, unknown>>;
-    const rfcDocument = (finalState.rfc_document as string) ?? null;
-
-    const data = buildHandoffData({
-      sessionId,
-      projectPath: workspacePath,
-      goal,
-      taskQueue,
-      nextSprintBacklog,
-      promotedThisRun,
-      agentProfiles,
-      activeDecisions: activeDecisions as never[],
-      rfcDocument,
-    });
-
-    const markdown = renderContextMarkdown(data);
-
-    const { writeFile: wf, mkdir: mkd } = await import("node:fs/promises");
-
-    // Write to workspace
-    const outputPath = path.resolve(workspacePath, cfg.handoff?.outputPath ?? "./CONTEXT.md");
-    await wf(outputPath, markdown, "utf-8");
-
-    // Timestamped copy in session dir
-    const sessionDir = path.join(os.homedir(), ".teamclaw", "sessions", sessionId);
-    await mkd(sessionDir, { recursive: true });
-    await wf(path.join(sessionDir, "CONTEXT.md"), markdown, "utf-8");
-
-    // Git commit if configured
-    if (cfg.handoff?.gitCommit) {
-      try {
-        const { execSync } = await import("node:child_process");
-        execSync(`git add "${outputPath}"`, { stdio: "ignore", cwd: workspacePath });
-        execSync(`git commit -m "docs: auto-generate CONTEXT.md handoff"`, { stdio: "ignore", cwd: workspacePath });
-      } catch {
-        // Never fail loudly
-      }
-    }
-  } catch {
-    // Auto-generation must never block the session
-  }
-}
-
-/** Build composition inclusion rules from registered custom agents. */
-function buildCustomCompositionRules(): AgentInclusionRule[] {
-    try {
-        const store = new AgentRegistryStore();
-        const defs = store.loadAllSync();
-        return defs
-            .filter((d) => d.compositionRules)
-            .map((d) => ({
-                role: d.role,
-                required: d.compositionRules?.required ?? false,
-                keywords: d.compositionRules?.includeKeywords ?? [],
-                negativeKeywords: d.compositionRules?.excludeKeywords ?? [],
-                description: d.description,
-            }));
-    } catch {
-        return [];
-    }
-}
+// autoExportAudit, autoGenerateContext, buildCustomCompositionRules extracted to ./work-runner/session-finalize.ts
 
 export async function runWork(
     input: string[] | { args?: string[]; goal?: string; openDashboard?: boolean; noWeb?: boolean } = [],
 ): Promise<void> {
+  try {
     const args = Array.isArray(input) ? input : (input.args ?? []);
     const goalOverride = Array.isArray(input) ? undefined : input.goal?.trim();
     const noWebFromInput = !Array.isArray(input) && input.noWeb === true;
@@ -279,7 +119,7 @@ export async function runWork(
 
     const trafficController = getTrafficController();
     trafficController.setPauseCallback(async () => {
-        if (!canRenderSpinner) return false;
+        if (!canRenderSpinner || noInteractive) return false;
         const { select } = await import("@clack/prompts");
         const choice = await select({
             message: pc.yellow("⚠️ Safety limit reached! The team has made 50 requests. Continue?"),
@@ -301,15 +141,15 @@ export async function runWork(
         logger.plain(formatFirstRunMessage());
     }
 
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     if (pm.getProviders().length === 0) {
-        throw new Error("No LLM providers configured. Run `teamclaw setup` or set an API key env var.");
+        throw new Error("No LLM providers configured. Run `openpawl setup` or set an API key env var.");
     }
 
     setDebugMode(setupConfig.debugMode ?? CONFIG.debugMode ?? false);
 
     // ---------------------------------------------------------------------------
-    // Session briefing — show "previously on TeamClaw" before goal prompt
+    // Session briefing — show "previously on OpenPawl" before goal prompt
     // ---------------------------------------------------------------------------
     const briefingDisabledInConfig = (() => {
         try {
@@ -357,8 +197,7 @@ export async function runWork(
             if (fileContent) {
                 effectiveGoal = fileContent;
             } else {
-                cancel(`Work session cancelled: file not found or unsupported format: ${goalChoice.value}`);
-                process.exit(1);
+                throw new FatalSessionError(`File not found or unsupported format: ${goalChoice.value}`);
             }
         } else {
             effectiveGoal = goalChoice.value;
@@ -395,15 +234,14 @@ export async function runWork(
 
     if (savedWorkspace && existsSync(savedWorkspace)) {
         workspacePath = path.resolve(savedWorkspace);
-    } else if (canRenderSpinner) {
+    } else if (canRenderSpinner && !noInteractive) {
         const selectedPath = await promptPath({
             message: "Select workspace directory:",
             cwd: process.cwd(),
         });
 
         if (selectedPath === null) {
-            cancel("Work session cancelled.");
-            process.exit(0);
+            throw new UserCancelError("Work session cancelled.");
         }
 
         workspacePath = selectedPath;
@@ -413,15 +251,15 @@ export async function runWork(
 
     workspacePath ||= path.resolve(process.cwd());
 
-    if (effectiveGoal && canRenderSpinner) {
+    if (effectiveGoal && canRenderSpinner && !noInteractive) {
         const wsCheck = await checkWorkspaceContent(workspacePath, effectiveGoal, canRenderSpinner);
         effectiveGoal = wsCheck.goal;
     }
 
     // ---------------------------------------------------------------------------
-    // Pre-launch confirmation
+    // Pre-launch confirmation — skip in non-interactive mode (TUI handles its own UX)
     // ---------------------------------------------------------------------------
-    if (canRenderSpinner && hasConfiguredSession) {
+    if (canRenderSpinner && hasConfiguredSession && !noInteractive) {
         const model = setupConfig.model || "";
         const confirmed = await promptPreLaunchConfirmation(
             canRenderSpinner, effectiveGoal!, workspacePath,
@@ -440,466 +278,10 @@ export async function runWork(
     logger.plain(pc.gray(`>>> Session: ${sessionSummary}`));
 
     // ---------------------------------------------------------------------------
-    // Pre-flight checks — drift detection + goal clarity run in parallel
+    // Pre-flight checks — drift detection + goal clarity (extracted to goal-resolver.ts)
     // ---------------------------------------------------------------------------
-    if (effectiveGoal && canRenderSpinner) {
-        // Capture narrowed goal for closures
-        const goalForChecks: string = effectiveGoal;
-
-        // Run both checks concurrently
-        const runDriftCheck = async (): Promise<import("./drift/types.js").DriftResult | null> => {
-            try {
-                const { detectDrift } = await import("./drift/detector.js");
-                const { DecisionStore } = await import("./journal/store.js");
-                const { GlobalMemoryManager } = await import("./memory/global/store.js");
-
-                const vmForDrift = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
-                await vmForDrift.init();
-                const embedderForDrift = vmForDrift.getEmbedder();
-
-                let decisions: import("./journal/types.js").Decision[] = [];
-                if (embedderForDrift) {
-                    const gmDrift = new GlobalMemoryManager();
-                    await gmDrift.init(embedderForDrift);
-                    const dbDrift = gmDrift.getDb();
-                    if (dbDrift) {
-                        const dStore = new DecisionStore();
-                        await dStore.init(dbDrift);
-                        decisions = await dStore.getAll();
-                    }
-                }
-
-                return detectDrift(goalForChecks, decisions);
-            } catch {
-                return null;
-            }
-        };
-
-        const runClarityCheck = async (): Promise<import("./clarity/types.js").ClarityResult | null> => {
-            try {
-                const { analyzeClarity } = await import("./clarity/analyzer.js");
-                return analyzeClarity(goalForChecks);
-            } catch {
-                return null;
-            }
-        };
-
-        const [driftResult, clarityResult] = await Promise.all([
-            runDriftCheck(),
-            runClarityCheck(),
-        ]);
-
-        // Surface combined results if both have issues
-        const hasDriftIssues = driftResult?.hasDrift === true;
-        const hasClarityIssues = clarityResult && !clarityResult.isClear;
-
-        if (hasDriftIssues && hasClarityIssues) {
-            // Show both sets of issues together
-            const { select, text: clackText, isCancel: clackIsCancel } = await import("@clack/prompts");
-
-            logger.plain(`\n⚠️  ${pc.yellow("Goal clarity issues:")}`);
-            for (const issue of clarityResult.issues) {
-                const badge = issue.severity === "blocking"
-                    ? pc.red("[blocking]")
-                    : pc.yellow("[advisory]");
-                logger.plain(`  - ${badge} ${issue.question}`);
-            }
-
-            const icon = driftResult.severity === "hard" ? "🚨" : "⚠️";
-            logger.plain(`\n${icon} ${pc.yellow("Drift conflicts:")}`);
-            for (const conflict of driftResult.conflicts) {
-                logger.plain(`  - ${conflict.explanation}`);
-            }
-
-            const hasBlocking = clarityResult.issues.some((i) => i.severity === "blocking")
-                || driftResult.severity === "hard";
-
-            if (hasBlocking) {
-                logger.plain(pc.red("\nBlocking issues detected — must be resolved before proceeding."));
-            }
-
-            const choice = await select({
-                message: "Both clarity and drift issues found. How would you like to proceed?",
-                options: [
-                    { label: "Refine with AI", value: "ai_refine" },
-                    { label: "Rephrase my goal", value: "rephrase" },
-                    { label: "Proceed anyway", value: "proceed" },
-                    { label: "Abort", value: "abort" },
-                ],
-            });
-
-            if (clackIsCancel(choice) || choice === "abort") {
-                cancel("Work session cancelled.");
-                process.exit(0);
-            }
-
-            if (choice === "ai_refine") {
-                const refined = await refineGoalWithAI(
-                    effectiveGoal,
-                    clarityResult.issues.map((i) => ({ type: i.type, question: i.question, severity: i.severity })),
-                    clarityResult.suggestions,
-                );
-                if (refined) {
-                    const { note: clackNote } = await import("@clack/prompts");
-                    clackNote(
-                        wrapText([
-                            `${pc.dim("Original:")} ${effectiveGoal}`,
-                            "",
-                            `${pc.green("Refined:")} ${refined}`,
-                        ].join("\n")),
-                        "AI-refined goal",
-                    );
-                    const acceptChoice = await select({
-                        message: "Use this refined goal?",
-                        options: [
-                            { label: "Accept", value: "accept" },
-                            { label: "Edit the refined version", value: "edit" },
-                            { label: "Discard (keep original)", value: "discard" },
-                        ],
-                    });
-                    if (clackIsCancel(acceptChoice)) {
-                        cancel("Work session cancelled.");
-                        process.exit(0);
-                    }
-                    if (acceptChoice === "accept") {
-                        effectiveGoal = refined;
-                        logger.plain(pc.green("✓ Goal refined. Proceeding to decomposition."));
-                    } else if (acceptChoice === "edit") {
-                        const edited = await clackText({
-                            message: "Edit the refined goal:",
-                            initialValue: refined,
-                        });
-                        if (clackIsCancel(edited) || !edited) {
-                            cancel("Work session cancelled.");
-                            process.exit(0);
-                        }
-                        effectiveGoal = String(edited).trim();
-                        logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
-                    }
-                } else {
-                    logger.warn("AI refinement unavailable. You can rephrase manually.");
-                    const newGoal = await clackText({
-                        message: "Enter your revised goal:",
-                        placeholder: effectiveGoal,
-                    });
-                    if (clackIsCancel(newGoal) || !newGoal) {
-                        cancel("Work session cancelled.");
-                        process.exit(0);
-                    }
-                    effectiveGoal = String(newGoal).trim();
-                    logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
-                }
-            } else if (choice === "rephrase") {
-                const newGoal = await clackText({
-                    message: "Enter your revised goal:",
-                    placeholder: effectiveGoal,
-                });
-                if (clackIsCancel(newGoal) || !newGoal) {
-                    cancel("Work session cancelled.");
-                    process.exit(0);
-                }
-                effectiveGoal = String(newGoal).trim();
-                logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
-            }
-            // choice === "proceed" → continue with original goal
-        } else {
-            // Handle drift issues only
-            if (hasDriftIssues && driftResult) {
-                let driftRetries = 0;
-                const MAX_DRIFT_RETRIES = 3;
-                let goalToCheck = effectiveGoal;
-
-                // Re-run drift detection in a loop only if user adjusts goal
-                let currentDriftResult: import("./drift/types.js").DriftResult | null = driftResult;
-
-                while (currentDriftResult?.hasDrift) {
-                    const { select, text: clackText, isCancel: clackIsCancel } = await import("@clack/prompts");
-
-                    const dIcon = currentDriftResult.severity === "hard" ? "🚨" : "⚠";
-                    const dLabel = currentDriftResult.severity === "hard" ? "Strong drift detected" : "Drift detected";
-                    logger.plain(`\n${dIcon} ${pc.yellow(`${dLabel} — ${currentDriftResult.conflicts.length} conflict(s) with past decisions`)}`);
-
-                    const hasPermanent = currentDriftResult.conflicts.some((c) => c.decision.permanent);
-
-                    for (const conflict of currentDriftResult.conflicts) {
-                        const d = conflict.decision;
-                        const date = new Date(d.capturedAt).toISOString().slice(0, 10);
-                        const lockIcon = d.permanent ? " 🔒" : "";
-                        logger.plain(pc.dim("─".repeat(50)));
-                        logger.plain(`${conflict.explanation}${lockIcon}`);
-                        logger.plain(pc.dim(`Past decision (${date}, ${d.recommendedBy}, confidence ${d.confidence.toFixed(2)}):`));
-                        logger.plain(pc.dim(`"${d.decision}"`));
-                        logger.plain(pc.dim(`Reasoning: "${d.reasoning.slice(0, 100)}${d.reasoning.length > 100 ? "..." : ""}"`));
-                    }
-                    logger.plain(pc.dim("─".repeat(50)));
-
-                    const options: Array<{ label: string; value: string }> = [];
-                    if (!hasPermanent) {
-                        options.push({ label: "Proceed anyway — I know what I'm doing", value: "proceed" });
-                    }
-                    options.push(
-                        { label: "Reconsider the past decision(s) — they no longer apply", value: "reconsider" },
-                        { label: "Adjust my goal — let me rephrase it", value: "adjust_goal" },
-                        { label: "Abort — I need to think about this", value: "abort" },
-                    );
-
-                    const choice = await select({
-                        message: "How would you like to proceed?",
-                        options,
-                    });
-
-                    if (clackIsCancel(choice) || choice === "abort") {
-                        cancel("Work session cancelled due to drift conflict.");
-                        process.exit(0);
-                    }
-
-                    if (choice === "reconsider") {
-                        try {
-                            const { DecisionStore } = await import("./journal/store.js");
-                            const { GlobalMemoryManager } = await import("./memory/global/store.js");
-                            const vmRecon = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
-                            await vmRecon.init();
-                            const embedderRecon = vmRecon.getEmbedder();
-                            if (embedderRecon) {
-                                const gmRecon = new GlobalMemoryManager();
-                                await gmRecon.init(embedderRecon);
-                                const dbRecon = gmRecon.getDb();
-                                if (dbRecon) {
-                                    const reconStore = new DecisionStore();
-                                    await reconStore.init(dbRecon);
-                                    for (const c of currentDriftResult.conflicts) {
-                                        await reconStore.markReconsidered(c.decision.id);
-                                    }
-                                    logger.success(`Reconsidered ${currentDriftResult.conflicts.length} past decision(s).`);
-                                }
-                            }
-                        } catch {
-                            // Non-critical
-                        }
-                        break;
-                    }
-
-                    if (choice === "adjust_goal") {
-                        driftRetries++;
-                        if (driftRetries >= MAX_DRIFT_RETRIES) {
-                            logger.warn("Max goal adjustment retries reached. Proceeding with current goal.");
-                            break;
-                        }
-                        const newGoalInput = await clackText({
-                            message: "Enter adjusted goal:",
-                            placeholder: goalToCheck,
-                        });
-                        if (clackIsCancel(newGoalInput) || !newGoalInput) {
-                            cancel("Work session cancelled.");
-                            process.exit(0);
-                        }
-                        goalToCheck = String(newGoalInput).trim();
-                        effectiveGoal = goalToCheck;
-
-                        // Re-run drift detection with new goal
-                        try {
-                            const { detectDrift } = await import("./drift/detector.js");
-                            const { DecisionStore } = await import("./journal/store.js");
-                            const { GlobalMemoryManager } = await import("./memory/global/store.js");
-                            const vmRe = new VectorMemory(CONFIG.vectorStorePath, CONFIG.memoryBackend);
-                            await vmRe.init();
-                            const embedderRe = vmRe.getEmbedder();
-                            let reDecisions: import("./journal/types.js").Decision[] = [];
-                            if (embedderRe) {
-                                const gmRe = new GlobalMemoryManager();
-                                await gmRe.init(embedderRe);
-                                const dbRe = gmRe.getDb();
-                                if (dbRe) {
-                                    const dStoreRe = new DecisionStore();
-                                    await dStoreRe.init(dbRe);
-                                    reDecisions = await dStoreRe.getAll();
-                                }
-                            }
-                            currentDriftResult = detectDrift(goalToCheck, reDecisions);
-                        } catch {
-                            break;
-                        }
-                        continue;
-                    }
-
-                    // choice === "proceed"
-                    break;
-                }
-            }
-
-            // Handle clarity issues only
-            if (hasClarityIssues && clarityResult) {
-                try {
-                    const { generateQuestions } = await import("./clarity/questioner.js");
-                    const { rewriteGoal } = await import("./clarity/rewriter.js");
-                    const { suggestSplits } = await import("./clarity/breadth-analyzer.js");
-                    const { select, text: clackText, isCancel: clackIsCancel } = await import("@clack/prompts");
-
-                    const cIcon = clarityResult.score < 0.5 ? "🚨" : "🔍";
-                    const cLabel = clarityResult.score < 0.5
-                        ? "This goal needs clarification before the team can plan"
-                        : "This goal could be clearer";
-
-                    logger.plain(`\n${cIcon} ${pc.yellow("Goal clarity check...")}`);
-                    logger.plain(pc.dim("┌─────────────────────────────────────────────────────────────┐"));
-                    logger.plain(`│ ${cLabel}`);
-                    logger.plain(pc.dim("├─────────────────────────────────────────────────────────────┤"));
-                    for (const issue of clarityResult.issues) {
-                        const badge = issue.severity === "blocking"
-                            ? pc.red("[blocking]")
-                            : pc.yellow("[advisory]");
-                        logger.plain(`│ ${badge} ${issue.question}`);
-                    }
-                    logger.plain(pc.dim("└─────────────────────────────────────────────────────────────┘"));
-
-                    if (clarityResult.suggestions.length > 0) {
-                        logger.plain(pc.dim("Suggestions:"));
-                        for (const s of clarityResult.suggestions) {
-                            logger.plain(pc.dim(`  → ${s}`));
-                        }
-                    }
-
-                    const hasTooWide = clarityResult.issues.some((i) => i.type === "too_broad");
-                    const options: Array<{ label: string; value: string }> = [
-                        { label: "Answer the questions — I'll clarify the goal", value: "clarify" },
-                        { label: "Refine with AI", value: "ai_refine" },
-                        { label: "Proceed anyway — I want the team to interpret it", value: "proceed" },
-                        { label: "Rephrase my goal", value: "rephrase" },
-                    ];
-                    if (hasTooWide) {
-                        options.push({ label: "Split into focused goals", value: "split" });
-                    }
-
-                    const choice = await select({ message: "How would you like to proceed?", options });
-
-                    if (clackIsCancel(choice)) {
-                        cancel("Work session cancelled.");
-                        process.exit(0);
-                    }
-
-                    if (choice === "clarify") {
-                        const questions = generateQuestions(clarityResult.issues);
-                        const answers: Array<{ issue: (typeof questions)[0]["issue"]; answer: string }> = [];
-                        for (const q of questions) {
-                            const answer = await clackText({
-                                message: q.question,
-                                placeholder: q.placeholder,
-                            });
-                            if (clackIsCancel(answer)) {
-                                cancel("Work session cancelled.");
-                                process.exit(0);
-                            }
-                            answers.push({ issue: q.issue, answer: String(answer).trim() });
-                        }
-                        const clarified = rewriteGoal(effectiveGoal, answers);
-                        logger.plain(pc.bold("Clarified goal:"));
-                        logger.plain(pc.green(`"${clarified}"`));
-                        effectiveGoal = clarified;
-                        logger.plain(pc.green("✓ Goal is clear. Proceeding to decomposition."));
-                    } else if (choice === "ai_refine") {
-                        const refined = await refineGoalWithAI(
-                            effectiveGoal,
-                            clarityResult.issues.map((i) => ({ type: i.type, question: i.question, severity: i.severity })),
-                            clarityResult.suggestions,
-                        );
-                        if (refined) {
-                            const { note: clackNote } = await import("@clack/prompts");
-                            clackNote(
-                                [
-                                    `${pc.dim("Original:")} ${effectiveGoal}`,
-                                    "",
-                                    `${pc.green("Refined:")} ${refined}`,
-                                ].join("\n"),
-                                "AI-refined goal",
-                            );
-                            const acceptChoice = await select({
-                                message: "Use this refined goal?",
-                                options: [
-                                    { label: "Accept", value: "accept" },
-                                    { label: "Edit the refined version", value: "edit" },
-                                    { label: "Discard (keep original)", value: "discard" },
-                                ],
-                            });
-                            if (clackIsCancel(acceptChoice)) {
-                                cancel("Work session cancelled.");
-                                process.exit(0);
-                            }
-                            if (acceptChoice === "accept") {
-                                effectiveGoal = refined;
-                                logger.plain(pc.green("✓ Goal refined. Proceeding to decomposition."));
-                            } else if (acceptChoice === "edit") {
-                                const edited = await clackText({
-                                    message: "Edit the refined goal:",
-                                    initialValue: refined,
-                                });
-                                if (clackIsCancel(edited) || !edited) {
-                                    cancel("Work session cancelled.");
-                                    process.exit(0);
-                                }
-                                effectiveGoal = String(edited).trim();
-                                logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
-                            }
-                            // "discard" → keep original
-                        } else {
-                            logger.warn("AI refinement unavailable. You can rephrase manually.");
-                            const newGoal = await clackText({
-                                message: "Enter your rephrased goal:",
-                                placeholder: effectiveGoal,
-                            });
-                            if (clackIsCancel(newGoal) || !newGoal) {
-                                cancel("Work session cancelled.");
-                                process.exit(0);
-                            }
-                            effectiveGoal = String(newGoal).trim();
-                            logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
-                        }
-                    } else if (choice === "rephrase") {
-                        const newGoal = await clackText({
-                            message: "Enter your rephrased goal:",
-                            placeholder: effectiveGoal,
-                        });
-                        if (clackIsCancel(newGoal) || !newGoal) {
-                            cancel("Work session cancelled.");
-                            process.exit(0);
-                        }
-                        effectiveGoal = String(newGoal).trim();
-                        logger.plain(pc.green("✓ Goal updated. Proceeding to decomposition."));
-                    } else if (choice === "split") {
-                        const breadthIssue = clarityResult.issues.find((i) => i.type === "too_broad");
-                        const domains = breadthIssue
-                            ? breadthIssue.question.match(/domains?:\s*(.+?)\./)?.[1]?.split(", ") ?? []
-                            : [];
-                        const splits = suggestSplits(effectiveGoal, domains);
-                        if (splits.length > 0) {
-                            logger.plain(pc.bold("Suggested sub-goals:"));
-                            const splitOptions = splits.map((s, i) => ({
-                                label: s,
-                                value: String(i),
-                            }));
-                            const picked = await select({
-                                message: "Pick one to run now (others saved to backlog):",
-                                options: splitOptions,
-                            });
-                            if (!clackIsCancel(picked)) {
-                                const idx = Number(picked);
-                                effectiveGoal = splits[idx] ?? effectiveGoal;
-                                logger.plain(pc.green(`✓ Running: "${effectiveGoal}"`));
-                            }
-                        }
-                    }
-                    // choice === "proceed" → continue with original goal
-                } catch {
-                    logger.warn("Clarity check interaction failed — proceeding without it.");
-                }
-            }
-
-            // Neither has issues
-            if (!hasDriftIssues && !hasClarityIssues) {
-                if (clarityResult?.isClear) {
-                    logger.plain(pc.green("✓ Goal is clear."));
-                }
-            }
-        }
+    if (effectiveGoal && canRenderSpinner && !noInteractive) {
+        effectiveGoal = await runPreFlightChecks(effectiveGoal);
     }
 
     // ---------------------------------------------------------------------------
@@ -943,23 +325,28 @@ export async function runWork(
     // Memory & workspace init
     // ---------------------------------------------------------------------------
     await ensureWorkspaceDir(CONFIG.workspaceDir);
-    try {
-        DEBUG_LOG_PATH = await rotateAndCreateSessionLog({
-            logDir: path.join(os.homedir(), ".teamclaw", "logs"),
-            prefix: "work-session",
-            maxFiles: 10,
-        });
-    } catch {
-        DEBUG_LOG_PATH = path.join(CONFIG.workspaceDir, "teamclaw-debug.log");
-    }
-    try {
-        WORK_HISTORY_LOG_PATH = await rotateAndCreateSessionLog({
-            logDir: path.join(os.homedir(), ".teamclaw", "logs"),
-            prefix: "work-history",
-            maxFiles: 20,
-        });
-    } catch {
-        WORK_HISTORY_LOG_PATH = path.join(CONFIG.workspaceDir, "work_history.log");
+    {
+        let sessionLog: string;
+        let historyLog: string;
+        try {
+            sessionLog = await rotateAndCreateSessionLog({
+                logDir: path.join(os.homedir(), ".openpawl", "logs"),
+                prefix: "work-session",
+                maxFiles: 10,
+            });
+        } catch {
+            sessionLog = path.join(CONFIG.workspaceDir, "openpawl-debug.log");
+        }
+        try {
+            historyLog = await rotateAndCreateSessionLog({
+                logDir: path.join(os.homedir(), ".openpawl", "logs"),
+                prefix: "work-history",
+                maxFiles: 20,
+            });
+        } catch {
+            historyLog = path.join(CONFIG.workspaceDir, "work_history.log");
+        }
+        initLogPaths(sessionLog, historyLog);
     }
 
     const memoryConfig = await loadTeamConfig();
@@ -1033,8 +420,7 @@ export async function runWork(
         maxRuns,
     });
     if (!result.ok) {
-        log("error", result.message);
-        process.exit(1);
+        throw new FatalSessionError(result.message);
     }
 
     log("info", pc.dim("💡 Tip: Press Ctrl+C to stop the work session. The managed gateway will be stopped automatically."));
@@ -1171,7 +557,7 @@ export async function runWork(
                 // Keep web server running for callbacks
                 noWebFlag = false;
             } else if (asyncMode) {
-                log("warn", "--async requires webhookApproval.url and webhookApproval.secret in ~/.teamclaw/config.json");
+                log("warn", "--async requires webhookApproval.url and webhookApproval.secret in ~/.openpawl/config.json");
             }
 
             // Resolve team composition mode: CLI flag > config > default "manual"
@@ -1210,7 +596,7 @@ export async function runWork(
                 // Build custom inclusion rules from registered agents
                 const customRules = buildCustomCompositionRules();
                 teamComposition = analyzeGoal(goal, { runCount: maxRuns, customRules });
-                if (canRenderSpinner && runId === 1) {
+                if (canRenderSpinner && runId === 1 && !noInteractive) {
                     renderCompositionTable(teamComposition);
                     const compAction = await promptCompositionAction(teamComposition);
                     if (compAction.action === "manual") {
@@ -1375,7 +761,7 @@ export async function runWork(
                         const friendly = formatError(error.code, error.provider, `${error.code} (${error.statusCode ?? "N/A"})`);
                         logger.plain("\n" + friendly);
                         clearSessionConfig();
-                        process.exit(1);
+                        throw new FatalSessionError(friendly);
                     }
 
                     sPlan.stop(
@@ -1385,9 +771,8 @@ export async function runWork(
                         /HTTP [45]\d\d|ECONNREFUSED|ENOTFOUND|404|Not Found|fetch failed/i.test(message);
                     if (isFatal) {
                         const friendly = formatError("CONNECTION_FAILED", "your provider", message.split("\n")[0]);
-                        cancel(friendly);
                         clearSessionConfig();
-                        process.exit(1);
+                        throw new FatalSessionError(friendly);
                     }
                     throw error;
                 }
@@ -1401,7 +786,7 @@ export async function runWork(
                 for (const msg of executionMessages) {
                     // Skip verbose messages that clutter the TUI
                     if (msg.startsWith("🎤 STAND-UP")) continue;
-                    if (msg.startsWith("TeamClaw - Run")) continue;
+                    if (msg.startsWith("OpenPawl - Run")) continue;
                     if (msg.startsWith("Work session started")) continue;
                     if (msg.startsWith("🔄 Coder")) continue;
 
@@ -1739,10 +1124,8 @@ export async function runWork(
                 /HTTP [45]\d\d|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|WebSocket closed|fetch failed/i.test(errMsg);
 
             if (isFatal) {
-                log("error", `Fatal provider error: ${errMsg}`);
-                log("error", "Run `teamclaw setup` to reconfigure providers or `teamclaw check` to diagnose.");
                 clearSessionConfig();
-                process.exit(1);
+                throw new FatalSessionError(`Fatal provider error: ${errMsg}\nRun \`openpawl setup\` to reconfigure providers or \`openpawl check\` to diagnose.`);
             }
 
             // Retryable errors: planning timeouts, decomposition failures, transient LLM errors
@@ -1896,7 +1279,7 @@ export async function runWork(
         getDashboardBridge().disconnect();
     } catch { /* bridge may not have been initialized */ }
     // Dashboard daemon is intentionally NOT stopped here — it persists
-    // across work sessions. Stop it explicitly with `teamclaw web stop`.
+    // across work sessions. Stop it explicitly with `openpawl web stop`.
 
     // ---------------------------------------------------------------------------
     // Post-session interactive menu
@@ -1932,6 +1315,17 @@ export async function runWork(
     // "exit" — clean exit
     if (canRenderSpinner) {
         const { outro } = await import("@clack/prompts");
-        outro("Done! Run teamclaw work whenever you're ready.");
+        outro("Done! Run openpawl work whenever you're ready.");
     }
+  } catch (err) {
+    if (err instanceof UserCancelError) {
+      cancel(err.message);
+      process.exit(0);
+    }
+    if (err instanceof FatalSessionError) {
+      logger.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
 }

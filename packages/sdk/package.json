@@ -1,8 +1,8 @@
 {
-  "name": "@teamclaw/sdk",
-  "version": "0.0.1",
+  "name": "@openpawl/sdk",
+  "version": "0.1.0",
   "type": "module",
-  "description": "SDK for defining custom TeamClaw agents",
+  "description": "SDK for defining custom OpenPawl agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

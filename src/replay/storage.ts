@@ -12,7 +12,7 @@ import path from "node:path";
 import os from "node:os";
 import type { SessionIndexEntry, RecordingEvent, BroadcastEvent } from "./types.js";
 
-const SESSIONS_DIR = path.join(os.homedir(), ".teamclaw", "sessions");
+const SESSIONS_DIR = path.join(os.homedir(), ".openpawl", "sessions");
 const INDEX_FILE = path.join(SESSIONS_DIR, "index.json");
 const DEFAULT_MAX_SESSIONS = 20;
 
@@ -225,7 +225,7 @@ export function untagSession(sessionId: string): boolean {
 /** Get configured max sessions from config, or default. */
 function getMaxSessions(): number {
   try {
-    const configPath = path.join(os.homedir(), ".teamclaw", "config.json");
+    const configPath = path.join(os.homedir(), ".openpawl", "config.json");
     if (existsSync(configPath)) {
       const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
       const replay = config.replay as Record<string, unknown> | undefined;

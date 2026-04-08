@@ -8,14 +8,17 @@ import type { StreamChunk, StreamOptions } from "./stream-types.js";
 import type { StreamProvider } from "./provider.js";
 import { ProviderError } from "./types.js";
 import { logger } from "../core/logger.js";
+import { refreshChatGPTToken } from "./chatgpt-auth.js";
 
 const DEFAULT_MODEL = "gpt-5.3-codex";
+const REFRESH_BUFFER_MS = 2 * 60 * 1000;
 
 export interface ChatGPTOAuthConfig {
   oauthToken?: string;
   refreshToken?: string;
   tokenExpiry?: number;
   model?: string;
+  onTokenRefresh?: (tokens: { oauthToken: string; refreshToken: string; tokenExpiry: number }) => void;
 }
 
 export class ChatGPTOAuthProvider implements StreamProvider {
@@ -26,12 +29,47 @@ export class ChatGPTOAuthProvider implements StreamProvider {
   private tokenExpiry: number;
   private readonly model: string;
   private available = true;
+  private refreshing: Promise<void> | null = null;
+  private onTokenRefresh: ChatGPTOAuthConfig["onTokenRefresh"];
 
   constructor(config: ChatGPTOAuthConfig) {
     this.oauthToken = config.oauthToken ?? null;
     this.refreshToken = config.refreshToken ?? null;
     this.tokenExpiry = config.tokenExpiry ?? 0;
     this.model = config.model ?? DEFAULT_MODEL;
+    this.onTokenRefresh = config.onTokenRefresh;
+  }
+
+  private async ensureToken(): Promise<void> {
+    if (this.tokenExpiry > 0 && Date.now() > this.tokenExpiry - REFRESH_BUFFER_MS && this.refreshToken) {
+      if (!this.refreshing) {
+        this.refreshing = this.doRefresh();
+      }
+      await this.refreshing;
+    }
+  }
+
+  private async doRefresh(): Promise<void> {
+    try {
+      if (!this.refreshToken) return;
+      logger.debug("[chatgpt] refreshing oauth token");
+      const result = await refreshChatGPTToken(this.refreshToken);
+      if (result.isErr()) {
+        logger.warn(`[chatgpt] token refresh failed: ${result.error.message}`);
+        return;
+      }
+      const { accessToken: oauthToken, refreshToken, expiresIn } = result.value;
+      this.oauthToken = oauthToken;
+      this.refreshToken = refreshToken;
+      this.tokenExpiry = Date.now() + expiresIn * 1000;
+      this.client = null;
+      logger.debug("[chatgpt] token refreshed, expires at " + new Date(this.tokenExpiry).toISOString());
+      this.onTokenRefresh?.({ oauthToken, refreshToken, tokenExpiry: this.tokenExpiry });
+    } catch (e) {
+      logger.warn(`[chatgpt] token refresh error: ${String(e)}`);
+    } finally {
+      this.refreshing = null;
+    }
   }
 
   private getClient(): OpenAI {
@@ -39,7 +77,7 @@ export class ChatGPTOAuthProvider implements StreamProvider {
       throw new ProviderError({
         provider: "chatgpt",
         code: "CHATGPT_OAUTH_REQUIRED",
-        message: "No ChatGPT OAuth token. Run: teamclaw providers add chatgpt",
+        message: "No ChatGPT OAuth token. Run: openpawl providers add chatgpt",
         isFallbackTrigger: true,
       });
     }
@@ -50,6 +88,7 @@ export class ChatGPTOAuthProvider implements StreamProvider {
   }
 
   async *stream(prompt: string, options?: StreamOptions): AsyncGenerator<StreamChunk, void, undefined> {
+    await this.ensureToken();
     const client = this.getClient();
     const model = options?.model ?? this.model;
 
@@ -81,6 +120,10 @@ export class ChatGPTOAuthProvider implements StreamProvider {
       const isAuth = message.includes("401") || message.includes("invalid_api_key");
       const isRateLimit = message.includes("429") || message.includes("rate_limit");
 
+      if (isAuth && this.refreshToken) {
+        await this.doRefresh();
+      }
+
       throw new ProviderError({
         provider: "chatgpt",
         code: isAuth ? "CHATGPT_TOKEN_EXPIRED" : isRateLimit ? "RATE_LIMITED" : "STREAM_FAILED",
@@ -93,6 +136,7 @@ export class ChatGPTOAuthProvider implements StreamProvider {
   }
 
   async healthCheck(): Promise<boolean> {
+    await this.ensureToken();
     if (!this.oauthToken) return false;
     try {
       const client = this.getClient();

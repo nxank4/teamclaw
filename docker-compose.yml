@@ -1,21 +1,21 @@
-# TeamClaw Docker Compose
+# OpenPawl Docker Compose
 # Quick start:
 #   cp .env.example .env        # add your API key
 #   docker compose up -d        # start dashboard
 #   open http://localhost:8000
 
 services:
-  teamclaw:
+  openpawl:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
-    image: teamclaw:latest
-    container_name: teamclaw
+    image: openpawl:latest
+    container_name: openpawl
     ports:
-      - "${TEAMCLAW_PORT:-8000}:8000"
+      - "${OPENPAWL_PORT:-8000}:8000"
     volumes:
-      - teamclaw-data:/home/node/.teamclaw
+      - openpawl-data:/home/node/.openpawl
       - ${WORKSPACE_PATH:-./workspace}:/workspace
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -23,7 +23,7 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - TEAMCLAW_MOCK_LLM=${TEAMCLAW_MOCK_LLM:-false}
+      - OPENPAWL_MOCK_LLM=${OPENPAWL_MOCK_LLM:-false}
       - NODE_ENV=production
     restart: unless-stopped
     healthcheck:
@@ -34,5 +34,5 @@ services:
       start_period: 10s
 
 volumes:
-  teamclaw-data:
+  openpawl-data:
     driver: local

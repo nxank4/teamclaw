@@ -1,5 +1,5 @@
 /**
- * CLI command: teamclaw memory <subcommand>
+ * CLI command: openpawl memory <subcommand>
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -42,7 +42,7 @@ export async function runMemoryCommand(args: string[]): Promise<void> {
   const sub = args[0];
 
   if (!sub || sub === "--help" || sub === "-h") {
-    logger.plain("Usage: teamclaw memory <subcommand>");
+    logger.plain("Usage: openpawl memory <subcommand>");
     logger.plain("");
     logger.plain("Subcommands:");
     logger.plain("  health                  Show global memory health stats");
@@ -85,7 +85,7 @@ export async function runMemoryCommand(args: string[]): Promise<void> {
   if (sub === "promote") {
     const id = args[1];
     if (!id) {
-      logger.error("Usage: teamclaw memory promote <pattern-id>");
+      logger.error("Usage: openpawl memory promote <pattern-id>");
       process.exit(1);
     }
     const { embedder, db } = await getEmbedder();
@@ -113,7 +113,7 @@ export async function runMemoryCommand(args: string[]): Promise<void> {
   if (sub === "demote") {
     const id = args[1];
     if (!id) {
-      logger.error("Usage: teamclaw memory demote <pattern-id>");
+      logger.error("Usage: openpawl memory demote <pattern-id>");
       process.exit(1);
     }
     const { gm } = await getGlobalManager();
@@ -150,7 +150,7 @@ export async function runMemoryCommand(args: string[]): Promise<void> {
   if (sub === "import") {
     const filePath = args[1];
     if (!filePath) {
-      logger.error("Usage: teamclaw memory import <file.json>");
+      logger.error("Usage: openpawl memory import <file.json>");
       process.exit(1);
     }
     const { gm, embedder } = await getGlobalManager();
@@ -191,6 +191,6 @@ export async function runMemoryCommand(args: string[]): Promise<void> {
   }
 
   logger.error(`Unknown subcommand: memory ${sub}`);
-  logger.error("Run `teamclaw memory --help` for usage.");
+  logger.error("Run `openpawl memory --help` for usage.");
   process.exit(1);
 }

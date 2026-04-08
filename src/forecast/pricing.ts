@@ -1,5 +1,5 @@
 /**
- * Model pricing table — configurable via ~/.teamclaw/config.json.
+ * Model pricing table — configurable via ~/.openpawl/config.json.
  */
 
 import type { ModelPricing } from "./types.js";

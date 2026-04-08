@@ -2,11 +2,11 @@
  * CLI commands for managing custom agents.
  *
  * Usage:
- *   teamclaw agent add <source>      Register from file/dir/npm
- *   teamclaw agent list               List registered agents
- *   teamclaw agent show <role>        Show agent details
- *   teamclaw agent remove <role>      Remove a registered agent
- *   teamclaw agent validate <file>    Validate without registering
+ *   openpawl agent add <source>      Register from file/dir/npm
+ *   openpawl agent list               List registered agents
+ *   openpawl agent show <role>        Show agent details
+ *   openpawl agent remove <role>      Remove a registered agent
+ *   openpawl agent validate <file>    Validate without registering
  */
 
 import { logger } from "../core/logger.js";
@@ -43,7 +43,7 @@ export async function runAgentCommand(args: string[]): Promise<void> {
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw agent") + " — Manage custom agents",
+    pc.bold("openpawl agent") + " — Manage custom agents",
     "",
     "  " + pc.green("add <source>") + "      Register agent from file, directory, or npm package",
     "  " + pc.green("list") + "              List all registered custom agents",
@@ -52,10 +52,10 @@ function printHelp(): void {
     "  " + pc.green("validate <file>") + "   Validate an agent definition (no registration)",
     "",
     "Examples:",
-    pc.dim("  teamclaw agent add ./my-agent.ts"),
-    pc.dim("  teamclaw agent add ./agents/"),
-    pc.dim("  teamclaw agent list"),
-    pc.dim("  teamclaw agent remove code-reviewer"),
+    pc.dim("  openpawl agent add ./my-agent.ts"),
+    pc.dim("  openpawl agent add ./agents/"),
+    pc.dim("  openpawl agent list"),
+    pc.dim("  openpawl agent remove code-reviewer"),
     "",
   ];
   console.log(lines.join("\n"));
@@ -64,7 +64,7 @@ function printHelp(): void {
 async function runAgentAdd(args: string[]): Promise<void> {
   const source = args[0];
   if (!source) {
-    logger.error("Usage: teamclaw agent add <source>");
+    logger.error("Usage: openpawl agent add <source>");
     process.exit(1);
   }
 
@@ -72,7 +72,7 @@ async function runAgentAdd(args: string[]): Promise<void> {
   if (!existsSync(absSource)) {
     // Try as npm package
     logger.error(`Source not found: ${absSource}`);
-    logger.error("For npm packages, use: teamclaw agent add npm:<package-name>");
+    logger.error("For npm packages, use: openpawl agent add npm:<package-name>");
     process.exit(1);
   }
 
@@ -107,7 +107,7 @@ function runAgentList(): void {
 
   if (agents.length === 0) {
     logger.plain("No custom agents registered.");
-    logger.plain(pc.dim("Register one with: teamclaw agent add <file>"));
+    logger.plain(pc.dim("Register one with: openpawl agent add <file>"));
     return;
   }
 
@@ -126,7 +126,7 @@ function runAgentList(): void {
 async function runAgentShow(args: string[]): Promise<void> {
   const role = args[0];
   if (!role) {
-    logger.error("Usage: teamclaw agent show <role>");
+    logger.error("Usage: openpawl agent show <role>");
     process.exit(1);
   }
 
@@ -180,7 +180,7 @@ async function runAgentShow(args: string[]): Promise<void> {
 function runAgentRemove(args: string[]): void {
   const role = args[0];
   if (!role) {
-    logger.error("Usage: teamclaw agent remove <role>");
+    logger.error("Usage: openpawl agent remove <role>");
     process.exit(1);
   }
 
@@ -197,7 +197,7 @@ function runAgentRemove(args: string[]): void {
 async function runAgentValidate(args: string[]): Promise<void> {
   const filePath = args[0];
   if (!filePath) {
-    logger.error("Usage: teamclaw agent validate <file>");
+    logger.error("Usage: openpawl agent validate <file>");
     process.exit(1);
   }
 

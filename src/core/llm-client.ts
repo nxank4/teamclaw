@@ -75,7 +75,7 @@ export async function generate(prompt: string, options?: GenerateOptions & { bot
   }
 
   try {
-    const mgr = getGlobalProviderManager();
+    const mgr = await getGlobalProviderManager();
 
     if (isStreaming) {
       // Streaming mode — yield chunks via callback
@@ -177,7 +177,7 @@ export async function llmHealthCheck(): Promise<boolean> {
   if (isMockLlmEnabled()) return true;
 
   try {
-    const mgr = getGlobalProviderManager();
+    const mgr = await getGlobalProviderManager();
     const providers = mgr.getProviders();
     if (providers.length === 0) return false;
 

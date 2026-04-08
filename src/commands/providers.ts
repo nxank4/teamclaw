@@ -5,7 +5,6 @@ import {
   confirm,
   note,
   spinner,
-  isCancel,
   cancel,
 } from "@clack/prompts";
 import {
@@ -22,45 +21,19 @@ import {
   type ProviderConfigEntry,
 } from "../core/global-config.js";
 import { validateApiKeyFormat, maskApiKey } from "../core/errors.js";
+import { handleCancel } from "../onboard/setup-flow.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { logger } from "../core/logger.js";
 import pc from "picocolors";
 import { fetchModelsForProvider } from "../providers/model-fetcher.js";
 import { getCachedModels, setCachedModels } from "../providers/model-cache.js";
-
-
-const ENV_KEYS: Record<string, string> = {
-  ANTHROPIC_API_KEY: "anthropic",
-  OPENAI_API_KEY: "openai",
-  OPENROUTER_API_KEY: "openrouter",
-  DEEPSEEK_API_KEY: "deepseek",
-  GROQ_API_KEY: "groq",
-  GOOGLE_API_KEY: "gemini",
-  GEMINI_API_KEY: "gemini",
-  XAI_API_KEY: "grok",
-  MISTRAL_API_KEY: "mistral",
-  CEREBRAS_API_KEY: "cerebras",
-  TOGETHER_API_KEY: "together",
-  TOGETHER_AI_API_KEY: "together",
-  FIREWORKS_API_KEY: "fireworks",
-  PERPLEXITY_API_KEY: "perplexity",
-  MOONSHOT_API_KEY: "moonshot",
-  ZAI_API_KEY: "zai",
-  ZHIPU_API_KEY: "zai",
-  MINIMAX_API_KEY: "minimax",
-  COHERE_API_KEY: "cohere",
-  OPENCODE_API_KEY: "opencode-zen",
-  OPENCODE_GO_API_KEY: "opencode-go",
-  AZURE_OPENAI_API_KEY: "azure",
-  GITHUB_TOKEN: "copilot",
-  AWS_ACCESS_KEY_ID: "bedrock",
-};
+import { detectProviders } from "../providers/detect.js";
 
 export async function runProvidersCommand(args: string[]): Promise<void> {
   const sub = args[0];
 
   if (!sub || sub === "--help" || sub === "-h") {
-    logger.plain("Usage: teamclaw providers <subcommand>");
+    logger.plain("Usage: openpawl providers <subcommand>");
     logger.plain("");
     logger.plain("Subcommands:");
     logger.plain("  list     Show configured providers and status");
@@ -85,7 +58,7 @@ export async function runProvidersCommand(args: string[]): Promise<void> {
   }
 
   logger.error(`Unknown providers subcommand: ${sub}`);
-  logger.error("Run `teamclaw providers --help` for usage.");
+  logger.error("Run `openpawl providers --help` for usage.");
   process.exit(1);
 }
 
@@ -99,12 +72,10 @@ export async function listProviders(): Promise<void> {
   }
 
   // Detect env-var providers
-  const envProviders: { type: string; envVar: string }[] = [];
-  for (const [envKey, type] of Object.entries(ENV_KEYS)) {
-    if (process.env[envKey]) {
-      envProviders.push({ type, envVar: envKey });
-    }
-  }
+  const detected = await detectProviders();
+  const envProviders = detected
+    .filter((d) => d.source === "env" && d.available)
+    .map((d) => ({ type: d.type, envVar: d.envKey ?? "" }));
 
   logger.plain("Providers:");
   logger.plain("");
@@ -130,17 +101,17 @@ export async function listProviders(): Promise<void> {
   if ((!configEntries || configEntries.length === 0) && envProviders.length === 0) {
     logger.plain("");
     logger.plain(pc.yellow("  No providers configured."));
-    logger.plain(pc.dim("  Run `teamclaw setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
+    logger.plain(pc.dim("  Run `openpawl setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
   }
 }
 
 async function testProviders(): Promise<void> {
-  const manager = getGlobalProviderManager();
+  const manager = await getGlobalProviderManager();
   const providers = manager.getProviders();
 
   if (providers.length === 0) {
     logger.plain(pc.yellow("No providers configured. Nothing to test."));
-    logger.plain(pc.dim("Run `teamclaw setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
+    logger.plain(pc.dim("Run `openpawl setup` or set an API key env var (e.g. ANTHROPIC_API_KEY)."));
     return;
   }
 
@@ -178,14 +149,6 @@ async function testProviders(): Promise<void> {
 }
 
 // ── Add provider ─────────────────────────────────────────────────────────
-
-function handleCancel<T>(v: T): T {
-  if (isCancel(v)) {
-    cancel("Cancelled.");
-    process.exit(0);
-  }
-  return v;
-}
 
 export async function addProvider(args: string[]): Promise<void> {
   const directId = args[0];
@@ -264,10 +227,7 @@ export async function addProvider(args: string[]): Promise<void> {
   } else if (meta.authMethod === "credentials" && selectedId === "vertex") {
     await promptVertexAuth(entry);
   } else if (meta.authMethod === "oauth") {
-    note("OAuth flow will open your browser to authenticate.", "OAuth");
-    logger.plain(pc.yellow("  OAuth flow not yet implemented in CLI. Coming soon."));
-    logger.plain(pc.dim("  Workaround: use API key instead."));
-    return;
+    await promptChatGPTAuth(entry);
   }
 
   // Model selection — try live fetch, fall back to catalog
@@ -344,7 +304,7 @@ export async function addProvider(args: string[]): Promise<void> {
 
   logger.plain(`\n${pc.green("\u2713")} Provider ${pc.bold(meta.name)} added successfully.`);
   if (entry.model) logger.plain(`  Model: ${entry.model}`);
-  logger.plain(pc.dim("  Run: teamclaw providers test"));
+  logger.plain(pc.dim("  Run: openpawl providers test"));
 }
 
 async function promptApiKey(
@@ -511,6 +471,37 @@ async function promptCopilotAuth(entry: ProviderConfigEntry): Promise<void> {
     pollS.stop("Authorization timed out");
     logger.plain(pc.yellow("  Device flow timed out. Please try again."));
   }
+}
+
+async function promptChatGPTAuth(entry: ProviderConfigEntry): Promise<void> {
+  const { runChatGPTOAuthFlow } = await import("../providers/chatgpt-auth.js");
+
+  const spin = spinner();
+  spin.start("Opening browser for ChatGPT login...");
+
+  const result = await runChatGPTOAuthFlow();
+
+  if (result.isErr()) {
+    spin.stop(pc.red(`ChatGPT login failed: ${result.error.message}`));
+    return;
+  }
+
+  const tokens = result.value;
+  entry.oauthToken = tokens.accessToken;
+  entry.refreshToken = tokens.refreshToken;
+  entry.tokenExpiry = Date.now() + tokens.expiresIn * 1000;
+  entry.authMethod = "oauth";
+
+  // Also store in credential store
+  try {
+    const { CredentialStore } = await import("../credentials/credential-store.js");
+    const store = new CredentialStore();
+    await store.initialize();
+    await store.setCredential("chatgpt", "oauthToken", tokens.accessToken);
+    await store.setCredential("chatgpt", "refreshToken", tokens.refreshToken);
+  } catch { /* best-effort */ }
+
+  spin.stop(pc.green("ChatGPT login successful!"));
 }
 
 async function promptBedrockAuth(entry: ProviderConfigEntry): Promise<void> {

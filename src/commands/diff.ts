@@ -1,13 +1,13 @@
 /**
  * CLI commands for goal diff between runs and sessions.
  *
- * teamclaw diff <sessionId>                     Diff all runs in session
- * teamclaw diff <sessionId> --runs 1,2          Diff specific run pair
- * teamclaw diff <sessionId1> <sessionId2>       Cross-session diff
- * teamclaw diff <sessionId> --verbose           Show unchanged tasks
- * teamclaw diff <sessionId> --format markdown   Export as markdown
- * teamclaw diff <sessionId> --output <dir>      Custom output directory
- * teamclaw diff <sessionId> --summary           Overall trend only
+ * openpawl diff <sessionId>                     Diff all runs in session
+ * openpawl diff <sessionId> --runs 1,2          Diff specific run pair
+ * openpawl diff <sessionId1> <sessionId2>       Cross-session diff
+ * openpawl diff <sessionId> --verbose           Show unchanged tasks
+ * openpawl diff <sessionId> --format markdown   Export as markdown
+ * openpawl diff <sessionId> --output <dir>      Custom output directory
+ * openpawl diff <sessionId> --summary           Overall trend only
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
@@ -214,12 +214,12 @@ function buildSnapshotFromEvents(
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw diff") + " — Compare runs within or across sessions",
+    pc.bold("openpawl diff") + " — Compare runs within or across sessions",
     "",
     pc.bold("Usage:"),
-    "  " + pc.green("teamclaw diff <sessionId>") + "                  Diff all runs in session",
-    "  " + pc.green("teamclaw diff <sessionId> --runs 1,2") + "      Diff specific run pair",
-    "  " + pc.green("teamclaw diff <sess1> <sess2>") + "             Cross-session diff",
+    "  " + pc.green("openpawl diff <sessionId>") + "                  Diff all runs in session",
+    "  " + pc.green("openpawl diff <sessionId> --runs 1,2") + "      Diff specific run pair",
+    "  " + pc.green("openpawl diff <sess1> <sess2>") + "             Cross-session diff",
     "",
     pc.bold("Options:"),
     "  " + pc.green("--verbose") + "           Show unchanged tasks",
@@ -229,10 +229,10 @@ function printHelp(): void {
     "  " + pc.green("--summary") + "           Overall trend only",
     "",
     "Examples:",
-    pc.dim("  teamclaw diff sess_abc123"),
-    pc.dim("  teamclaw diff sess_abc123 --runs 1,2"),
-    pc.dim("  teamclaw diff sess_abc123 sess_def456"),
-    pc.dim("  teamclaw diff sess_abc123 --format markdown --output ./reports/"),
+    pc.dim("  openpawl diff sess_abc123"),
+    pc.dim("  openpawl diff sess_abc123 --runs 1,2"),
+    pc.dim("  openpawl diff sess_abc123 sess_def456"),
+    pc.dim("  openpawl diff sess_abc123 --format markdown --output ./reports/"),
     "",
   ];
   console.log(lines.join("\n"));

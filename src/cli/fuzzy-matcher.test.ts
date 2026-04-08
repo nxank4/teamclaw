@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import {
     findClosestCommand,
     findClosestSubcommand,
@@ -23,9 +23,9 @@ describe("scoreMatch", () => {
 });
 
 describe("findClosestCommand", () => {
-    it('suggests "model" for "modals" (transposition)', () => {
+    it('suggests "models" for "modals" (distance 1)', () => {
         const result = findClosestCommand("modals");
-        expect(result.suggestion).toBe("model");
+        expect(result.suggestion).toBe("models");
         expect(result.confidence).not.toBe("none");
     });
 

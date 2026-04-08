@@ -32,14 +32,14 @@ const DEFAULT_NOTIF_PREFS: NotificationPreferences = {
 
 function loadNotifPrefs(): NotificationPreferences {
   try {
-    const raw = localStorage.getItem("teamclaw_notif_prefs");
+    const raw = localStorage.getItem("openpawl_notif_prefs");
     if (raw) return JSON.parse(raw) as NotificationPreferences;
   } catch {}
   return { ...DEFAULT_NOTIF_PREFS, types: { ...DEFAULT_NOTIF_PREFS.types } };
 }
 
 function saveNotifPrefs(prefs: NotificationPreferences): void {
-  try { localStorage.setItem("teamclaw_notif_prefs", JSON.stringify(prefs)); } catch {}
+  try { localStorage.setItem("openpawl_notif_prefs", JSON.stringify(prefs)); } catch {}
 }
 
 export interface ModelConfigState {

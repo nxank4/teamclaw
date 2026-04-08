@@ -1,5 +1,5 @@
 /**
- * teamclaw.config.json manager.
+ * openpawl.config.json manager.
  *
  * Keeps IO isolated and provides small helpers to read/write known keys.
  */
@@ -7,13 +7,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export type TeamclawConfigFile = {
+export type OpenpawlConfigFile = {
   path: string;
   data: Record<string, unknown>;
 };
 
-export function readTeamclawConfig(cwd: string = process.cwd()): TeamclawConfigFile {
-  const p = path.join(cwd, "teamclaw.config.json");
+export function readOpenpawlConfig(cwd: string = process.cwd()): OpenpawlConfigFile {
+  const p = path.join(cwd, "openpawl.config.json");
   if (!existsSync(p)) return { path: p, data: {} };
   try {
     const raw = readFileSync(p, "utf-8");
@@ -27,7 +27,7 @@ export function readTeamclawConfig(cwd: string = process.cwd()): TeamclawConfigF
   }
 }
 
-export function writeTeamclawConfig(p: string, data: Record<string, unknown>): void {
+export function writeOpenpawlConfig(p: string, data: Record<string, unknown>): void {
   writeFileSync(p, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 

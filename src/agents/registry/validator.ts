@@ -53,7 +53,7 @@ export const AgentDefinitionSchema = z.object({
     onError: z.function().optional(),
   }).optional(),
   metadata: z.record(z.unknown()).optional(),
-  __teamclaw_agent: z.literal(true).optional(),
+  __openpawl_agent: z.literal(true).optional(),
 });
 
 export type ValidatedAgentDef = z.infer<typeof AgentDefinitionSchema>;

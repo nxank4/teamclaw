@@ -2,7 +2,7 @@
 
 ## Overview
 
-`teamclaw standup` generates a concise daily standup summary: what was done, what's blocked, and what's next. Feels like a real team standup even when working alone. No LLM calls — entirely rule-based and data-driven.
+`openpawl standup` generates a concise daily standup summary: what was done, what's blocked, and what's next. Feels like a real team standup even when working alone. No LLM calls — entirely rule-based and data-driven.
 
 ## Architecture
 
@@ -222,7 +222,7 @@ Compact standup widget for dashboard:
 
 ### 7. Briefing Integration (`src/briefing/collector.ts`)
 
-When `teamclaw work` runs:
+When `openpawl work` runs:
 - `collectBriefingData()` extended to include a `standupSummary` field in `BriefingData`
 - Add `standupSummary?: { sessionCount: number; totalCost: number; topBlocked: string | null; topSuggestion: string | null }` to `BriefingData` type
 - If standup data exists: include compact version in briefing
@@ -248,7 +248,7 @@ When `teamclaw work` runs:
 3. **Rule-based suggestions** — priority ordering is deterministic and predictable. Users can trust the ordering won't change randomly.
 4. **Blocked items scoped to 3 sources only** — nextSprintBacklog + escalated tasks + agent profile alerts. No drift conflicts or open decisions (those have their own flows). Failed tasks intentionally excluded (already in briefing's "left open").
 5. **Dashboard integration** — compact widget at dashboard top, not a separate page.
-6. **Briefing integration** — standup folds into briefing when running `teamclaw work`, not shown separately.
+6. **Briefing integration** — standup folds into briefing when running `openpawl work`, not shown separately.
 7. **Streak DB access** — uses raw `lancedb.connect()` directly, no embedder needed. Streak rows use `vector: [0]` placeholder.
 8. **Agent alert detection** — computed dynamically from `overallScore` and `scoreHistory` trend (matching `src/briefing/collector.ts:104-119` logic), not from a stored `alert` field.
 
@@ -297,4 +297,4 @@ All tests use Vitest with mocked data (no real LanceDB or file system).
 - Cap suggestions at 3
 - Export must be valid CommonMark
 - Do not modify drift, journal, clarity, webhook, or proxy layers
-- Do not run standup generation in `teamclaw demo`
+- Do not run standup generation in `openpawl demo`

@@ -11,8 +11,8 @@ import pc from "picocolors";
 import type { TeamConfig } from "./team-config.js";
 import { clearTeamConfigCache, loadTeamConfig } from "./team-config.js";
 import {
-    readTeamclawConfig,
-    writeTeamclawConfig,
+    readOpenpawlConfig,
+    writeOpenpawlConfig,
 } from "./jsonConfigManager.js";
 import { setConfigAgentModels } from "./model-config.js";
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
@@ -41,7 +41,7 @@ export async function validateOrPromptConfig(
     }
 
     // Check if we have at least one LLM provider configured
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     const hasProviders = pm.getProviders().length > 0;
 
     if (hasProviders && rosterOk && !opts.forceDiscover) {
@@ -50,22 +50,22 @@ export async function validateOrPromptConfig(
 
     // No providers or force-discover: redirect to setup wizard
     if (!hasProviders || opts.forceDiscover) {
-        const tc = readTeamclawConfig();
+        const tc = readOpenpawlConfig();
         const configEmpty = Object.keys(tc.data).length === 0;
 
         if (configEmpty && !rosterOk) {
             note(
                 "Welcome! Let's do a quick 10-second setup before we start working.",
-                "TeamClaw setup",
+                "OpenPawl setup",
             );
         } else {
             note(
                 "No LLM providers configured. Let's set one up.",
-                "TeamClaw setup",
+                "OpenPawl setup",
             );
         }
 
-        const { runSetup } = await import("../commands/setup.js");
+        const { runSetup } = await import("../onboard/setup-flow.js");
         await runSetup();
         clearTeamConfigCache();
 
@@ -76,12 +76,12 @@ export async function validateOrPromptConfig(
 
     // Handle missing roster
     if (!rosterOk) {
-        const tc = readTeamclawConfig();
+        const tc = readOpenpawlConfig();
         note(
             [
                 "Your project config is missing a team roster.",
                 "We'll create a minimal default roster so you can start working,",
-                "and you can refine it later via `teamclaw onboard` or `teamclaw config`.",
+                "and you can refine it later via `openpawl onboard` or `openpawl config`.",
             ].join("\n"),
             "Missing roster",
         );
@@ -102,7 +102,7 @@ export async function validateOrPromptConfig(
             ];
         }
 
-        writeTeamclawConfig(tc.path, data);
+        writeOpenpawlConfig(tc.path, data);
         clearTeamConfigCache();
         const title = pc.green("Roster initialized");
         note(
@@ -111,7 +111,7 @@ export async function validateOrPromptConfig(
                 "- Engineer x3",
                 "- Designer x1",
                 "",
-                "You can customize this later in `teamclaw.config.json` or via the onboarding wizard.",
+                "You can customize this later in `openpawl.config.json` or via the onboarding wizard.",
             ].join("\n"),
             title,
         );

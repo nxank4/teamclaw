@@ -1,10 +1,8 @@
 /**
- * Interactive model management sub-menu for `teamclaw config`.
+ * Interactive model management sub-menu for `openpawl config`.
  */
 
 import {
-  cancel,
-  isCancel,
   note,
   select,
   text,
@@ -27,6 +25,7 @@ import {
 } from "../../core/model-operations.js";
 
 import { randomPhrase } from "../../utils/spinner-phrases.js";
+import { handleCancel } from "../../onboard/setup-flow.js";
 
 const KNOWN_AGENT_ROLES = [
   "coordinator",
@@ -37,14 +36,6 @@ const KNOWN_AGENT_ROLES = [
   "retrospective",
   "worker",
 ];
-
-function handleCancel<T>(v: T): T {
-  if (isCancel(v)) {
-    cancel("Cancelled.");
-    process.exit(0);
-  }
-  return v;
-}
 
 async function pickModel(
   message: string,

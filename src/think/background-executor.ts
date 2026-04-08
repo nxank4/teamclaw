@@ -27,7 +27,7 @@ export async function launchAsyncThink(
   if (running >= MAX_CONCURRENT_ASYNC_JOBS) {
     return {
       ok: false,
-      error: `Maximum ${MAX_CONCURRENT_ASYNC_JOBS} concurrent async jobs. Use "teamclaw think jobs" to check status.`,
+      error: `Maximum ${MAX_CONCURRENT_ASYNC_JOBS} concurrent async jobs. Use "openpawl think jobs" to check status.`,
     };
   }
 
@@ -56,7 +56,7 @@ export async function launchAsyncThink(
     return { ok: false, error: job.error };
   }
 
-  const logDir = path.join(os.homedir(), ".teamclaw", "think");
+  const logDir = path.join(os.homedir(), ".openpawl", "think");
   store.ensureDir();
   const logPath = path.join(logDir, `${jobId}.log`);
   const logFd = openSync(logPath, "a");

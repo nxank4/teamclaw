@@ -4,7 +4,7 @@
 
 The onboarding flow is state-machine based and focused on a lightweight provider setup.
 
-TeamClaw onboarding now collects only:
+OpenPawl onboarding now collects only:
 1. LLM Provider configuration (API key, model)
 2. Dynamic team roster
 3. Default goal
@@ -22,11 +22,11 @@ Back navigation is supported using a history stack and `<- Back` options on `sel
 ### `.env`
 - Provider API keys (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
-### `teamclaw.config.json`
+### `openpawl.config.json`
 - `roster` (dynamic array: role/count/description)
 - `goal`
 
 ## Notes
 
 - Legacy gateway prompts are removed from onboarding.
-- TeamClaw runtime uses the configured provider system and fails fast if no provider is available.
+- OpenPawl runtime uses the configured provider system and fails fast if no provider is available.

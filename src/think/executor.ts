@@ -26,7 +26,7 @@ export interface ExecuteOptions {
   onChunk?: (stage: "tech_lead" | "rfc_author" | "coordinator", content: string) => void;
 }
 
-function getProxy(): ProxyService {
+async function getProxy(): Promise<ProxyService> {
   return createProxyService();
 }
 
@@ -49,7 +49,7 @@ export async function executeThinkRound(
   context: ThinkContext,
   options?: ExecuteOptions,
 ): Promise<ThinkRound> {
-  const proxy = getProxy();
+  const proxy = await getProxy();
   const followUpPrefix = buildFollowUpContext(options?.previousRounds ?? []);
   const fullQuestion = followUpPrefix ? `${followUpPrefix}Follow-up question: ${question}` : question;
 

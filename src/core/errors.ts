@@ -173,12 +173,7 @@ export function validateApiKeyFormat(
   };
 }
 
-export function maskApiKey(key: string): string {
-  if (key.length <= 8) {
-    return `${key}...****`;
-  }
-  return `${key.slice(0, 8)}...****`;
-}
+export { maskCredential as maskApiKey } from "../credentials/masking.js";
 
 export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: string[] }> = {
   CONNECTION_FAILED: {
@@ -195,8 +190,8 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
     body: 'Your API key was rejected. It may be expired or incorrect.',
     fix: [
       'Get a new key at: {keyUrl}',
-      'Update your key: teamclaw config set providers.{provider}.apiKey YOUR_KEY',
-      'Test the connection: teamclaw check',
+      'Update your key: openpawl config set providers.{provider}.apiKey YOUR_KEY',
+      'Test the connection: openpawl check',
     ],
   },
   RATE_LIMITED: {
@@ -204,13 +199,13 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
     body: 'You have sent too many requests. {provider} is asking us to slow down.',
     fix: [
       'Wait 60 seconds and try again',
-      'Consider adding a fallback provider: teamclaw providers add',
+      'Consider adding a fallback provider: openpawl providers add',
       'Upgrade your {provider} plan for higher limits',
     ],
   },
   FIRST_CHUNK_TIMEOUT: {
     title: '{provider} is not responding',
-    body: 'TeamClaw waited 15 seconds for a response but got nothing.',
+    body: 'OpenPawl waited 15 seconds for a response but got nothing.',
     fix: [
       'Check your internet connection',
       'Try again — this is sometimes temporary',
@@ -219,19 +214,19 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
   },
   ALL_PROVIDERS_FAILED: {
     title: 'All providers failed',
-    body: 'TeamClaw tried all your configured providers and none responded.',
+    body: 'OpenPawl tried all your configured providers and none responded.',
     fix: [
-      'Run teamclaw check to see provider status',
+      'Run openpawl check to see provider status',
       'Verify at least one API key is valid',
       'Check your internet connection',
     ],
   },
   NO_PROVIDERS_CONFIGURED: {
     title: 'No AI provider configured',
-    body: 'TeamClaw needs an API key to work.',
+    body: 'OpenPawl needs an API key to work.',
     fix: [
-      'Run teamclaw setup to configure a provider',
-      'Or set: ANTHROPIC_API_KEY=sk-ant-... teamclaw work',
+      'Run openpawl setup to configure a provider',
+      'Or set: ANTHROPIC_API_KEY=sk-ant-... openpawl work',
     ],
   },
   STREAM_FAILED: {
@@ -249,33 +244,33 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
     fix: [
       'Try again in a moment',
       'Check {provider} status at {statusUrl}',
-      'Run teamclaw check to verify your setup',
+      'Run openpawl check to verify your setup',
     ],
   },
   CHATGPT_OAUTH_REQUIRED: {
     title: 'ChatGPT OAuth not configured',
     body: 'Run the setup flow to connect your ChatGPT subscription.',
-    fix: ['Run: teamclaw providers add chatgpt'],
+    fix: ['Run: openpawl providers add chatgpt'],
   },
   CHATGPT_TOKEN_EXPIRED: {
     title: 'ChatGPT token expired',
     body: 'Your ChatGPT OAuth token has expired. Refreshing automatically...',
-    fix: ['If this persists, re-run: teamclaw providers add chatgpt'],
+    fix: ['If this persists, re-run: openpawl providers add chatgpt'],
   },
   COPILOT_GITHUB_NOT_FOUND: {
     title: 'GitHub token not found',
     body: 'Could not find a GitHub token for Copilot access.',
-    fix: ['Run: gh auth login', 'Or let TeamClaw run the device flow: teamclaw providers add copilot'],
+    fix: ['Run: gh auth login', 'Or let OpenPawl run the device flow: openpawl providers add copilot'],
   },
   COPILOT_TOKEN_EXPIRED: {
     title: 'Copilot token expired',
     body: 'Your Copilot access token has expired. Refreshing automatically...',
-    fix: ['If this persists, re-run: teamclaw providers add copilot'],
+    fix: ['If this persists, re-run: openpawl providers add copilot'],
   },
   CLAUDE_SETUP_TOKEN_REJECTED: {
     title: 'Anthropic setup-token not supported',
     body: 'Anthropic does not allow OAuth/setup-tokens for third-party tools.',
-    fix: ['Use an API key instead: teamclaw providers add anthropic', 'Get a key at: https://platform.claude.com/settings/keys'],
+    fix: ['Use an API key instead: openpawl providers add anthropic', 'Get a key at: https://platform.claude.com/settings/keys'],
   },
   GEMINI_OAUTH_BANNED: {
     title: 'Google account may be suspended',
@@ -300,7 +295,7 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
   ANTHROPIC_OAUTH_BLOCKED: {
     title: 'Anthropic OAuth not supported',
     body: 'Anthropic OAuth tokens (from claude.ai) are not supported for third-party tools.',
-    fix: ['Use an API key: teamclaw providers add anthropic', 'Get a key at: https://platform.claude.com/settings/keys'],
+    fix: ['Use an API key: openpawl providers add anthropic', 'Get a key at: https://platform.claude.com/settings/keys'],
   },
   SANDBOX_TIMEOUT: {
     title: 'Code execution timed out',
@@ -325,12 +320,12 @@ export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: 
   SANDBOX_INIT_FAILED: {
     title: 'Sandbox initialization failed',
     body: 'Failed to initialize code execution sandbox. Requires Node.js >= 20.',
-    fix: ['Run: teamclaw check', 'Ensure Node.js >= 20 is installed', 'Run: pnpm install (secure-exec may need rebuilding)'],
+    fix: ['Run: openpawl check', 'Ensure Node.js >= 20 is installed', 'Run: pnpm install (secure-exec may need rebuilding)'],
   },
   CUSTOM_AGENT_SANDBOX_FAILED: {
     title: 'Custom agent sandbox failure',
     body: 'Custom agent "{name}" failed in sandbox (exit {code}). Handlers cannot access network, processes, or env vars.',
-    fix: ['Ensure handler is self-contained with no external closures', 'Check handler logic for runtime errors', 'Run: teamclaw check to verify sandbox health'],
+    fix: ['Ensure handler is self-contained with no external closures', 'Check handler logic for runtime errors', 'Run: openpawl check to verify sandbox health'],
   },
 };
 
@@ -374,14 +369,14 @@ export function formatError(code: string, provider: string, technicalDetail?: st
 
 export function formatFirstRunMessage(): string {
   const lines: string[] = [
-    `${pc.red('✗')} TeamClaw is not configured yet.`,
+    `${pc.red('✗')} OpenPawl is not configured yet.`,
     '',
     'Run setup first:',
-    '  teamclaw setup',
+    '  openpawl setup',
     '',
     'Or quick start with just an API key:',
     '  export ANTHROPIC_API_KEY=sk-ant-...',
-    '  teamclaw work --goal "your goal"',
+    '  openpawl work --goal "your goal"',
   ];
 
   return lines.join('\n');
@@ -393,16 +388,16 @@ export function formatProviderErrorType(error: ProviderErrorType): string {
       return `Rate limit hit on ${error.provider}. ` +
         (error.retryAfterMs
           ? `Retry in ${Math.ceil(error.retryAfterMs / 1000)}s.`
-          : "TeamClaw will try the next provider in your chain.");
+          : "OpenPawl will try the next provider in your chain.");
     case "timeout":
       return `${error.provider} timed out after ${error.timeoutMs}ms. ` +
         "Try a faster model or check your connection.";
     case "auth_failed":
       return `Authentication failed for ${error.provider}. ` +
-        "Run: teamclaw providers add " + error.provider;
+        "Run: openpawl providers add " + error.provider;
     case "model_not_found":
       return `Model "${error.model}" not found on ${error.provider}. ` +
-        "Run: teamclaw providers list to see available models.";
+        "Run: openpawl providers list to see available models.";
     case "context_too_long":
       return `Context too long for ${error.provider}. ` +
         "Enable context compression or use a model with larger context window.";

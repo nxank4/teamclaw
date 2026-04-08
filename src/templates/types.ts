@@ -13,7 +13,7 @@ export interface TemplateAgent {
   };
 }
 
-export interface TeamClawTemplate {
+export interface OpenPawlTemplate {
   id: string;
   name: string;
   version: string;
@@ -28,7 +28,7 @@ export interface TeamClawTemplate {
   readme?: string;
 }
 
-export interface InstalledTemplate extends TeamClawTemplate {
+export interface InstalledTemplate extends OpenPawlTemplate {
   installedAt: number;
   installedVersion: string;
 }
@@ -62,8 +62,8 @@ export interface MarketplaceConfig {
 }
 
 export const DEFAULT_MARKETPLACE_CONFIG: MarketplaceConfig = {
-  baseUrl: "https://raw.githubusercontent.com/nxank4/teamclaw-templates/main",
-  repo: "nxank4/teamclaw-templates",
+  baseUrl: "https://raw.githubusercontent.com/nxank4/openpawl-templates/main",
+  repo: "nxank4/openpawl-templates",
   timeout: 5_000,
   cacheTtlMs: 60 * 60 * 1000, // 1 hour
 };

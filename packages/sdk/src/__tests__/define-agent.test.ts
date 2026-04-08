@@ -12,7 +12,7 @@ const validDef = {
 describe("defineAgent", () => {
   it("returns a branded definition for valid input", () => {
     const result = defineAgent(validDef);
-    expect(result.__teamclaw_agent).toBe(true);
+    expect(result.__openpawl_agent).toBe(true);
     expect(result.role).toBe("code-reviewer");
     expect(result.displayName).toBe("Code Reviewer");
     expect(Object.isFrozen(result)).toBe(true);

@@ -1,5 +1,5 @@
 /**
- * CLI command: teamclaw cache
+ * CLI command: openpawl cache
  * Manage response cache: stats, clear, prune, enable/disable.
  */
 
@@ -31,7 +31,7 @@ export async function runCacheCommand(args: string[]): Promise<void> {
   const sub = args[0];
 
   if (!sub || sub === "--help" || sub === "-h") {
-    logger.plain("Usage: teamclaw cache <subcommand>");
+    logger.plain("Usage: openpawl cache <subcommand>");
     logger.plain("");
     logger.plain("Subcommands:");
     logger.plain("  stats     Show cache hit rate, savings, and entry count");
@@ -95,6 +95,6 @@ export async function runCacheCommand(args: string[]): Promise<void> {
   }
 
   logger.error(`Unknown cache subcommand: ${sub}`);
-  logger.error("Run `teamclaw cache --help` for usage.");
+  logger.error("Run `openpawl cache --help` for usage.");
   process.exit(1);
 }

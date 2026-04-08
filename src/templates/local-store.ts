@@ -1,15 +1,15 @@
 /**
  * Local template store — manages installed templates on disk.
- * Templates installed at ~/.teamclaw/templates/installed/<id>/template.json
+ * Templates installed at ~/.openpawl/templates/installed/<id>/template.json
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { TeamClawTemplate, InstalledTemplate } from "./types.js";
+import type { OpenPawlTemplate, InstalledTemplate } from "./types.js";
 
 function getInstalledDir(): string {
-  return path.join(os.homedir(), ".teamclaw", "templates", "installed");
+  return path.join(os.homedir(), ".openpawl", "templates", "installed");
 }
 
 function getTemplatePath(id: string): string {
@@ -21,7 +21,7 @@ function getTemplateDir(id: string): string {
 }
 
 export class LocalTemplateStore {
-  async install(template: TeamClawTemplate): Promise<void> {
+  async install(template: OpenPawlTemplate): Promise<void> {
     const dir = getTemplateDir(template.id);
     mkdirSync(dir, { recursive: true });
     const installed: InstalledTemplate = {

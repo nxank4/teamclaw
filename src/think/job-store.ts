@@ -1,6 +1,6 @@
 /**
  * File-backed store for async think jobs.
- * Each job is a JSON file at ~/.teamclaw/think/<jobId>.json.
+ * Each job is a JSON file at ~/.openpawl/think/<jobId>.json.
  * Uses atomic writes (tmp + rename) to prevent corruption.
  */
 
@@ -30,7 +30,7 @@ export class AsyncThinkJobStore {
   private dir: string;
 
   constructor(dir?: string) {
-    this.dir = dir ?? path.join(os.homedir(), ".teamclaw", "think");
+    this.dir = dir ?? path.join(os.homedir(), ".openpawl", "think");
   }
 
   ensureDir(): void {

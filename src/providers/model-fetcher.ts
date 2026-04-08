@@ -221,8 +221,15 @@ export async function fetchModelsForProvider(
     case "bedrock":
     case "vertex":
     case "azure":
-    // OpenCode — no /models listing endpoint; catalog is authoritative
+      return { models: [], source: "fallback" };
+
+    // OpenCode Zen — models endpoint is public (no auth needed)
     case "opencode-zen":
+      return fetchOpenAICompatibleModels(
+        baseUrl ?? getDefaultBaseUrl(providerId),
+        "",
+      );
+    // OpenCode Go — no models endpoint, use hardcoded catalog
     case "opencode-go":
       return { models: [], source: "fallback" };
 
@@ -272,6 +279,7 @@ function getDefaultBaseUrl(providerId: string): string {
     grok: "https://api.x.ai/v1",
     "opencode-zen": "https://opencode.ai/zen/v1",
     "opencode-go": "https://opencode.ai/zen/go/v1",
+    "alibaba-coding": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   };
   return URLS[providerId] ?? "";
 }

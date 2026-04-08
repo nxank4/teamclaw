@@ -1,5 +1,5 @@
 /**
- * Persist onboarding choices to teamclaw.config.json.
+ * Persist onboarding choices to openpawl.config.json.
  */
 
 import { writeFileSync } from "node:fs";
@@ -23,7 +23,7 @@ export interface PersistConfig {
 
 export function writeConfig(cfg: PersistConfig): void {
   const cwd = process.cwd();
-  const configPath = path.join(cwd, "teamclaw.config.json");
+  const configPath = path.join(cwd, "openpawl.config.json");
 
   const config: Record<string, unknown> = {
     roster: cfg.roster,

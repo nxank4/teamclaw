@@ -1,10 +1,11 @@
-import { describe, expect, test, beforeAll, afterAll } from "vitest";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { canUseIsolate } from "../helpers/can-use-isolate.js";
 import { createCodeExecutorTool } from "@/tools/code-executor.js";
 
-describe("CodeExecutorTool", () => {
-  const workspacePath = path.join("/tmp", `teamclaw-test-${Date.now()}`);
+describe.skipIf(!canUseIsolate())("CodeExecutorTool", () => {
+  const workspacePath = path.join("/tmp", `openpawl-test-${Date.now()}`);
   let executor: ReturnType<typeof createCodeExecutorTool>;
 
   beforeAll(() => {

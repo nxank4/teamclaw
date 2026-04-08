@@ -1,6 +1,6 @@
 /**
  * DecisionStore — LanceDB persistence for the decision journal.
- * Table: `decisions` in ~/.teamclaw/memory/global.db.
+ * Table: `decisions` in ~/.openpawl/memory/global.db.
  */
 
 import type * as lancedb from "@lancedb/lancedb";

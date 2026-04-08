@@ -2,19 +2,19 @@
  * CLI commands for the template marketplace.
  *
  * Usage:
- *   teamclaw templates browse                   List all from marketplace
- *   teamclaw templates browse --tag <tag>        Filter by tag
- *   teamclaw templates browse --sort <field>     Sort by downloads/stars/name
- *   teamclaw templates search <query>            Fuzzy search name+description+tags
- *   teamclaw templates install <id>              Fetch + install locally
- *   teamclaw templates install <id> --use        Install + use for next work
- *   teamclaw templates remove <id>               Uninstall
- *   teamclaw templates list                      Show installed templates
- *   teamclaw templates show <id>                 Full detail view + README
- *   teamclaw templates validate <path>           Validate local template.json
- *   teamclaw templates publish <path>            Publish to marketplace
- *   teamclaw templates init                      Scaffold a new template.json
- *   teamclaw templates update                    Update all installed templates
+ *   openpawl templates browse                   List all from marketplace
+ *   openpawl templates browse --tag <tag>        Filter by tag
+ *   openpawl templates browse --sort <field>     Sort by downloads/stars/name
+ *   openpawl templates search <query>            Fuzzy search name+description+tags
+ *   openpawl templates install <id>              Fetch + install locally
+ *   openpawl templates install <id> --use        Install + use for next work
+ *   openpawl templates remove <id>               Uninstall
+ *   openpawl templates list                      Show installed templates
+ *   openpawl templates show <id>                 Full detail view + README
+ *   openpawl templates validate <path>           Validate local template.json
+ *   openpawl templates publish <path>            Publish to marketplace
+ *   openpawl templates init                      Scaffold a new template.json
+ *   openpawl templates update                    Update all installed templates
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -26,7 +26,7 @@ import { LocalTemplateStore } from "../templates/local-store.js";
 import { validateTemplate } from "../templates/validator.js";
 import { TemplatePublisher } from "../templates/publisher.js";
 import { getAllSeedTemplates, getSeedTemplate, isSeedTemplate } from "../templates/seeds/index.js";
-import type { TeamClawTemplate, TemplateIndexEntry } from "../templates/types.js";
+import type { OpenPawlTemplate, TemplateIndexEntry } from "../templates/types.js";
 
 export async function runTemplatesCommand(args: string[]): Promise<void> {
   const sub = args[0];
@@ -66,7 +66,7 @@ export async function runTemplatesCommand(args: string[]): Promise<void> {
 function printHelp(): void {
   const lines = [
     "",
-    pc.bold("teamclaw templates") + " — Template marketplace",
+    pc.bold("openpawl templates") + " — Template marketplace",
     "",
     "  " + pc.green("browse") + "                    List all templates from marketplace",
     "  " + pc.green("browse --tag <tag>") + "        Filter by tag",
@@ -83,10 +83,10 @@ function printHelp(): void {
     "  " + pc.green("update") + "                    Update all installed templates",
     "",
     "Examples:",
-    pc.dim("  teamclaw templates browse --tag content"),
-    pc.dim("  teamclaw templates install content-creator"),
-    pc.dim("  teamclaw templates search youtube"),
-    pc.dim("  teamclaw templates init"),
+    pc.dim("  openpawl templates browse --tag content"),
+    pc.dim("  openpawl templates install content-creator"),
+    pc.dim("  openpawl templates search youtube"),
+    pc.dim("  openpawl templates init"),
     "",
   ];
   console.log(lines.join("\n"));
@@ -170,7 +170,7 @@ async function runBrowse(args: string[]): Promise<void> {
   const updatedAgo = getTimeAgo(index.updatedAt);
   logger.plain("");
   logger.plain(pc.bold("━".repeat(52)));
-  logger.plain(pc.bold("  TeamClaw Templates Marketplace"));
+  logger.plain(pc.bold("  OpenPawl Templates Marketplace"));
   logger.plain(`  ${templates.length} templates  |  Last updated: ${updatedAgo}`);
   logger.plain(pc.bold("━".repeat(52)));
   logger.plain("");
@@ -193,7 +193,7 @@ async function runBrowse(args: string[]): Promise<void> {
 async function runSearch(args: string[]): Promise<void> {
   const query = args.join(" ").trim();
   if (!query) {
-    logger.error("Usage: teamclaw templates search <query>");
+    logger.error("Usage: openpawl templates search <query>");
     process.exit(1);
   }
 
@@ -241,7 +241,7 @@ async function runInstall(args: string[]): Promise<void> {
   const useFlag = args.includes("--use");
 
   if (!id) {
-    logger.error("Usage: teamclaw templates install <id> [--use]");
+    logger.error("Usage: openpawl templates install <id> [--use]");
     process.exit(1);
   }
 
@@ -249,7 +249,7 @@ async function runInstall(args: string[]): Promise<void> {
 
   // Check if already installed
   if (await store.isInstalled(id)) {
-    logger.warn(`Template "${id}" is already installed. Use \`teamclaw templates update\` to update.`);
+    logger.warn(`Template "${id}" is already installed. Use \`openpawl templates update\` to update.`);
     return;
   }
 
@@ -290,11 +290,11 @@ async function runInstall(args: string[]): Promise<void> {
   logger.plain("");
 
   await store.install(template);
-  logger.success(`Installed to ~/.teamclaw/templates/installed/${id}/`);
+  logger.success(`Installed to ~/.openpawl/templates/installed/${id}/`);
   logger.plain("");
   logger.plain("To use this template:");
-  logger.plain(pc.cyan(`  teamclaw work --template ${id}`));
-  logger.plain(pc.cyan("  teamclaw setup") + "  (select during setup wizard)");
+  logger.plain(pc.cyan(`  openpawl work --template ${id}`));
+  logger.plain(pc.cyan("  openpawl setup") + "  (select during setup wizard)");
 
   if (useFlag) {
     // Write template to workspace config
@@ -303,7 +303,7 @@ async function runInstall(args: string[]): Promise<void> {
       setConfigValue("template", id);
       logger.success(`Set active template to "${id}"`);
     } catch {
-      logger.warn("Could not set template in config. Use --template flag with teamclaw work.");
+      logger.warn("Could not set template in config. Use --template flag with openpawl work.");
     }
   }
 }
@@ -315,7 +315,7 @@ async function runInstall(args: string[]): Promise<void> {
 async function runRemove(args: string[]): Promise<void> {
   const id = args[0];
   if (!id) {
-    logger.error("Usage: teamclaw templates remove <id>");
+    logger.error("Usage: openpawl templates remove <id>");
     process.exit(1);
   }
 
@@ -340,7 +340,7 @@ async function runList(): Promise<void> {
 
   if (installed.length === 0) {
     logger.plain("No templates installed.");
-    logger.plain(pc.dim("Browse available templates: teamclaw templates browse"));
+    logger.plain(pc.dim("Browse available templates: openpawl templates browse"));
     return;
   }
 
@@ -364,12 +364,12 @@ async function runList(): Promise<void> {
 async function runShow(args: string[]): Promise<void> {
   const id = args[0];
   if (!id) {
-    logger.error("Usage: teamclaw templates show <id>");
+    logger.error("Usage: openpawl templates show <id>");
     process.exit(1);
   }
 
   const store = new LocalTemplateStore();
-  let template: TeamClawTemplate | null = await store.get(id);
+  let template: OpenPawlTemplate | null = await store.get(id);
   let installed = true;
 
   if (!template) {
@@ -444,7 +444,7 @@ async function runShow(args: string[]): Promise<void> {
 async function runValidate(args: string[]): Promise<void> {
   const filePath = args[0];
   if (!filePath) {
-    logger.error("Usage: teamclaw templates validate <path>");
+    logger.error("Usage: openpawl templates validate <path>");
     process.exit(1);
   }
 
@@ -494,7 +494,7 @@ async function runValidate(args: string[]): Promise<void> {
 async function runPublish(args: string[]): Promise<void> {
   const filePath = args[0];
   if (!filePath) {
-    logger.error("Usage: teamclaw templates publish <path>");
+    logger.error("Usage: openpawl templates publish <path>");
     process.exit(1);
   }
 
@@ -565,7 +565,7 @@ async function runInit(): Promise<void> {
     .slice(0, 5);
 
   // Collect agents
-  const agents: TeamClawTemplate["agents"] = [];
+  const agents: OpenPawlTemplate["agents"] = [];
   let addMore = true;
 
   while (addMore) {
@@ -599,7 +599,7 @@ async function runInit(): Promise<void> {
     if (isCancel(moreInput) || !moreInput) addMore = false;
   }
 
-  const template: TeamClawTemplate = {
+  const template: OpenPawlTemplate = {
     id,
     name,
     version: "0.0.1",
@@ -639,8 +639,8 @@ async function runInit(): Promise<void> {
     "## Usage",
     "",
     "```bash",
-    `teamclaw templates install ${id}`,
-    `teamclaw work --template ${id}`,
+    `openpawl templates install ${id}`,
+    `openpawl work --template ${id}`,
     "```",
     "",
   ].join("\n");
@@ -651,8 +651,8 @@ async function runInit(): Promise<void> {
   logger.success(`Created ./${id}/README.md`);
   logger.plain("");
   logger.plain("Next steps:");
-  logger.plain(pc.cyan(`  teamclaw templates validate ./${id}/`));
-  logger.plain(pc.cyan(`  teamclaw templates publish ./${id}/`));
+  logger.plain(pc.cyan(`  openpawl templates validate ./${id}/`));
+  logger.plain(pc.cyan(`  openpawl templates publish ./${id}/`));
 }
 
 // ---------------------------------------------------------------------------
@@ -706,7 +706,7 @@ async function runUpdate(): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function seedToIndexEntry(seed: TeamClawTemplate): TemplateIndexEntry {
+function seedToIndexEntry(seed: OpenPawlTemplate): TemplateIndexEntry {
   return {
     id: seed.id,
     name: seed.name,

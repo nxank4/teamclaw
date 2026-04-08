@@ -3,7 +3,7 @@
  * TeamClaw onboarding wizard — delegates to the unified setup wizard.
  */
 
-import { runSetup } from "../commands/setup.js";
+import { runSetup } from "./setup-flow.js";
 import { logger } from "../core/logger.js";
 
 export interface RunOnboardOptions {
