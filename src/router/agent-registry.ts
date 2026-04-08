@@ -18,12 +18,20 @@ import type { AgentDefinition, IntentCategory, RouterError } from "./router-type
 export function buildIdentityPrefix(agentName: string, model?: string, provider?: string): string {
   const poweredBy = model
     ? provider
-      ? `powered by ${model} (via ${provider})`
+      ? `powered by ${model} via ${provider}`
       : `powered by ${model}`
     : "";
-  return `You are ${agentName}, an agent in OpenPawl — an AI coding assistant that orchestrates agent teams.${poweredBy ? ` You are ${poweredBy}.` : ""}
-When asked who you are, say "I'm OpenPawl${poweredBy ? `, ${poweredBy}` : ""}."
-Be honest about what model you are — OpenPawl is the tool, the model is the AI running underneath.`;
+  return `You are ${agentName} in OpenPawl.${poweredBy ? ` (${poweredBy})` : ""}
+
+## Communication rules (non-negotiable)
+- Be terse. Minimum words. No filler, no preamble.
+- Never use emojis.
+- Never end with "Would you like me to...", "Let me know if...", or suggestion bullets. Stop when done.
+- Never repeat the user's question back to them.
+- Never announce what you're about to do. Just do it.
+- Show tool output first. Add commentary only if it adds value beyond what the output already shows.
+- When showing code or file contents, let the content speak for itself. Do not describe what the user can see.
+- If the answer is one word, say one word.`;
 }
 
 const BUILT_IN_AGENTS: AgentDefinition[] = [
@@ -34,7 +42,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["code_write", "code_edit", "code_debug", "file_ops"],
     defaultTools: ["file_read", "file_write", "file_edit", "execute_code", "shell_exec"],
     modelTier: "primary",
-    systemPrompt: "You write, modify, and implement code. Be direct and concise.",
+    systemPrompt: "Write and modify code. Use tools to read files before editing. Output working code, not explanations about code.",
     canCollaborate: true,
     maxConcurrent: 3,
     triggerPatterns: [
@@ -49,7 +57,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["code_review", "code_explain"],
     defaultTools: ["file_read"],
     modelTier: "primary",
-    systemPrompt: "You review code for quality, bugs, security, and best practices.",
+    systemPrompt: "Review code. Read the actual files before commenting. Report issues with file:line references. Skip praise.",
     canCollaborate: true,
     maxConcurrent: 2,
     triggerPatterns: [
@@ -63,7 +71,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["plan", "code_explain"],
     defaultTools: ["file_read", "web_search"],
     modelTier: "primary",
-    systemPrompt: "You create execution plans, architecture designs, and task breakdowns for complex goals.",
+    systemPrompt: "Break goals into concrete steps. Each step: what to do, which files, expected outcome. No philosophy.",
     canCollaborate: true,
     maxConcurrent: 1,
     triggerPatterns: [
@@ -77,7 +85,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["test_write", "test_run", "code_debug"],
     defaultTools: ["file_read", "file_write", "execute_code", "shell_exec"],
     modelTier: "fast",
-    systemPrompt: "You write and run tests to validate implementations against requirements.",
+    systemPrompt: "Write and run tests. Read the source first to understand what to test. Show test output, not test philosophy.",
     canCollaborate: true,
     maxConcurrent: 3,
     triggerPatterns: [
@@ -91,7 +99,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["code_debug", "code_edit", "test_run"],
     defaultTools: ["file_read", "file_write", "file_edit", "execute_code", "shell_exec"],
     modelTier: "primary",
-    systemPrompt: "You investigate and fix bugs by reading errors, tracing issues, and proposing fixes.",
+    systemPrompt: "Debug by reading the actual error and source code. Trace the root cause. Fix it or explain exactly what's wrong.",
     canCollaborate: true,
     maxConcurrent: 2,
     triggerPatterns: [
@@ -105,7 +113,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["research", "code_explain"],
     defaultTools: ["web_search", "web_fetch", "file_read"],
     modelTier: "fast",
-    systemPrompt: "You search the web, read documentation, and gather information to answer questions.",
+    systemPrompt: "Search and fetch information. Return facts, not summaries of your search process.",
     canCollaborate: true,
     maxConcurrent: 2,
     triggerPatterns: [
@@ -119,7 +127,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["conversation", "code_explain", "file_ops"],
     defaultTools: ["file_read"],
     modelTier: "fast",
-    systemPrompt: "You help with conversation, explanations, and simple tasks. Be friendly and concise.",
+    systemPrompt: "Answer directly. If a tool would help, use it. If not, give the shortest correct answer.",
     canCollaborate: false,
     maxConcurrent: 1,
     triggerPatterns: [],

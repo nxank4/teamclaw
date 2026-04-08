@@ -171,11 +171,14 @@ export async function callLLMMultiTurn(opts: {
   signal?: AbortSignal;
   maxTurns?: number;
   temperature?: number;
+  /** Prior conversation messages to include before the current user message. */
+  priorMessages?: Message[];
   /** Hook called before each LLM turn. Can mutate messages (e.g., for context compaction). */
   beforeTurn?: (messages: Message[], turn: number) => Promise<void>;
 }): Promise<LLMResponse> {
   const maxTurns = opts.maxTurns ?? 20;
   const messages: Message[] = [
+    ...(opts.priorMessages ?? []),
     { role: "user", content: opts.userMessage },
   ];
 

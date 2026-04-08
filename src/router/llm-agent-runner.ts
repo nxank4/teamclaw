@@ -82,12 +82,17 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
 
       if (hasTools) {
         const toolList = toolDefs.map((t) => `- ${t.name}: ${t.description}`).join("\n");
-        systemPrompt += `\n\nYou have access to the following tools:\n${toolList}\n\nThe current working directory is: ${process.cwd()}\nWhen the user asks you to read, analyze, or modify code, USE the file_read, file_list, and file_edit tools to access the codebase directly. Do NOT ask the user to paste code.`;
+        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands — do it yourself.`;
       }
 
       try {
         const allToolCalls: ToolCallSummary[] = [];
         let toolCallCounter = 0;
+
+        // Build prior messages from session history (user/assistant only)
+        const priorMessages: Message[] = (context.sessionHistory ?? [])
+          .filter(m => m.role === "user" || m.role === "assistant")
+          .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
 
         if (hasTools) {
           // Multi-turn with tool loop
@@ -95,6 +100,7 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
             model: context.model,
             systemPrompt,
             userMessage: prompt,
+            priorMessages,
             tools: toolDefs,
             handleTool: async (name, args) => {
               const execId = `tc_${++toolCallCounter}`;
@@ -183,7 +189,21 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
           return makeResult(agentId, true, response.text, undefined, response.usage, allToolCalls);
         }
 
-        // Simple single-turn (no tools)
+        // Simple single-turn (no tools) — use multi-turn if history exists
+        if (priorMessages.length > 0) {
+          const response = await callLLMMultiTurn({
+            model: context.model,
+            systemPrompt,
+            userMessage: prompt,
+            priorMessages,
+            handleTool: async () => "",
+            onChunk: (token) => onToken?.(agentId, token),
+            signal,
+            maxTurns: 1,
+          });
+          return makeResult(agentId, true, response.text, undefined, response.usage);
+        }
+
         const response = await callLLM(prompt, {
           model: context.model,
           systemPrompt,
