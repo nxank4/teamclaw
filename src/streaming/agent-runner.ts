@@ -12,6 +12,9 @@ import type { CostTracker } from "./cost-tracker.js";
 import type { AgentDefinition } from "../router/router-types.js";
 import type { ResolvedToolSet, ToolExecutionContext } from "../tools/types.js";
 import type { Session } from "../session/session.js";
+import type { ContextTracker } from "../context/context-tracker.js";
+import type { ContextLevel } from "../context/types.js";
+import { compact } from "../context/compaction.js";
 
 const MAX_TOOL_LOOP_ITERATIONS = 10;
 
@@ -30,6 +33,8 @@ export class AgentRunner extends EventEmitter {
     private contextBuilder: ContextBuilder,
     private toolCallHandler: ToolCallHandler,
     private costTracker: CostTracker,
+    private contextTracker?: ContextTracker,
+    private onContextUpdate?: (utilization: number, level: ContextLevel) => void,
   ) {
     super();
   }
@@ -92,6 +97,15 @@ export class AgentRunner extends EventEmitter {
 
       if (abortSignal?.aborted) {
         return this.makeAbortResult(sessionId, agentId, accumulatedContent, allToolCalls, totalInput, totalOutput, startTime);
+      }
+
+      // Context compaction check before each LLM call
+      if (this.contextTracker) {
+        const snapshot = this.contextTracker.snapshot(messages);
+        this.onContextUpdate?.(snapshot.utilizationPercent, snapshot.level);
+        if (this.contextTracker.shouldCompact(snapshot)) {
+          await compact(messages, snapshot.level);
+        }
       }
 
       // Serialize messages into a single prompt for the provider

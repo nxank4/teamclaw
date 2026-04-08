@@ -14,10 +14,12 @@ import { createCostCommand } from "./cost.js";
 import { createSessionsCommand } from "./sessions.js";
 import { createHotkeysCommand } from "./hotkeys.js";
 import { createErrorCommand } from "./error.js";
+import { createCompactCommand, type CompactCommandDeps } from "./compact.js";
 
 export function registerAllCommands(
   registry: CommandRegistry,
   session: SessionManager,
+  compactDeps?: CompactCommandDeps,
 ): void {
   registry.register(createStatusCommand());
   registry.register(createSettingsCommand());
@@ -27,4 +29,7 @@ export function registerAllCommands(
   registry.register(createSessionsCommand());
   registry.register(createHotkeysCommand());
   registry.register(createErrorCommand());
+  if (compactDeps) {
+    registry.register(createCompactCommand(compactDeps));
+  }
 }

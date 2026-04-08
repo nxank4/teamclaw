@@ -1,0 +1,203 @@
+/**
+ * Compaction strategies — reduce context size by masking tool results,
+ * pruning old messages, or summarizing via LLM.
+ *
+ * Strategies are applied in order of aggressiveness based on context level.
+ * All strategies mutate the messages array in-place to avoid copies.
+ */
+
+import type { ContextLevel, CompactionResult } from "./types.js";
+import { estimateMessageTokens } from "./context-tracker.js";
+
+/** Message shape compatible with both engine/llm.ts Message and SessionMessage. */
+export interface CompactableMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  toolCallId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Options for compaction. LLM summarization requires a callLLM function. */
+export interface CompactionOptions {
+  /** Call the LLM to generate a summary. Required for emergency level. */
+  callLLM?: (prompt: string) => Promise<string>;
+  /** Number of recent exchanges to keep untouched. Default: 10. */
+  keepLastExchanges?: number;
+  /** Number of verbatim exchanges to keep for emergency. Default: 5. */
+  emergencyKeepLast?: number;
+}
+
+const SUMMARIZATION_PROMPT = `Summarize this conversation history into a concise context document.
+Preserve: current goal, key decisions made, files modified, errors encountered, next steps.
+Keep under 2000 tokens.
+
+Conversation:
+`;
+
+/**
+ * Run the appropriate compaction strategy for the given context level.
+ * Mutates the messages array in-place.
+ *
+ * Returns null if no compaction was applied (normal/warning levels).
+ */
+export async function compact(
+  messages: CompactableMessage[],
+  level: ContextLevel,
+  options?: CompactionOptions,
+): Promise<CompactionResult | null> {
+  if (level === "normal" || level === "warning") return null;
+
+  const beforeTokens = estimateMessageTokens(messages);
+
+  let result: CompactionResult;
+
+  switch (level) {
+    case "high":
+      result = maskToolResults(messages, options?.keepLastExchanges ?? 10);
+      break;
+    case "critical":
+      result = pruneMessages(messages, options?.keepLastExchanges ?? 10);
+      break;
+    case "emergency":
+      result = await llmSummarize(messages, options);
+      break;
+    default:
+      return null;
+  }
+
+  result.beforeTokens = beforeTokens;
+  result.afterTokens = estimateMessageTokens(messages);
+  return result;
+}
+
+// ── Strategy 1: Tool Result Masking (high) ───────────────────────────────────
+
+/**
+ * Replace content of tool result messages older than the last N exchanges
+ * with a short placeholder. Preserves toolCallId so the LLM knows a
+ * tool WAS called.
+ */
+function maskToolResults(
+  messages: CompactableMessage[],
+  keepLast: number,
+): CompactionResult {
+  const cutoff = findExchangeCutoff(messages, keepLast);
+  let affected = 0;
+
+  for (let i = 0; i < cutoff; i++) {
+    const msg = messages[i]!;
+    if (msg.role === "tool" && msg.content.length > 100) {
+      const toolName = msg.metadata?.toolName ?? "unknown";
+      msg.content = `[Tool: ${toolName} — result truncated. Re-run tool if needed.]`;
+      affected++;
+    }
+  }
+
+  return { strategy: "tool_mask", beforeTokens: 0, afterTokens: 0, messagesAffected: affected };
+}
+
+// ── Strategy 2: Pruning (critical) ──────────────────────────────────────────
+
+/**
+ * Remove tool messages and truncate user/assistant messages outside
+ * the last N exchanges. Keeps the system prompt at index 0.
+ */
+function pruneMessages(
+  messages: CompactableMessage[],
+  keepLast: number,
+): CompactionResult {
+  const cutoff = findExchangeCutoff(messages, keepLast);
+  let affected = 0;
+
+  // Work backwards to avoid index shifting
+  for (let i = cutoff - 1; i >= 0; i--) {
+    const msg = messages[i]!;
+
+    if (msg.role === "system" && i === 0) {
+      // Keep original system prompt
+      continue;
+    }
+
+    if (msg.role === "system" || msg.role === "tool") {
+      // Remove entirely
+      messages.splice(i, 1);
+      affected++;
+      continue;
+    }
+
+    if (msg.role === "user" && msg.content.length > 500) {
+      msg.content = msg.content.slice(0, 200) + "\n[...truncated]";
+      affected++;
+    } else if (msg.role === "assistant" && msg.content.length > 1000) {
+      msg.content = msg.content.slice(0, 500) + "\n[...truncated]";
+      affected++;
+    }
+  }
+
+  return { strategy: "prune", beforeTokens: 0, afterTokens: 0, messagesAffected: affected };
+}
+
+// ── Strategy 3: LLM Summarization (emergency) ──────────────────────────────
+
+/**
+ * Summarize the entire conversation into a ~2000 token summary.
+ * Replace history with [summary as system msg] + last N exchanges.
+ */
+async function llmSummarize(
+  messages: CompactableMessage[],
+  options?: CompactionOptions,
+): Promise<CompactionResult> {
+  const keepLast = options?.emergencyKeepLast ?? 5;
+
+  if (!options?.callLLM) {
+    // Fallback to pruning if no LLM available
+    return pruneMessages(messages, keepLast);
+  }
+
+  const cutoff = findExchangeCutoff(messages, keepLast);
+  const toSummarize = messages.slice(0, cutoff);
+
+  // Build a compact representation for summarization
+  const historyText = toSummarize
+    .map((m) => `[${m.role}]: ${m.content.slice(0, 500)}`)
+    .join("\n");
+
+  const summary = await options.callLLM(SUMMARIZATION_PROMPT + historyText);
+
+  // Keep the tail verbatim
+  const tail = messages.slice(cutoff);
+
+  // Replace entire array contents
+  messages.length = 0;
+  messages.push(
+    { role: "system", content: `[Conversation Summary]\n${summary}` },
+    ...tail,
+  );
+
+  return {
+    strategy: "llm_summarize",
+    beforeTokens: 0,
+    afterTokens: 0,
+    messagesAffected: toSummarize.length,
+  };
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Find the message index that marks the start of the last N user/assistant exchanges.
+ * An "exchange" is a user message followed by an assistant response.
+ */
+function findExchangeCutoff(messages: CompactableMessage[], keepLast: number): number {
+  let exchanges = 0;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === "user") {
+      exchanges++;
+      if (exchanges >= keepLast) return i;
+    }
+  }
+
+  // Fewer than keepLast exchanges — don't compact anything
+  return 0;
+}
