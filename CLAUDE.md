@@ -90,6 +90,104 @@ Fastify + SSE for real-time dashboard updates. Single active orchestration at a 
 - **Auto-commit cadence:** Commit and push after each major logical unit of work (new feature, bug fix, refactor). Do NOT wait until the entire task is done — commit at natural milestones. Aim for commits in the ~200-1000 lines changed range. Avoid micro-commits for trivial edits (typos, single-line fixes) and avoid mega-commits with 2000+ lines.
 - **Pre-commit safety checks:** Before every commit, run `git status` and `git diff --stat` to review what is staged. Check for accidentally included large files, build artifacts (`dist/`, `node_modules/`), secrets (`.env`, credentials), or binary blobs. If any staged file exceeds 500KB or any folder adds 50+ new files, stop and ask before committing.
 
+## Git Workflow
+
+### Branch strategy
+
+```
+main ← production, tagged releases only
+  └── staging ← integration branch, sprint accumulator
+        ├── feat/setup-wizard-tui ← feature branch (auto-created, auto-merged, auto-deleted)
+        ├── fix/scroll-performance
+        ├── feat/oauth-providers
+        └── ...
+```
+
+### Branch lifecycle (FOLLOW THIS EVERY TIME)
+
+**Before starting any task:**
+1. `git checkout staging && git pull origin staging`
+2. Create a topic branch: `git checkout -b <type>/<short-name>`
+   - Types: `feat/`, `fix/`, `refactor/`, `chore/`, `docs/`
+   - Example: `feat/dev-mode`, `fix/emoji-selection`, `refactor/message-renderer`
+3. One branch = one theme. Multiple commits OK, but all related to the same topic.
+
+**While working:**
+4. Commit at natural milestones (~200-1000 lines changed)
+5. Commit messages: `type: concise description` (e.g. `feat: add dev mode perf overlay`)
+
+**When task is complete:**
+6. Run full CI checks locally:
+   ```bash
+   bun run typecheck && bun run lint && bun run test
+   ```
+7. If ANY check fails → fix it on the same branch → re-run checks → repeat until all pass
+8. Merge into staging:
+   ```bash
+   git checkout staging
+   git merge --no-ff <branch-name>
+   ```
+9. Push staging: `git push origin staging`
+10. Delete the topic branch:
+    ```bash
+    git branch -d <branch-name>
+    git push origin --delete <branch-name> 2>/dev/null
+    ```
+
+**NEVER skip steps 6-7. NEVER merge with failing checks.**
+
+### Staging → Main (sprint release)
+
+When a sprint's worth of features/fixes are stable on staging:
+
+1. Ensure staging CI is green
+2. Merge staging into main:
+   ```bash
+   git checkout main
+   git pull origin main
+   git merge --no-ff staging
+   ```
+3. Run CI checks on main: `bun run typecheck && bun run lint && bun run test`
+4. If CI fails → fix on a `fix/` branch off main → merge back to both main and staging
+5. If CI passes → tag and release:
+   ```bash
+   # Determine version bump using semantic versioning:
+   # - fix only → patch (0.0.x)
+   # - new feature → minor (0.x.0)
+   # - breaking change → major (x.0.0)
+
+   git tag -a v<version> -m "Release v<version>: <summary>"
+   git push origin main --tags
+   ```
+6. Create GitHub release from the tag with changelog
+
+### Semantic versioning rules
+
+- **patch** (0.0.1 → 0.0.2): bug fixes, perf improvements, typo fixes
+- **minor** (0.1.0 → 0.2.0): new features, new commands, new providers, UI improvements
+- **major** (0.0.x → 1.0.0): breaking config changes, CLI interface changes, v1.0.0 launch
+
+Current version: 0.0.1 (pre-release). Most changes are minor until v1.0.0.
+
+### Changelog generation
+
+When tagging a release, generate changelog from commits since last tag:
+```bash
+git log v<prev>..HEAD --oneline --no-merges
+```
+
+Group by type (feat/fix/refactor/chore) in the release notes.
+
+### Rules
+
+- Never commit directly to main
+- Never commit directly to staging (except merge commits)
+- Never force push main or staging
+- Always create a topic branch for every task
+- Always delete topic branches after merge
+- One theme per branch, no mixing unrelated changes
+- If a branch lives > 5 days, rebase on staging to avoid conflicts
+
 ## Pre-commit Hook
 
 Located at `.githooks/pre-commit`, installed via `make install-hooks` (sets `core.hooksPath`). Runs typecheck → lint → tests in sequence. All must pass or the commit is blocked.

@@ -25,7 +25,6 @@ export const COMMANDS = [
     "diff",
     "uninstall",
     "clean",
-    "run",
     "onboard",
     "think",
     "handoff",

@@ -7,10 +7,19 @@ import type { AgentRunner } from "./dispatch-strategy.js";
 import type { AgentResult, ToolCallSummary } from "./router-types.js";
 import { callLLM, callLLMMultiTurn, type ToolDef } from "../engine/llm.js";
 import { InjectionDetector } from "../security/injection-detector.js";
+import { getProjectContext } from "../context/project-context.js";
+
+export interface ToolCallDetails {
+  executionId: string;
+  inputSummary?: string;
+  duration?: number;
+  outputSummary?: string;
+  success?: boolean;
+}
 
 export interface LLMAgentRunnerOptions {
   onToken?: (agentId: string, token: string) => void;
-  onToolCall?: (agentId: string, toolName: string, status: string) => void;
+  onToolCall?: (agentId: string, toolName: string, status: string, details?: ToolCallDetails) => void;
   /** Get tool schemas for an agent's tool list. */
   getToolSchemas?: (toolNames: string[]) => ToolDef[];
   /** Execute a tool and return the result as a string. */
@@ -46,8 +55,15 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
       const toolDefs = (tools.length > 0 && getToolSchemas) ? getToolSchemas(tools) : [];
       const hasTools = toolDefs.length > 0 && executeTool;
 
-      // Enhance system prompt with tool info and working directory
+      // Enhance system prompt with project context, tool info, and working directory
       let systemPrompt = context.systemPrompt;
+
+      // Inject project context (CLAUDE.md / README.md + detected project type)
+      const projectContext = getProjectContext(process.cwd());
+      if (projectContext) {
+        systemPrompt += projectContext;
+      }
+
       if (hasTools) {
         const toolList = toolDefs.map((t) => `- ${t.name}: ${t.description}`).join("\n");
         systemPrompt += `\n\nYou have access to the following tools:\n${toolList}\n\nThe current working directory is: ${process.cwd()}\nWhen the user asks you to read, analyze, or modify code, USE the file_read, file_list, and file_edit tools to access the codebase directly. Do NOT ask the user to paste code.`;
@@ -55,6 +71,7 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
 
       try {
         const allToolCalls: ToolCallSummary[] = [];
+        let toolCallCounter = 0;
 
         if (hasTools) {
           // Multi-turn with tool loop
@@ -64,7 +81,10 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
             userMessage: prompt,
             tools: toolDefs,
             handleTool: async (name, args) => {
-              onToolCall?.(agentId, name, "running");
+              const execId = `tc_${++toolCallCounter}`;
+              const inputSummary = formatInputSummary(name, args);
+              const startTime = Date.now();
+              onToolCall?.(agentId, name, "running", { executionId: execId, inputSummary });
               try {
                 let result = await executeTool!(name, args);
 
@@ -74,13 +94,15 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
                   result = "[BLOCKED: suspicious content detected in tool output]";
                 }
 
-                onToolCall?.(agentId, name, "completed");
-                allToolCalls.push({ tool: name, input: JSON.stringify(args), output: result.slice(0, 200), duration: 0, success: true });
+                const duration = Date.now() - startTime;
+                onToolCall?.(agentId, name, "completed", { executionId: execId, duration, outputSummary: result.slice(0, 200), success: true });
+                allToolCalls.push({ tool: name, input: JSON.stringify(args), output: result.slice(0, 200), duration, success: true });
                 return result;
               } catch (e) {
-                onToolCall?.(agentId, name, "failed");
+                const duration = Date.now() - startTime;
                 const msg = e instanceof Error ? e.message : String(e);
-                allToolCalls.push({ tool: name, input: JSON.stringify(args), output: msg, duration: 0, success: false });
+                onToolCall?.(agentId, name, "failed", { executionId: execId, duration, outputSummary: msg, success: false });
+                allToolCalls.push({ tool: name, input: JSON.stringify(args), output: msg, duration, success: false });
                 return `Error: ${msg}`;
               }
             },
@@ -110,6 +132,22 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
       }
     },
   };
+}
+
+function formatInputSummary(toolName: string, args: Record<string, unknown>): string {
+  const path = args.path ?? args.file_path;
+  if (typeof path === "string") return path;
+  const command = args.command;
+  if (typeof command === "string") return command.length > 50 ? command.slice(0, 47) + "..." : command;
+  const pattern = args.pattern ?? args.query;
+  if (typeof pattern === "string") return `"${pattern.length > 40 ? pattern.slice(0, 37) + "..." : pattern}"`;
+  const url = args.url;
+  if (typeof url === "string") return url.length > 50 ? url.slice(0, 47) + "..." : url;
+  const keys = Object.keys(args);
+  if (keys.length === 0) return "";
+  const first = args[keys[0]!];
+  if (typeof first === "string") return first.length > 50 ? first.slice(0, 47) + "..." : first;
+  return JSON.stringify(args).slice(0, 50);
 }
 
 function makeResult(

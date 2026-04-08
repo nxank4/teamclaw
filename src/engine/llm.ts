@@ -9,6 +9,7 @@
 
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { resolveModelForAgent } from "../core/model-config.js";
+import { compressContext, estimateTokens } from "../context/compressor.js";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -107,9 +108,29 @@ export async function callLLM(
  */
 export async function callLLMWithMessages(
   messages: Message[],
-  options?: LLMCallOptions & { tools?: ToolDef[] },
+  options?: LLMCallOptions & { tools?: ToolDef[]; maxContextTokens?: number },
 ): Promise<LLMResponse> {
-  const prompt = serializeMessages(messages);
+  // Compress context if exceeding 70% of context window
+  let messagesToSerialize = messages;
+  const maxCtx = options?.maxContextTokens ?? 128_000;
+  if (estimateTokens(messages) > maxCtx * 0.7 && messages.length > 6) {
+    const result = await compressContext(
+      messages,
+      maxCtx,
+      6,
+      0.7,
+      async (text) => {
+        const resp = await callLLM(
+          `Summarize this conversation concisely, preserving key decisions, code changes, file paths, and action items:\n\n${text}`,
+          { ...options, onChunk: undefined, signal: undefined },
+        );
+        return resp.text;
+      },
+    );
+    messagesToSerialize = result.messages;
+  }
+
+  const prompt = serializeMessages(messagesToSerialize);
   const systemParts: string[] = [];
 
   if (options?.systemPrompt) {

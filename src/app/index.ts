@@ -22,7 +22,8 @@ import { executeShell } from "./shell.js";
 import { type ConfigState, detectConfig, showConfigWarning } from "./config-check.js";
 import { setLoggerMuted } from "../core/logger.js";
 import { defaultTheme, ctp } from "../tui/themes/default.js";
-import { ModeSystem } from "../tui/keybindings/mode-system.js";
+import { findClosest } from "../utils/fuzzy.js";
+import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
 import { KeybindingHelp, buildHelpSections } from "../tui/keybindings/keybinding-help.js";
@@ -461,10 +462,22 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           if (slashResult) {
             msgCtx.addMessage("system", slashResult);
           } else {
-            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+            const allCmds = registry.getAll().map((c) => c.name);
+            const suggestion = findClosest(parsed.name, allCmds);
+            if (suggestion) {
+              msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Did you mean /${suggestion}?`);
+            } else {
+              msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+            }
           }
         } else {
-          msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+          const allCmds = registry.getAll().map((c) => c.name);
+          const suggestion = findClosest(parsed.name, allCmds);
+          if (suggestion) {
+            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Did you mean /${suggestion}?`);
+          } else {
+            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+          }
         }
         break;
       }
@@ -870,13 +883,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       // Shift+Tab → mode cycle (only when not in autocomplete)
       if (combo === "shift+tab" && !layout.editor.isAutocompleteActive()) {
         modeSystem.cycleNext();
-        const info = modeSystem.getModeInfo();
         updateModeDisplay();
-        layout.messages.addMessage({
-          role: "system",
-          content: `Mode: ${info.displayName}. ${info.description}`,
-          timestamp: new Date(),
-        });
+        const info = modeSystem.getModeInfo();
+        layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
         return true;
       }
 
@@ -980,6 +989,27 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.tui.onSystemMessage = (msg: string) => {
     layout.messages.addMessage({ role: "system", content: msg, timestamp: new Date() });
     layout.tui.requestRender();
+  };
+
+  // Mode action from TUI keybindings (Alt+0..4 direct mode, or mode.cycle)
+  layout.tui.onModeAction = (modeAction: string) => {
+    if (modeAction === "cycle") {
+      modeSystem.cycleNext();
+    } else {
+      // Direct mode shortcuts: "auto" → "auto-accept", etc.
+      const modeMap: Record<string, OperatingMode> = {
+        auto: "auto-accept",
+        ask: "default",
+        build: "auto-accept",
+        brainstorm: "default",
+        loopHell: "auto-accept",
+      };
+      const resolved = modeMap[modeAction];
+      if (resolved) modeSystem.setMode(resolved);
+    }
+    updateModeDisplay();
+    const info = modeSystem.getModeInfo();
+    layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
   };
 
   // Brief flash notification (e.g., "Copied!") — shows in status bar, auto-clears

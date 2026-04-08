@@ -14,6 +14,7 @@ import { ProcessTerminal, type Terminal } from "./terminal.js";
 import { hideCursor, showCursor, cursorTo } from "./ansi.js";
 import { SelectionManager } from "./selection.js";
 import { KeybindingManager, type KeyContext } from "../keyboard/keybindings.js";
+import { DEV } from "../../dev/index.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
 import { CopyManager, cleanCopyText } from "../text/copy-manager.js";
@@ -74,6 +75,8 @@ export class TUI {
   onSystemMessage?: (msg: string) => void;
   /** Called to show a brief flash notification (e.g., "Copied!"). */
   onFlashMessage?: (msg: string) => void;
+  /** Called when a mode action is triggered (e.g., "cycle", "auto", "build"). */
+  onModeAction?: (action: string) => void;
   /** Called to jump scroll to a prompt boundary. Returns the total content lines at that prompt. */
   onScrollToPrompt?: (direction: "prev" | "next") => number | null;
   /** Called to toggle collapse on the message currently in view. */
@@ -101,11 +104,13 @@ export class TUI {
     if (this.running) return;
     this.running = true;
 
+    DEV.init();
     this.terminal.start();
     this.copyManager.setTerminal(this.terminal);
 
     this.terminal.onInput((data: Buffer) => {
       try {
+        if (DEV.enabled) DEV.logInput(data.toString("hex"), "raw");
         this.inputParser.feed(data);
       } catch (err) {
         this.handleUncaughtError(err);
@@ -120,6 +125,7 @@ export class TUI {
   stop(): void {
     if (!this.running) return;
     this.running = false;
+    DEV.destroy();
     if (this.resizeTimer) { clearTimeout(this.resizeTimer); this.resizeTimer = null; }
     this.terminal.write(showCursor);
     this.terminal.stop();
@@ -134,7 +140,7 @@ export class TUI {
       this.resizeTimer = null;
       if (!this.running) return;
       this.performResize();
-    }, 50);
+    }, 100);
   }
 
   private performResize(): void {
@@ -344,6 +350,8 @@ export class TUI {
   }
 
   private doRender(): void {
+    DEV.beginFrame();
+
     // Recompute responsive layout each frame
     this.layout = computeLayout(this.terminal.columns, this.terminal.rows);
 
@@ -353,11 +361,13 @@ export class TUI {
       const pad = Math.max(0, Math.floor((this.terminal.columns - msg.length) / 2));
       this.renderer.render(this.terminal, ["", " ".repeat(pad) + msg, ""]);
       this.terminal.write(hideCursor);
+      DEV.endFrame();
       return;
     }
 
     if (this.overlayComponent) {
       this.renderOverlay();
+      DEV.endFrame();
       return;
     }
 
@@ -366,6 +376,7 @@ export class TUI {
     } else {
       this.renderLegacy();
     }
+    DEV.endFrame();
   }
 
   /** Split-region render: scrollable content + fixed bottom. */
@@ -641,9 +652,9 @@ export class TUI {
       return true;
     }
 
-    // Mode switching
+    // Mode switching — delegate to app layer via callback
     if (action.startsWith("mode.")) {
-      this.onSystemMessage?.(`Mode: ${action.replace("mode.", "")}`);
+      this.onModeAction?.(action.replace("mode.", ""));
       return true;
     }
 

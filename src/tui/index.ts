@@ -30,6 +30,9 @@ export { CommandRegistry, type SlashCommand, type CommandContext } from "./slash
 export { parseInput, type ParsedInput } from "./slash/parser.js";
 export { createBuiltinCommands } from "./slash/builtin.js";
 
+// Autocomplete
+export { Trie } from "./autocomplete/trie.js";
+
 // Themes
 export { type Theme, type StyleFn } from "./themes/theme.js";
 export { defaultTheme } from "./themes/default.js";

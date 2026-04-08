@@ -108,6 +108,7 @@ function printHelp(): void {
         "  " + cmd(pad("web")) + desc("Start web dashboard"),
         "  " + cmd(pad("clean")) + desc("Remove session data"),
         "  " + cmd(pad("update")) + desc("Self-update OpenPawl"),
+        "  " + cmd(pad("uninstall")) + desc("Remove OpenPawl data and config"),
         "",
         section("OPTIONS"),
         "  " + cmd(pad("--help, -h")) + desc("Show this help"),
@@ -558,6 +559,10 @@ async function main(): Promise<void> {
     } else if (cmd === "settings") {
         const { runSettings } = await import("./commands/settings.js");
         await runSettings(args.slice(1));
+
+    } else if (cmd === "uninstall") {
+        const { runUninstall } = await import("./commands/uninstall.js");
+        await runUninstall(args.slice(1));
 
     } else {
         const match = findClosestCommand(rawCmd);
