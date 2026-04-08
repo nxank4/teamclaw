@@ -8,6 +8,8 @@ import { Result, ok } from "neverthrow";
 import type { ToolExecutor } from "../tools/executor.js";
 import type { ToolExecutionContext } from "../tools/types.js";
 import type { StreamEvent, LLMToolCall, LLMMessage, ToolCallRecord, StreamError } from "./types.js";
+import type { DoomLoopDetector } from "../context/doom-loop-detector.js";
+import type { ToolOutputHandler } from "../context/tool-output-handler.js";
 
 const TOOL_CALL_REGEX = /```tool_call\s*\n([\s\S]*?)```/g;
 
@@ -24,6 +26,8 @@ export class ToolCallHandler {
   constructor(
     private toolExecutor: ToolExecutor,
     private emitEvent: (event: StreamEvent) => void,
+    private doomLoopDetector?: DoomLoopDetector,
+    private toolOutputHandler?: ToolOutputHandler,
   ) {}
 
   /**
@@ -91,6 +95,36 @@ export class ToolCallHandler {
         continue;
       }
 
+      // Doom-loop detection: check before executing
+      if (this.doomLoopDetector) {
+        const verdict = this.doomLoopDetector.track(
+          context.agentId,
+          call.name,
+          parsedArgs as Record<string, unknown>,
+        );
+
+        if (verdict.action === "block") {
+          results.push({
+            callId: call.id,
+            toolName: call.name,
+            success: false,
+            outputSummary: verdict.message,
+            duration: 0,
+            responseMessage: {
+              role: "tool",
+              content: verdict.message,
+              toolCallId: call.id,
+            },
+          });
+          continue;
+        }
+
+        if (verdict.action === "warn") {
+          // Will append hint after execution — stored for later
+          (parsedArgs as Record<string, unknown>).__doomLoopHint = verdict.message;
+        }
+      }
+
       // Emit start event
       this.emitEvent({
         type: "tool:start",
@@ -112,8 +146,25 @@ export class ToolCallHandler {
       );
       const duration = Date.now() - start;
 
+      // Extract doom-loop hint if present
+      const doomHint = (parsedArgs as Record<string, unknown>).__doomLoopHint as string | undefined;
+      delete (parsedArgs as Record<string, unknown>).__doomLoopHint;
+
       if (execResult.isOk()) {
         const output = execResult.value;
+        let summaryForContext = output.summary;
+
+        // Summarize large tool outputs
+        if (this.toolOutputHandler && summaryForContext.length > 4000) {
+          const summarized = await this.toolOutputHandler.processToolOutput(call.name, summaryForContext);
+          summaryForContext = summarized.content;
+        }
+
+        // Append doom-loop warning hint if applicable
+        if (doomHint) {
+          summaryForContext += "\n\n" + doomHint;
+        }
+
         this.emitEvent({
           type: "tool:done",
           sessionId,
@@ -131,11 +182,11 @@ export class ToolCallHandler {
           callId: call.id,
           toolName: call.name,
           success: true,
-          outputSummary: output.summary,
+          outputSummary: summaryForContext,
           duration,
           responseMessage: {
             role: "tool",
-            content: output.summary,
+            content: summaryForContext,
             toolCallId: call.id,
           },
         });

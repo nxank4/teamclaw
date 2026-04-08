@@ -24,6 +24,8 @@ export interface StatusBarState {
   messageCount: number;
   showHints: boolean;
   contextualHints: KeybindingHint[];
+  contextUtilization: number;
+  contextLevel: "normal" | "warning" | "high" | "critical" | "emergency";
 }
 
 export interface AgentStatus {
@@ -58,6 +60,8 @@ const DEFAULT_STATE: StatusBarState = {
   messageCount: 0,
   showHints: true,
   contextualHints: [],
+  contextUtilization: 0,
+  contextLevel: "normal",
 };
 
 export class StatusDataStore extends EventEmitter {
@@ -165,6 +169,12 @@ export class StatusDataStore extends EventEmitter {
     this.state.model = model;
     this.state.provider = provider;
     this.state.modelDisplay = formatModelDisplay(model, provider);
+    this.notifyChange();
+  }
+
+  handleContextUpdate(utilization: number, level: StatusBarState["contextLevel"]): void {
+    this.state.contextUtilization = utilization;
+    this.state.contextLevel = level;
     this.notifyChange();
   }
 

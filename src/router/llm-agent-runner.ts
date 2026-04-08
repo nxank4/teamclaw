@@ -5,8 +5,13 @@
  */
 import type { AgentRunner } from "./dispatch-strategy.js";
 import type { AgentResult, ToolCallSummary } from "./router-types.js";
-import { callLLM, callLLMMultiTurn, type ToolDef } from "../engine/llm.js";
+import { callLLM, callLLMMultiTurn, type ToolDef, type Message } from "../engine/llm.js";
 import { InjectionDetector } from "../security/injection-detector.js";
+import type { DoomLoopDetector } from "../context/doom-loop-detector.js";
+import type { ToolOutputHandler } from "../context/tool-output-handler.js";
+import type { ContextTracker } from "../context/context-tracker.js";
+import type { ContextLevel } from "../context/types.js";
+import { compact } from "../context/compaction.js";
 
 export interface LLMAgentRunnerOptions {
   onToken?: (agentId: string, token: string) => void;
@@ -15,6 +20,14 @@ export interface LLMAgentRunnerOptions {
   getToolSchemas?: (toolNames: string[]) => ToolDef[];
   /** Execute a tool and return the result as a string. */
   executeTool?: (toolName: string, args: Record<string, unknown>) => Promise<string>;
+  /** Doom-loop detector — prevents repeated identical tool calls. */
+  doomLoopDetector?: DoomLoopDetector;
+  /** Tool output handler — summarizes large outputs and offloads to scratch files. */
+  toolOutputHandler?: ToolOutputHandler;
+  /** Context tracker — monitors token utilization and triggers compaction. */
+  contextTracker?: ContextTracker;
+  /** Called when context level changes (for status bar updates). */
+  onContextUpdate?: (utilization: number, level: ContextLevel) => void;
 }
 
 /**
@@ -23,7 +36,10 @@ export interface LLMAgentRunnerOptions {
  * When no tools, uses callLLM for simple streaming.
  */
 export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRunner {
-  const { onToken, onToolCall, getToolSchemas, executeTool } = opts;
+  const {
+    onToken, onToolCall, getToolSchemas, executeTool,
+    doomLoopDetector, toolOutputHandler, contextTracker, onContextUpdate,
+  } = opts;
   const injectionDetector = new InjectionDetector();
 
   return {
@@ -64,6 +80,39 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
             userMessage: prompt,
             tools: toolDefs,
             handleTool: async (name, args) => {
+              // Doom-loop detection: check before executing
+              if (doomLoopDetector) {
+                const verdict = doomLoopDetector.track(agentId, name, args);
+                if (verdict.action === "block") {
+                  onToolCall?.(agentId, name, "blocked");
+                  allToolCalls.push({ tool: name, input: JSON.stringify(args), output: verdict.message, duration: 0, success: false });
+                  return verdict.message;
+                }
+                // Warn verdict: we'll append the hint after getting the result
+                if (verdict.action === "warn") {
+                  onToolCall?.(agentId, name, "running");
+                  try {
+                    let result = await executeTool!(name, args);
+                    const alerts = injectionDetector.detect(result, "tool_output");
+                    if (alerts.some((a) => a.severity === "critical")) {
+                      result = "[BLOCKED: suspicious content detected in tool output]";
+                    }
+                    if (toolOutputHandler && result.length > 4000) {
+                      const summarized = await toolOutputHandler.processToolOutput(name, result);
+                      result = summarized.content;
+                    }
+                    onToolCall?.(agentId, name, "completed");
+                    allToolCalls.push({ tool: name, input: JSON.stringify(args), output: result.slice(0, 200), duration: 0, success: true });
+                    return result + "\n\n" + verdict.message;
+                  } catch (e) {
+                    onToolCall?.(agentId, name, "failed");
+                    const errMsg = e instanceof Error ? e.message : String(e);
+                    allToolCalls.push({ tool: name, input: JSON.stringify(args), output: errMsg, duration: 0, success: false });
+                    return `Error: ${errMsg}`;
+                  }
+                }
+              }
+
               onToolCall?.(agentId, name, "running");
               try {
                 let result = await executeTool!(name, args);
@@ -72,6 +121,12 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
                 const alerts = injectionDetector.detect(result, "tool_output");
                 if (alerts.some((a) => a.severity === "critical")) {
                   result = "[BLOCKED: suspicious content detected in tool output]";
+                }
+
+                // Summarize large tool outputs
+                if (toolOutputHandler && result.length > 4000) {
+                  const summarized = await toolOutputHandler.processToolOutput(name, result);
+                  result = summarized.content;
                 }
 
                 onToolCall?.(agentId, name, "completed");
@@ -84,6 +139,14 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
                 return `Error: ${msg}`;
               }
             },
+            // Context compaction before each LLM turn
+            beforeTurn: contextTracker ? async (messages: Message[]) => {
+              const snapshot = contextTracker.snapshot(messages);
+              onContextUpdate?.(snapshot.utilizationPercent, snapshot.level);
+              if (contextTracker.shouldCompact(snapshot)) {
+                await compact(messages, snapshot.level);
+              }
+            } : undefined,
             onChunk: (token) => onToken?.(agentId, token),
             onToolCall: (name) => onToolCall?.(agentId, name, "running"),
             onToolResult: (name) => onToolCall?.(agentId, name, "completed"),

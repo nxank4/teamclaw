@@ -381,6 +381,8 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     chatSession: null as Session | null,
     cleanupRouter: null as (() => void) | null,
     cleanupSession: null as (() => void) | null,
+    doomLoopDetector: null as { reset: () => void } | null,
+    toolOutputHandler: null as { cleanup: () => Promise<void> } | null,
   };
 
   // Register built-in commands (/help, /clear, /quit)
@@ -467,6 +469,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       }
 
       case "message": {
+        // Reset doom-loop detector on new user message (new intent)
+        ctx.doomLoopDetector?.reset();
+
         // Resolve attached files into context
         let fullPrompt = text;
         if (attachedFiles && attachedFiles.length > 0) {
@@ -886,6 +891,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         Promise.resolve(tuiSession.close()),
         ctx.router?.shutdown().catch(() => {}),
         ctx.sessionMgr?.shutdown().catch(() => {}),
+        ctx.toolOutputHandler?.cleanup().catch(() => {}),
       ]);
     } catch { /* ignore */ }
 
@@ -929,6 +935,8 @@ async function initSessionRouter(
     chatSession: Session | null;
     cleanupRouter: (() => void) | null;
     cleanupSession: (() => void) | null;
+    doomLoopDetector: { reset: () => void } | null;
+    toolOutputHandler: { cleanup: () => Promise<void> } | null;
   },
   opts: LaunchOptions | undefined,
   layout: AppLayout,
@@ -1041,6 +1049,35 @@ async function initSessionRouter(
     // UndoManager not available
   }
 
+  // ── Context management modules ──────────────────────────────────
+  const { DoomLoopDetector } = await import("../context/doom-loop-detector.js");
+  const { ToolOutputHandler } = await import("../context/tool-output-handler.js");
+  const { ContextTracker } = await import("../context/context-tracker.js");
+
+  const doomLoopDetector = new DoomLoopDetector();
+  const toolOutputHandler = new ToolOutputHandler(process.cwd());
+  const contextTracker = new ContextTracker(200_000); // Default 200k, updated when model is known
+
+  // Store refs for cleanup and doom-loop reset
+  ctx.doomLoopDetector = doomLoopDetector;
+  ctx.toolOutputHandler = toolOutputHandler;
+
+  // Register /compact command now that we have context tracker
+  const { createCompactCommand } = await import("./commands/compact.js");
+  registry.register(createCompactCommand({
+    contextTracker,
+    getMessages: () => {
+      const session = ctx.chatSession;
+      if (!session) return [];
+      return session.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        toolCallId: m.toolCallId,
+        metadata: m.metadata,
+      }));
+    },
+  }));
+
   const agentRunner = createLLMAgentRunner({
     onToken: (agentId, token) => tokenEmitter.emit(agentId, token),
     onToolCall: (agentId, toolName, status) => toolEmitter.emit(agentId, toolName, status),
@@ -1068,6 +1105,18 @@ async function initSessionRouter(
           return `Error: ${result.error.type}`;
         }
       : undefined,
+    doomLoopDetector,
+    toolOutputHandler,
+    contextTracker,
+    onContextUpdate: (utilization, level) => {
+      layout.statusBar.updateSegment(3,
+        level === "normal" ? "idle" : `ctx: ${utilization}%`,
+        level === "emergency" || level === "critical" ? ctp.red
+          : level === "high" || level === "warning" ? ctp.yellow
+          : ctp.overlay0,
+      );
+      layout.tui.requestRender();
+    },
   });
 
   ctx.router = new RouterClass({}, ctx.sessionMgr, null, agentRunner);

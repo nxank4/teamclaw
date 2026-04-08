@@ -90,6 +90,21 @@ export function renderSessionSection(state: StatusBarState): StatusSection {
   return { content, minWidth: 8, priority: 5 };
 }
 
+export function renderContextSection(state: StatusBarState): StatusSection {
+  const pct = state.contextUtilization;
+  if (pct === 0) {
+    return { content: "", minWidth: 0, priority: 4.5 };
+  }
+  const colorFn = pct > 85 ? defaultTheme.error
+    : pct > 70 ? defaultTheme.warning
+    : defaultTheme.success;
+  return {
+    content: colorFn(`ctx: ${pct}%`),
+    minWidth: 8,
+    priority: 4.5,
+  };
+}
+
 export function renderHintsSection(state: StatusBarState): StatusSection {
   if (!state.showHints || state.contextualHints.length === 0) {
     return { content: "", minWidth: 0, priority: 6 };
@@ -113,6 +128,7 @@ export function composeStatusBar(state: StatusBarState, terminalWidth: number): 
     renderCostSection(state),
     renderAgentSection(state),
     renderTokenSection(state),
+    renderContextSection(state),
     renderSessionSection(state),
     renderHintsSection(state),
   ].filter((s) => s.content.length > 0);

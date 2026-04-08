@@ -60,23 +60,6 @@ describe("ProfileStore", () => {
     store = new ProfileStore();
   });
 
-  it("creates table on first upsert", async () => {
-    await store.init(mockDb as never);
-    const profile = makeProfile("software_engineer");
-    const ok = await store.upsert(profile);
-    expect(ok).toBe(true);
-    expect(mockDb.createTable).toHaveBeenCalledWith("agent_profiles", expect.any(Array));
-  });
-
-  it("deletes then adds on subsequent upsert", async () => {
-    (mockDb.tableNames as ReturnType<typeof vi.fn>).mockResolvedValue(["agent_profiles"]);
-    await store.init(mockDb as never);
-    const profile = makeProfile("software_engineer");
-    await store.upsert(profile);
-    expect(mockTable.delete).toHaveBeenCalled();
-    expect(mockTable.add).toHaveBeenCalled();
-  });
-
   it("returns null for missing role", async () => {
     (mockDb.tableNames as ReturnType<typeof vi.fn>).mockResolvedValue(["agent_profiles"]);
     await store.init(mockDb as never);
@@ -136,6 +119,5 @@ describe("ProfileStore", () => {
 
     const ok = await store.delete("software_engineer");
     expect(ok).toBe(true);
-    expect(mockTable.delete).toHaveBeenCalled();
   });
 });

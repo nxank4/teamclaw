@@ -51,6 +51,8 @@ export interface LLMMultiTurnOptions extends LLMCallOptions {
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;
   maxTurns?: number;
+  /** Hook called before each LLM turn. Can mutate messages (e.g., for context compaction). */
+  beforeTurn?: (messages: Message[], turn: number) => Promise<void>;
 }
 
 // ── Single-turn call ───────────────────────────────────
@@ -148,6 +150,8 @@ export async function callLLMMultiTurn(opts: {
   signal?: AbortSignal;
   maxTurns?: number;
   temperature?: number;
+  /** Hook called before each LLM turn. Can mutate messages (e.g., for context compaction). */
+  beforeTurn?: (messages: Message[], turn: number) => Promise<void>;
 }): Promise<LLMResponse> {
   const maxTurns = opts.maxTurns ?? 20;
   const messages: Message[] = [
@@ -160,6 +164,11 @@ export async function callLLMMultiTurn(opts: {
   for (let turn = 0; turn < maxTurns; turn++) {
     if (opts.signal?.aborted) {
       return { text: "", toolCalls: allToolCalls, usage: totalUsage };
+    }
+
+    // Allow callers to mutate messages before each turn (e.g., context compaction)
+    if (opts.beforeTurn) {
+      await opts.beforeTurn(messages, turn);
     }
 
     const response = await callLLMWithMessages(messages, {
