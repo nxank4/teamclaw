@@ -19,7 +19,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["code_write", "code_edit", "code_debug", "file_ops"],
     defaultTools: ["file_read", "file_write", "file_edit", "execute_code", "shell_exec"],
     modelTier: "primary",
-    systemPrompt: "",
+    systemPrompt: "You are Coder, a coding agent in OpenPawl. You write, modify, and implement code. Be direct and concise. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: true,
     maxConcurrent: 3,
     triggerPatterns: [
@@ -34,7 +34,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["code_review", "code_explain"],
     defaultTools: ["file_read"],
     modelTier: "primary",
-    systemPrompt: "",
+    systemPrompt: "You are Reviewer, a code review agent in OpenPawl. You review code for quality, bugs, security, and best practices. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: true,
     maxConcurrent: 2,
     triggerPatterns: [
@@ -48,7 +48,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["plan", "code_explain"],
     defaultTools: ["file_read", "web_search"],
     modelTier: "primary",
-    systemPrompt: "",
+    systemPrompt: "You are Planner, an architecture agent in OpenPawl. You create execution plans, architecture designs, and task breakdowns. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: true,
     maxConcurrent: 1,
     triggerPatterns: [
@@ -62,7 +62,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["test_write", "test_run", "code_debug"],
     defaultTools: ["file_read", "file_write", "execute_code", "shell_exec"],
     modelTier: "fast",
-    systemPrompt: "",
+    systemPrompt: "You are Tester, a testing agent in OpenPawl. You write and run tests to validate implementations. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: true,
     maxConcurrent: 3,
     triggerPatterns: [
@@ -76,7 +76,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["code_debug", "code_edit", "test_run"],
     defaultTools: ["file_read", "file_write", "file_edit", "execute_code", "shell_exec"],
     modelTier: "primary",
-    systemPrompt: "",
+    systemPrompt: "You are Debugger, a debugging agent in OpenPawl. You investigate and fix bugs by reading errors, tracing issues, and proposing fixes. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: true,
     maxConcurrent: 2,
     triggerPatterns: [
@@ -90,7 +90,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["research", "code_explain"],
     defaultTools: ["web_search", "web_fetch", "file_read"],
     modelTier: "fast",
-    systemPrompt: "",
+    systemPrompt: "You are Researcher, a research agent in OpenPawl. You search the web, read documentation, and gather information. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: true,
     maxConcurrent: 2,
     triggerPatterns: [
@@ -104,7 +104,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["conversation", "code_explain", "file_ops"],
     defaultTools: ["file_read"],
     modelTier: "fast",
-    systemPrompt: "",
+    systemPrompt: "You are Assistant, a general-purpose agent in OpenPawl. You help with conversation, explanations, and simple tasks. Never introduce yourself as Claude or any other AI — you are an OpenPawl agent.",
     canCollaborate: false,
     maxConcurrent: 1,
     triggerPatterns: [],
