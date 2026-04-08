@@ -3,6 +3,7 @@
  * Each segment can have its own color. Segments are separated by │.
  */
 import type { Component } from "../core/component.js";
+import type { LayoutConfig } from "../layout/responsive.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
 
@@ -13,11 +14,13 @@ export interface StatusSegment {
 
 export class StatusBarComponent implements Component {
   readonly id: string;
+  hidden = false;
   private leftItems: string[] = [];
   private rightItems: string[] = [];
   private segments: StatusSegment[] | null = null;
   private rightText = "";
   private style: (s: string) => string;
+  private layoutProvider?: () => LayoutConfig;
 
   constructor(id: string, style?: (s: string) => string) {
     this.id = id;
@@ -55,7 +58,9 @@ export class StatusBarComponent implements Component {
 
   private renderSegments(width: number): string {
     const separator = " \u2502 ";
-    const segments = this.segments!;
+    const bp = this.layoutProvider?.().breakpoint;
+    // On xs, show only first 2 segments (provider + status)
+    const segments = bp === "xs" ? this.segments!.slice(0, 2) : this.segments!;
     const right = this.rightText ? this.rightText + " " : "";
     const rightWidth = visibleWidth(right);
 
@@ -85,6 +90,10 @@ export class StatusBarComponent implements Component {
     const padded = barWidth < width ? bar + " ".repeat(width - barWidth) : bar;
 
     return this.style(padded);
+  }
+
+  setLayoutProvider(fn: () => LayoutConfig): void {
+    this.layoutProvider = fn;
   }
 
   /** Set styled segments (new API). */

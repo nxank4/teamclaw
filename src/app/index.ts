@@ -19,10 +19,11 @@ import { SessionManager as TuiSessionManager } from "./session.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
-import { detectConfig, showConfigWarning } from "./config-check.js";
+import { type ConfigState, detectConfig, showConfigWarning } from "./config-check.js";
 import { setLoggerMuted } from "../core/logger.js";
 import { defaultTheme, ctp } from "../tui/themes/default.js";
-import { ModeSystem } from "../tui/keybindings/mode-system.js";
+import { findClosest } from "../utils/fuzzy.js";
+import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
 import { KeybindingHelp, buildHelpSections } from "../tui/keybindings/keybinding-help.js";
@@ -98,6 +99,7 @@ function wireRouterEvents(
 
   const onAgentStart = (_sessionId: string, agentId: string) => {
     streamingForAgent = agentId;
+    layout.messages.clearToolCalls();
 
     // Show thinking indicator — no agent label yet (avoids duplicate)
     thinking.start(); // no agent name — just "◐ thinking..."
@@ -143,19 +145,35 @@ function wireRouterEvents(
     layout.tui.requestRender();
   };
 
-  const onAgentTool = (_sessionId: string, agentId: string, toolName: string, status: string) => {
-    const symbolFn = status === "completed" ? ctp.green
-      : status === "failed" ? ctp.red
-        : ctp.teal;
-    const symbol = status === "completed" ? defaultTheme.symbols.success
-      : status === "failed" ? defaultTheme.symbols.error
-        : defaultTheme.symbols.pending;
-    layout.messages.addMessage({
-      role: "tool",
-      content: `${symbolFn(symbol)} ${toolName} (${status})`,
-      agentName: agentDisplayName(agentId),
-      timestamp: new Date(),
-    });
+  let toolSpinnerInterval: ReturnType<typeof setInterval> | null = null;
+
+  const startToolSpinner = () => {
+    if (toolSpinnerInterval) return;
+    toolSpinnerInterval = setInterval(() => {
+      if (layout.messages.hasRunningToolCalls()) {
+        layout.messages.advanceToolSpinners();
+        layout.tui.requestRender();
+      }
+    }, 80);
+  };
+
+  const stopToolSpinner = () => {
+    if (toolSpinnerInterval) {
+      clearInterval(toolSpinnerInterval);
+      toolSpinnerInterval = null;
+    }
+  };
+
+  const onAgentTool = (_sessionId: string, _agentId: string, toolName: string, status: string, details?: { executionId?: string; inputSummary?: string; duration?: number; outputSummary?: string; success?: boolean }) => {
+    const execId = details?.executionId ?? `fallback_${Date.now()}`;
+
+    if (status === "running") {
+      layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, _agentId);
+      startToolSpinner();
+    } else if (status === "completed" || status === "failed") {
+      layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0);
+    }
+
     layout.tui.requestRender();
   };
 
@@ -163,6 +181,7 @@ function wireRouterEvents(
     streamingForAgent = null;
     thinking.stop();
     thinkingMsgAdded = false;
+    stopToolSpinner();
     layout.statusBar.updateSegment(3, "idle", ctp.overlay0);
     layout.tui.requestRender();
   };
@@ -171,6 +190,8 @@ function wireRouterEvents(
     streamingForAgent = null;
     thinking.stop();
     thinkingMsgAdded = false;
+    stopToolSpinner();
+    layout.messages.clearToolCalls();
     layout.messages.addMessage({
       role: "error",
       content: `Dispatch error: ${error.type}`,
@@ -188,6 +209,7 @@ function wireRouterEvents(
 
   // Return cleanup function
   return () => {
+    stopToolSpinner();
     router.off("dispatch:agent:start", onAgentStart);
     router.off("dispatch:agent:token", onAgentToken);
     router.off("dispatch:agent:tool", onAgentTool);
@@ -383,6 +405,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     cleanupSession: null as (() => void) | null,
     doomLoopDetector: null as { reset: () => void } | null,
     toolOutputHandler: null as { cleanup: () => Promise<void> } | null,
+    configState: null as ConfigState | null,
   };
 
   // Register built-in commands (/help, /clear, /quit)
@@ -400,6 +423,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // Handle editor submit — text + optional attached files
   layout.editor.onSubmit = async (text: string, attachedFiles?: string[]) => {
+    welcomeMessageActive = false;
     layout.editor.pushHistory(text);
     const parsed = parseInput(text);
 
@@ -440,10 +464,22 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           if (slashResult) {
             msgCtx.addMessage("system", slashResult);
           } else {
-            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+            const allCmds = registry.getAll().map((c) => c.name);
+            const suggestion = findClosest(parsed.name, allCmds);
+            if (suggestion) {
+              msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Did you mean /${suggestion}?`);
+            } else {
+              msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+            }
           }
         } else {
-          msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+          const allCmds = registry.getAll().map((c) => c.name);
+          const suggestion = findClosest(parsed.name, allCmds);
+          if (suggestion) {
+            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Did you mean /${suggestion}?`);
+          } else {
+            msgCtx.addMessage("error", `Unknown command: /${parsed.name}. Type /help for commands.`);
+          }
         }
         break;
       }
@@ -499,6 +535,16 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           msgCtx.addMessage("user", text);
         }
 
+        // Guard: don't attempt LLM calls when no provider is configured
+        if (!ctx.configState?.hasProvider) {
+          msgCtx.addMessage("system", "\u26a0 No provider configured. Run /setup to set up your AI provider.");
+          break;
+        }
+        if (!ctx.configState.isConnected && !ctx.router) {
+          msgCtx.addMessage("system", "\u26a0 Provider not connected. Check your API key with /settings.");
+          break;
+        }
+
         // Route through PromptRouter if available, else fallback
         if (ctx.router && ctx.chatSession) {
           await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
@@ -524,22 +570,77 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     // Use default version
   }
 
-  layout.messages.addMessage({
-    role: "system",
-    content: [
-      ctp.mauve(`\u2726  O P E N P A W L`) + "  " + ctp.overlay1(`v${versionStr}`),
-      "",
-      ctp.subtext0("Terminal-native AI workspace. Just type what you want to build."),
-      "",
-      `  ${ctp.blue("/help")}       Show commands       ${ctp.blue("@coder")}     Route to Coder`,
-      `  ${ctp.blue("/settings")}   Configure provider  ${ctp.blue("@reviewer")}  Route to Reviewer`,
-      `  ${ctp.blue("/agents")}     List agents         ${ctp.blue("@planner")}   Route to Planner`,
-      `  ${ctp.peach("!command")}    Run shell command   ${ctp.blue("@tester")}    Route to Tester`,
-      `  ${ctp.blue("@file")}       Reference a file    ${ctp.blue("@debugger")}  Route to Debugger`,
-      "",
-      ctp.surface1("\u2500".repeat(60)),
-    ].join("\n"),
-    timestamp: new Date(),
+  const BANNER_ART = [
+    "  ___                   ____                _ ",
+    " / _ \\ _ __   ___ _ __ |  _ \\ __ ___      _| |",
+    "| | | | '_ \\ / _ \\ '_ \\| |_) / _` \\ \\ /\\ / / |",
+    "| |_| | |_) |  __/ | | |  __/ (_| |\\ V  V /| |",
+    " \\___/| .__/ \\___|_| |_|_|   \\__,_| \\_/\\_/ |_|",
+    "      |_|",
+  ];
+  const BANNER_WIDTH = 53;
+
+  /** Build the welcome banner content, freshly computed for current terminal width. */
+  const buildWelcomeContent = (): string => {
+    const termWidth = process.stdout.columns ?? 80;
+    const currentLayout = layout.tui.getLayout();
+    const lines: string[] = [];
+
+    if (currentLayout.showAsciiArt || termWidth >= 54) {
+      const pad = Math.max(0, Math.floor((termWidth - BANNER_WIDTH) / 2));
+      const padding = " ".repeat(pad);
+      lines.push("");
+      for (const line of BANNER_ART) {
+        lines.push(ctp.surface2(padding + line));
+      }
+      lines.push("");
+    } else {
+      const fallback = "OPENPAWL";
+      const pad = Math.max(0, Math.floor((termWidth - fallback.length) / 2));
+      lines.push("");
+      lines.push(ctp.mauve(" ".repeat(pad) + fallback));
+      lines.push("");
+    }
+
+    const tagline = "Your AI team, one prompt away.";
+    const tagPad = Math.max(0, Math.floor((termWidth - tagline.length) / 2));
+    lines.push(ctp.overlay0(" ".repeat(tagPad) + tagline));
+    const verLine = `v${versionStr}`;
+    const verPad = Math.max(0, Math.floor((termWidth - verLine.length) / 2));
+    lines.push(ctp.surface2(" ".repeat(verPad) + verLine));
+    lines.push("");
+
+    const ruleWidth = Math.min(60, termWidth - 4);
+    lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
+    lines.push("");
+    lines.push(`  ${ctp.blue("/help")}       Show commands       ${ctp.blue("@coder")}     Route to Coder`);
+    lines.push(`  ${ctp.blue("/settings")}   Configure provider  ${ctp.blue("@reviewer")}  Route to Reviewer`);
+    lines.push(`  ${ctp.blue("/agents")}     List agents         ${ctp.blue("@planner")}   Route to Planner`);
+    lines.push(`  ${ctp.peach("!command")}    Run shell command   ${ctp.blue("@tester")}    Route to Tester`);
+    lines.push(`  ${ctp.blue("@file")}       Reference a file    ${ctp.blue("@debugger")}  Route to Debugger`);
+    lines.push("");
+    lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
+
+    return lines.join("\n");
+  };
+
+  let welcomeMessageActive = false;
+
+  const addWelcomeMessage = () => {
+    layout.messages.addMessage({
+      role: "system",
+      content: buildWelcomeContent(),
+      timestamp: new Date(),
+    });
+    welcomeMessageActive = true;
+  };
+
+  // Re-render welcome banner on terminal resize (recomputes centering)
+  process.stdout.on("resize", () => {
+    if (welcomeMessageActive && layout.messages.getMessageCount() === 1) {
+      layout.messages.replaceLast(buildWelcomeContent());
+      layout.tui.requestRender();
+    }
   });
 
   // Status bar segments: provider | connection | mode | state | cost
@@ -553,6 +654,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.statusBar.setRightText(ctp.overlay0("/help"));
 
   const configState = await detectConfig();
+  ctx.configState = configState;
   if (configState.hasProvider) {
     layout.statusBar.updateSegment(0, configState.providerName, ctp.subtext1);
     if (configState.isConnected) {
@@ -568,7 +670,51 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
     }
   }
-  showConfigWarning(configState, layout);
+  if (!configState.hasProvider) {
+    // Hide chat UI during first-run setup — only wizard + status bar visible
+    layout.editor.hidden = true;
+    layout.divider.hidden = true;
+    layout.messages.hidden = true;
+
+    const { SetupWizardView } = await import("./interactive/setup-wizard-view.js");
+    const wizard = new SetupWizardView(layout.tui, async () => {
+      // Restore chat UI after wizard completes
+      layout.editor.hidden = false;
+      layout.divider.hidden = false;
+      layout.messages.hidden = false;
+      addWelcomeMessage();
+
+      // Reset cached provider manager so detectConfig reads fresh config
+      const { resetGlobalProviderManager } = await import("../providers/provider-factory.js");
+      resetGlobalProviderManager();
+
+      const newState = await detectConfig();
+      ctx.configState = newState;
+      if (newState.hasProvider) {
+        layout.statusBar.updateSegment(0, newState.providerName, ctp.subtext1);
+        if (newState.isConnected) {
+          layout.statusBar.updateSegment(1, "\u25cf connected", ctp.green);
+
+          const { getActiveProviderState } = await import("../providers/active-state.js");
+          const activeState = getActiveProviderState();
+          const { getConfigValue } = await import("../core/configManager.js");
+          const modelResult = getConfigValue("model", { raw: true });
+          activeState.setActive(newState.providerName, modelResult.value ?? "auto", { autoDetected: true });
+        } else {
+          layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
+        }
+      }
+
+      // Re-initialize session router so TUI can talk to the LLM
+      await initSessionRouter(ctx, opts, layout, registry).catch(() => {});
+
+      layout.tui.requestRender();
+    });
+    wizard.activate();
+  } else {
+    addWelcomeMessage();
+    if (configState.error) showConfigWarning(configState, layout);
+  }
 
   // ── Mode system ─────────────────────────────────────────────────
   const modeSystem = new ModeSystem();
@@ -742,13 +888,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       // Shift+Tab → mode cycle (only when not in autocomplete)
       if (combo === "shift+tab" && !layout.editor.isAutocompleteActive()) {
         modeSystem.cycleNext();
-        const info = modeSystem.getModeInfo();
         updateModeDisplay();
-        layout.messages.addMessage({
-          role: "system",
-          content: `Mode: ${info.displayName}. ${info.description}`,
-          timestamp: new Date(),
-        });
+        const info = modeSystem.getModeInfo();
+        layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
         return true;
       }
 
@@ -854,6 +996,84 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.tui.requestRender();
   };
 
+  // Mode action from TUI keybindings (Alt+0..4 direct mode, or mode.cycle)
+  layout.tui.onModeAction = (modeAction: string) => {
+    if (modeAction === "cycle") {
+      modeSystem.cycleNext();
+    } else {
+      // Direct mode shortcuts: "auto" → "auto-accept", etc.
+      const modeMap: Record<string, OperatingMode> = {
+        auto: "auto-accept",
+        ask: "default",
+        build: "auto-accept",
+        brainstorm: "default",
+        loopHell: "auto-accept",
+      };
+      const resolved = modeMap[modeAction];
+      if (resolved) modeSystem.setMode(resolved);
+    }
+    updateModeDisplay();
+    const info = modeSystem.getModeInfo();
+    layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
+  };
+
+  // Brief flash notification (e.g., "Copied!") — shows in status bar, auto-clears
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  const defaultRightText = ctp.overlay0("/help");
+  layout.tui.onFlashMessage = (msg: string) => {
+    if (flashTimer) clearTimeout(flashTimer);
+    layout.statusBar.setRightText(ctp.green(`\u2713 ${msg}`));
+    layout.tui.requestRender();
+    flashTimer = setTimeout(() => {
+      layout.statusBar.setRightText(defaultRightText);
+      layout.tui.requestRender();
+      flashTimer = null;
+    }, 1500);
+  };
+
+  // Prompt navigation — jump between user prompts with Ctrl+Up/Down
+  let currentPromptNavIndex = -1; // -1 = at bottom (latest)
+  layout.tui.onScrollToPrompt = (direction) => {
+    const boundaries = layout.messages.getPromptBoundaries();
+    if (boundaries.length === 0) return null;
+    if (direction === "prev") {
+      if (currentPromptNavIndex <= 0) currentPromptNavIndex = 0;
+      else currentPromptNavIndex--;
+    } else {
+      if (currentPromptNavIndex < 0) return null; // already at bottom
+      currentPromptNavIndex++;
+      if (currentPromptNavIndex >= boundaries.length) {
+        currentPromptNavIndex = -1;
+        layout.divider.setLabel(null);
+        return 0; // scroll to bottom
+      }
+    }
+    const b = boundaries[currentPromptNavIndex];
+    if (!b) return null;
+    layout.divider.setLabel(`prompt ${currentPromptNavIndex + 1}/${boundaries.length}`);
+    return b.lineIndex;
+  };
+
+  // Collapse toggle — toggle the message currently in view
+  layout.tui.onToggleCollapse = () => {
+    const boundaries = layout.messages.getPromptBoundaries();
+    if (boundaries.length === 0) return false;
+    // Toggle the message at current nav position (or the last one)
+    const idx = currentPromptNavIndex >= 0 && currentPromptNavIndex < boundaries.length
+      ? boundaries[currentPromptNavIndex]!.messageIndex
+      : boundaries[boundaries.length - 1]!.messageIndex;
+    // Toggle the assistant response after this user prompt (idx + 1)
+    return layout.messages.toggleCollapse(idx + 1);
+  };
+
+  // Update breadcrumb when scroll position changes
+  layout.tui.onScrollPositionChanged = (scrollOffset) => {
+    if (scrollOffset === 0) {
+      layout.divider.setLabel(null);
+      currentPromptNavIndex = -1;
+    }
+  };
+
   // Install crash handler for clean shutdown on uncaught errors
   try {
     const { CrashHandler } = await import("../recovery/crash-handler.js");
@@ -880,7 +1100,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     setLoggerMuted(false);
 
     // Force exit after 500ms no matter what
-    const forceExit = setTimeout(() => process.exit(0), 500);
+    const forceExit = setTimeout(() => process.exit(0), 200);
     forceExit.unref();
 
     // Best-effort cleanup in parallel (500ms budget)
@@ -937,6 +1157,7 @@ async function initSessionRouter(
     cleanupSession: (() => void) | null;
     doomLoopDetector: { reset: () => void } | null;
     toolOutputHandler: { cleanup: () => Promise<void> } | null;
+    configState: ConfigState | null;
   },
   opts: LaunchOptions | undefined,
   layout: AppLayout,
@@ -953,7 +1174,7 @@ async function initSessionRouter(
 
   // Create LLM-backed agent runner with token streaming and tool support.
   const tokenEmitter = { emit: (_agentId: string, _token: string) => {} };
-  const toolEmitter = { emit: (_agentId: string, _tool: string, _status: string) => {} };
+  const toolEmitter = { emit: (_agentId: string, _tool: string, _status: string, _details?: Record<string, unknown>) => {} };
 
   // Lazy-load tool registry and executor for tool support
   let toolRegistry: import("../tools/registry.js").ToolRegistry | null = null;
@@ -1080,7 +1301,7 @@ async function initSessionRouter(
 
   const agentRunner = createLLMAgentRunner({
     onToken: (agentId, token) => tokenEmitter.emit(agentId, token),
-    onToolCall: (agentId, toolName, status) => toolEmitter.emit(agentId, toolName, status),
+    onToolCall: (agentId, toolName, status, details) => toolEmitter.emit(agentId, toolName, status, details as Record<string, unknown> | undefined),
     getToolSchemas: toolRegistry
       ? (toolNames) => toolRegistry!.exportForLLM(toolNames)
       : undefined,
@@ -1126,8 +1347,8 @@ async function initSessionRouter(
   tokenEmitter.emit = (agentId: string, token: string) => {
     ctx.router?.emit("dispatch:agent:token", ctx.chatSession?.id ?? "", agentId, token);
   };
-  toolEmitter.emit = (agentId: string, toolName: string, status: string) => {
-    ctx.router?.emit("dispatch:agent:tool", ctx.chatSession?.id ?? "", agentId, toolName, status);
+  toolEmitter.emit = (agentId: string, toolName: string, status: string, details?: Record<string, unknown>) => {
+    ctx.router?.emit("dispatch:agent:tool", ctx.chatSession?.id ?? "", agentId, toolName, status, details);
   };
 
   // ── Wire CostTracker — real-time token/cost tracking ──────────
@@ -1318,7 +1539,7 @@ export async function runPrintMode(prompt: string): Promise<void> {
 
   if (parsed.type === "command" && parsed.name === "status") {
     const { getGlobalProviderManager } = await import("../providers/provider-factory.js");
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     for (const p of pm.getProviders()) {
       const ok = await p.healthCheck().catch(() => false);
       console.log(`${p.name}: ${p.isAvailable() ? "available" : "unavailable"} health=${ok ? "ok" : "fail"}`);

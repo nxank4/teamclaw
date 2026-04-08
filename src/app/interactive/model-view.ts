@@ -27,6 +27,8 @@ export class ModelView extends InteractiveView {
   }
 
   override activate(): void {
+    this.filterEnabled = true;
+    this.filterText = "";
     super.activate();
     void this.loadModels();
   }
@@ -41,28 +43,29 @@ export class ModelView extends InteractiveView {
       .filter((m) => m.status === "available" || m.status === "configured")
       .map((m) => ({ model: m, selectable: true }));
 
-    // Pre-select current model
+    // Pre-select current model and adjust scroll
     const idx = this.items.findIndex((item) => item.model.model === this.currentModel);
-    if (idx >= 0) this.selectedIndex = idx;
+    if (idx >= 0) {
+      this.selectedIndex = idx;
+      this.adjustScroll();
+    }
 
     this.loading = false;
     this.render();
   }
 
-  protected getItemCount(): number { return this.items.length; }
+  private getFilteredItems(): ModelItem[] {
+    return this.items.filter((item) => this.matchesFilter(item.model.displayName || item.model.model));
+  }
+
+  protected getItemCount(): number { return this.getFilteredItems().length; }
 
   private selectAndClose(): void {
-    const item = this.items[this.selectedIndex];
+    const filtered = this.getFilteredItems();
+    const item = filtered[this.selectedIndex];
     if (item?.selectable) {
       this.onSelect(item.model.model);
       this.deactivate();
-    }
-  }
-
-  override handleClick(itemIndex: number): void {
-    if (itemIndex >= 0 && itemIndex < this.items.length) {
-      this.selectedIndex = itemIndex;
-      this.selectAndClose();
     }
   }
 
@@ -75,7 +78,7 @@ export class ModelView extends InteractiveView {
   }
 
   protected override getPanelTitle(): string { return "\u26a1 Models"; }
-  protected override getPanelFooter(): string { return "\u2191\u2193 navigate \u00b7 Enter select \u00b7 Esc close"; }
+  protected override getPanelFooter(): string { return "\u2191\u2193 navigate \u00b7 Enter select \u00b7 Type to filter \u00b7 Esc close"; }
 
   protected renderLines(): string[] {
     const t = this.theme;
@@ -94,34 +97,54 @@ export class ModelView extends InteractiveView {
       return lines;
     }
 
-    // Group available models by provider
+    const filterLine = this.renderFilterLine();
+    if (filterLine) {
+      lines.push(`    ${filterLine}`);
+      lines.push("");
+    }
+
+    const filtered = this.getFilteredItems();
+
+    if (filtered.length === 0 && this.filterText) {
+      lines.push(`    ${ctp.overlay1(`No models match "${this.filterText}"`)}`);
+      lines.push("");
+      return lines;
+    }
+
+    // Group available models by provider (with scroll)
+    const { start, end, aboveCount, belowCount } = this.getVisibleRange();
+    const visible = filtered.slice(start, end);
     let lastProvider = "";
-    let itemIdx = 0;
-    for (const item of this.items) {
+    const itemLines: string[] = [];
+
+    for (let vi = 0; vi < visible.length; vi++) {
+      const globalIdx = start + vi;
+      const item = visible[vi]!;
       const m = item.model;
-      const isSelected = itemIdx === this.selectedIndex;
+      const isSelected = globalIdx === this.selectedIndex;
       const isCurrent = m.model === this.currentModel;
 
       if (m.provider !== lastProvider) {
-        if (lastProvider) lines.push("");
+        if (lastProvider) itemLines.push("");
         const status = this.providerStatuses.find((p) => p.id === m.provider);
         const dot = status?.status === "connected" ? ctp.green("\u25cf") : ctp.yellow("\u25d0");
-        lines.push(`    ${dot} ${t.dim(m.provider)}`);
+        itemLines.push(`    ${dot} ${t.dim(m.provider)}`);
         lastProvider = m.provider;
       }
 
       const cursor = isSelected ? ctp.mauve("\u25b8 ") : "  ";
       const current = isCurrent ? ctp.green("  \u2190 current") : "";
       const ctxInfo = m.contextWindow ? t.dim(` ${Math.round(m.contextWindow / 1000)}k ctx`) : "";
-      this.registerClickRow(lines.length, itemIdx);
 
       if (isSelected) {
-        lines.push(`      ${cursor}${t.bold(m.displayName)}${ctxInfo}${current}`);
+        itemLines.push(`      ${cursor}${t.bold(m.displayName)}${ctxInfo}${current}`);
       } else {
-        lines.push(`      ${cursor}${m.displayName}${ctxInfo}${current}`);
+        itemLines.push(`      ${cursor}${m.displayName}${ctxInfo}${current}`);
       }
-      itemIdx++;
     }
+
+    const withIndicators = this.addScrollIndicators(itemLines, aboveCount, belowCount);
+    lines.push(...withIndicators);
 
     // Show unconfigured providers
     const unconfigured = this.providerStatuses.filter((p) => p.status === "not_configured" || (p.modelCount === 0 && p.status !== "connected"));

@@ -44,7 +44,7 @@ describe("env-detector", () => {
     const masked = maskApiKey("sk-ant-api03-abcdefghij1234567890xyz");
     expect(masked.startsWith("sk-ant")).toBe(true);
     expect(masked.endsWith("0xyz")).toBe(true);
-    expect(masked).toContain("•");
+    expect(masked).toContain("...");
   });
 
   it("masks short keys entirely", async () => {

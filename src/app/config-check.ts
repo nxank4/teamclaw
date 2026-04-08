@@ -19,7 +19,7 @@ export async function detectConfig(): Promise<ConfigState> {
     const { getGlobalProviderManager } = await import(
       "../providers/provider-factory.js"
     );
-    const mgr = getGlobalProviderManager();
+    const mgr = await getGlobalProviderManager();
     const providers = mgr.getProviders();
 
     if (providers.length === 0) {

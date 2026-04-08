@@ -5,7 +5,7 @@
 
 export type KeyEvent =
   | { type: "char"; char: string; ctrl: boolean; alt: boolean; shift: boolean }
-  | { type: "enter" }
+  | { type: "enter"; shift: boolean }
   | { type: "backspace" }
   | { type: "delete" }
   | { type: "tab"; shift: boolean }
@@ -18,7 +18,6 @@ export type KeyEvent =
   | { type: "scroll_up" }
   | { type: "scroll_down" }
   | { type: "mouse_click"; button: "left" | "middle" | "right"; col: number; row: number }
-  | { type: "mouse_move"; col: number; row: number }
   | { type: "mouse_drag"; col: number; row: number }
   | { type: "mouse_release"; col: number; row: number }
   | { type: "paste"; text: string }
@@ -105,6 +104,13 @@ export class InputParser {
           return;
         }
 
+        // Alt+Enter: ESC followed by CR — treat as Shift+Enter
+        if (b1 === 0x0d) {
+          this.buffer.splice(0, 2);
+          this.onEvent({ type: "enter", shift: true });
+          continue;
+        }
+
         // Alt+char: ESC followed by a printable character
         if (b1 >= 0x20 && b1 <= 0x7e) {
           this.buffer.splice(0, 2);
@@ -127,7 +133,7 @@ export class InputParser {
       // Enter (CR)
       if (b0 === 0x0d) {
         this.buffer.shift();
-        this.onEvent({ type: "enter" });
+        this.onEvent({ type: "enter", shift: false });
         continue;
       }
 
@@ -221,12 +227,6 @@ export class InputParser {
       // Release
       if (!pressed) { this.onEvent({ type: "mouse_release", col, row }); return i + 1; }
 
-      // Motion with no button (button 35) = hover/move
-      if (button === 35) {
-        this.onEvent({ type: "mouse_move", col, row });
-        return i + 1;
-      }
-
       // Drag (button 32-34 = left/middle/right + motion)
       if (button >= 32 && button <= 34) {
         this.onEvent({ type: "mouse_drag", col, row });
@@ -297,6 +297,18 @@ export class InputParser {
     if (terminator === 0x5a) {
       this.onEvent({ type: "tab", shift: true });
       return i + 1;
+    }
+
+    // Kitty keyboard protocol: ESC[key;modifiersu
+    // Shift+Enter: ESC[13;2u (key=13=CR, modifier=2=shift)
+    if (terminator === 0x75) { // 'u'
+      const parts = paramStr.split(";");
+      const key = parseInt(parts[0] ?? "", 10);
+      const mod = parts.length >= 2 ? parseInt(parts[1]!, 10) - 1 : 0;
+      if (key === 13) {
+        this.onEvent({ type: "enter", shift: (mod & 1) !== 0 });
+        return i + 1;
+      }
     }
 
     // Unknown CSI sequence

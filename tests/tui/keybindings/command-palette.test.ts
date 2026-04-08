@@ -100,7 +100,7 @@ describe("CommandPalette", () => {
       }],
     });
     cp.show();
-    cp.handleKey({ type: "enter" });
+    cp.handleKey({ type: "enter", shift: false });
     // Wait for async
     await new Promise((r) => setTimeout(r, 0));
     expect(action).toHaveBeenCalledOnce();

@@ -30,6 +30,9 @@ export { CommandRegistry, type SlashCommand, type CommandContext } from "./slash
 export { parseInput, type ParsedInput } from "./slash/parser.js";
 export { createBuiltinCommands } from "./slash/builtin.js";
 
+// Autocomplete
+export { Trie } from "./autocomplete/trie.js";
+
 // Themes
 export { type Theme, type StyleFn } from "./themes/theme.js";
 export { defaultTheme } from "./themes/default.js";
@@ -38,6 +41,9 @@ export { defaultTheme } from "./themes/default.js";
 export { KeybindingManager, type KeyContext } from "./keyboard/keybindings.js";
 export { ACTIONS, type ActionId } from "./keyboard/actions.js";
 export { PRESETS, type PresetName, type KeymapPreset } from "./keyboard/keymap-presets.js";
+
+// Layout
+export { computeLayout, getBreakpoint, DEFAULT_LAYOUT, type LayoutConfig, type Breakpoint } from "./layout/index.js";
 
 // Utils
 export { visibleWidth, charWidth, stripAnsi } from "./utils/text-width.js";

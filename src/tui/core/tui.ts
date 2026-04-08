@@ -14,16 +14,18 @@ import { ProcessTerminal, type Terminal } from "./terminal.js";
 import { hideCursor, showCursor, cursorTo } from "./ansi.js";
 import { SelectionManager } from "./selection.js";
 import { KeybindingManager, type KeyContext } from "../keyboard/keybindings.js";
+import { DEV } from "../../dev/index.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
-import { HitTester } from "../mouse/hit-test.js";
-import { HoverManager } from "../mouse/hover-manager.js";
+import { CopyManager, cleanCopyText } from "../text/copy-manager.js";
+import { computeLayout, DEFAULT_LAYOUT, type LayoutConfig } from "../layout/responsive.js";
 
 export class TUI {
   readonly keybindings: KeybindingManager;
   private terminal: Terminal;
   private renderer: DiffRenderer;
   private root: Container;
+  private layout: LayoutConfig = DEFAULT_LAYOUT;
   private inputParser: InputParser;
   private focusedComponent: Component | null = null;
   private overlayComponent: Component | null = null;
@@ -39,23 +41,24 @@ export class TUI {
   private scrollOffset = 0; // 0 = at bottom, positive = scrolled up
   private autoScroll = true;
 
-  // Mouse selection + region tracking
+  // Text selection + copy
   private selectionManager = new SelectionManager();
-  private hitTester = new HitTester();
-  private hoverManager = new HoverManager();
+  private copyManager = new CopyManager();
   private lastScreenLines: string[] = [];
   private lastFullContentLines: string[] = [];  // all content lines (not just visible)
   private contentRowEnd = 0;   // last row of messages content region (1-based)
   private editorRowStart = 0;  // first row of editor region (1-based)
   private editorRowEnd = 0;    // last row of editor region (1-based)
   private statusBarRow = 0;    // status bar row (1-based)
-  private hoveredRow: number | null = null;
 
-  // Multi-click detection
+  // Mouse state
   private lastClickTime = 0;
   private lastClickRow = 0;
   private lastClickCol = 0;
   private clickCount = 0;
+  private mouseDownPos: { row: number; col: number } | null = null;
+  private isDragging = false;
+  private autoScrollTimer: ReturnType<typeof setInterval> | null = null;
 
   // Key handler stack — interactive views push handlers that take priority
   private keyHandlerStack: { handleKey: (event: KeyEvent) => boolean }[] = [];
@@ -64,19 +67,22 @@ export class TUI {
   private interactiveLines: string[] | null = null;
   private interactiveStartRow = 0; // screen row where interactive content starts (1-based)
 
-  // Click handler for interactive views
-  private clickHandler: ((row: number, col: number) => boolean) | null = null;
-
-  // Ctrl+C double-press state
-  private ctrlCPending = false;
-  private ctrlCTimer: ReturnType<typeof setTimeout> | null = null;
-
-  /** Called when the TUI exits (Ctrl+C double-press or Ctrl+D). */
+  /** Called when the TUI exits (Ctrl+C or Ctrl+D). */
   onExit?: () => void;
   /** Called when Ctrl+C should abort a running task. Return true if handled. */
   onAbort?: () => boolean;
   /** Called to display a system message (e.g., "Press Ctrl+C again to exit"). */
   onSystemMessage?: (msg: string) => void;
+  /** Called to show a brief flash notification (e.g., "Copied!"). */
+  onFlashMessage?: (msg: string) => void;
+  /** Called when a mode action is triggered (e.g., "cycle", "auto", "build"). */
+  onModeAction?: (action: string) => void;
+  /** Called to jump scroll to a prompt boundary. Returns the total content lines at that prompt. */
+  onScrollToPrompt?: (direction: "prev" | "next") => number | null;
+  /** Called to toggle collapse on the message currently in view. */
+  onToggleCollapse?: () => boolean;
+  /** Called when scroll position changes. */
+  onScrollPositionChanged?: (scrollOffset: number, totalLines: number) => void;
 
   constructor(terminal?: Terminal, preset?: PresetName) {
     this.keybindings = new KeybindingManager(preset ?? detectPlatform());
@@ -85,7 +91,11 @@ export class TUI {
     this.root = new Container("__root__");
     this.inputParser = new InputParser();
     this.inputParser.onEvent = this.handleEvent.bind(this);
-    this.hoverManager.onRequestRender = () => this.requestRender();
+  }
+
+  /** Get the current responsive layout config (recomputed each render frame). */
+  getLayout(): LayoutConfig {
+    return this.layout;
   }
 
   // ── Lifecycle ───────────────────────────────────────────
@@ -94,10 +104,13 @@ export class TUI {
     if (this.running) return;
     this.running = true;
 
+    DEV.init();
     this.terminal.start();
+    this.copyManager.setTerminal(this.terminal);
 
     this.terminal.onInput((data: Buffer) => {
       try {
+        if (DEV.enabled) DEV.logInput(data.toString("hex"), "raw");
         this.inputParser.feed(data);
       } catch (err) {
         this.handleUncaughtError(err);
@@ -112,6 +125,7 @@ export class TUI {
   stop(): void {
     if (!this.running) return;
     this.running = false;
+    DEV.destroy();
     if (this.resizeTimer) { clearTimeout(this.resizeTimer); this.resizeTimer = null; }
     this.terminal.write(showCursor);
     this.terminal.stop();
@@ -126,7 +140,7 @@ export class TUI {
       this.resizeTimer = null;
       if (!this.running) return;
       this.performResize();
-    }, 50);
+    }, 100);
   }
 
   private performResize(): void {
@@ -153,10 +167,28 @@ export class TUI {
     component.onMount?.();
   }
 
+  /** Hide or show a fixed-bottom component by ID. */
+  setFixedBottomHidden(id: string, hidden: boolean): void {
+    for (const comp of this.fixedBottomComponents) {
+      if (comp.id === id) {
+        comp.hidden = hidden;
+        break;
+      }
+    }
+  }
+
+  /** Hide or show the scrollable content (messages area). */
+  setScrollableHidden(hidden: boolean): void {
+    if (this.scrollableComponent) {
+      this.scrollableComponent.hidden = hidden;
+    }
+  }
+
   /** Scroll the messages area up (shows older content). */
   scrollUp(lines = 3): void {
     this.scrollOffset += lines;
     this.autoScroll = false;
+    this.updateBreadcrumb();
     this.requestRender();
   }
 
@@ -164,6 +196,7 @@ export class TUI {
   scrollDown(lines = 3): void {
     this.scrollOffset = Math.max(0, this.scrollOffset - lines);
     if (this.scrollOffset === 0) this.autoScroll = true;
+    this.updateBreadcrumb();
     this.requestRender();
   }
 
@@ -171,7 +204,14 @@ export class TUI {
   scrollToBottom(): void {
     this.scrollOffset = 0;
     this.autoScroll = true;
+    this.updateBreadcrumb();
     this.requestRender();
+  }
+
+  /** Update the divider breadcrumb label based on current scroll position. */
+  private updateBreadcrumb(): void {
+    // Delegate to the app layer which knows about the divider and messages
+    this.onScrollPositionChanged?.(this.scrollOffset, this.lastFullContentLines.length);
   }
 
   /** Notify that new content was added — auto-scrolls if at bottom. */
@@ -186,11 +226,21 @@ export class TUI {
   /** Push a key handler that takes priority over normal input routing. */
   pushKeyHandler(handler: { handleKey: (event: KeyEvent) => boolean }): void {
     this.keyHandlerStack.push(handler);
+    this.updateEditorSuppressHistory();
   }
 
   /** Remove the most recent key handler. */
   popKeyHandler(): void {
     this.keyHandlerStack.pop();
+    this.updateEditorSuppressHistory();
+  }
+
+  /** Suppress editor history when an interactive view is active. */
+  private updateEditorSuppressHistory(): void {
+    const editor = this.focusedComponent as Component & { suppressHistory?: boolean };
+    if (editor && "suppressHistory" in editor) {
+      editor.suppressHistory = this.keyHandlerStack.length > 0;
+    }
   }
 
   /** Set interactive view content (renders at bottom of scrollable area). */
@@ -212,24 +262,9 @@ export class TUI {
     return this.interactiveLines !== null;
   }
 
-  /** Set click handler for interactive views. Handler receives screen row/col (1-based). */
-  setClickHandler(handler: ((row: number, col: number) => boolean) | null): void {
-    this.clickHandler = handler;
-  }
-
   /** Get the screen row where the interactive content starts (1-based). */
   getInteractiveStartRow(): number {
     return this.interactiveStartRow;
-  }
-
-  /** Get the hit tester for registering interactive elements. */
-  getHitTester(): HitTester {
-    return this.hitTester;
-  }
-
-  /** Get the hover manager for checking hover state. */
-  getHoverManager(): HoverManager {
-    return this.hoverManager;
   }
 
   // ── Legacy child API (backward compatible) ──────────────
@@ -315,11 +350,24 @@ export class TUI {
   }
 
   private doRender(): void {
-    // Clear interactive element regions before re-render
-    this.hitTester.clear();
+    DEV.beginFrame();
+
+    // Recompute responsive layout each frame
+    this.layout = computeLayout(this.terminal.columns, this.terminal.rows);
+
+    // Minimum terminal size guard
+    if (this.terminal.columns < 40 || this.terminal.rows < 10) {
+      const msg = "Terminal too small. Resize to at least 40\u00d710.";
+      const pad = Math.max(0, Math.floor((this.terminal.columns - msg.length) / 2));
+      this.renderer.render(this.terminal, ["", " ".repeat(pad) + msg, ""]);
+      this.terminal.write(hideCursor);
+      DEV.endFrame();
+      return;
+    }
 
     if (this.overlayComponent) {
       this.renderOverlay();
+      DEV.endFrame();
       return;
     }
 
@@ -328,6 +376,7 @@ export class TUI {
     } else {
       this.renderLegacy();
     }
+    DEV.endFrame();
   }
 
   /** Split-region render: scrollable content + fixed bottom. */
@@ -339,6 +388,7 @@ export class TUI {
     const fixedLines: string[] = [];
     let focusOffsetInFixed = -1;
     for (const comp of this.fixedBottomComponents) {
+      if (comp.hidden) continue;
       if (comp === this.focusedComponent) {
         focusOffsetInFixed = fixedLines.length;
       }
@@ -351,7 +401,9 @@ export class TUI {
 
     // 3. Render scrollable content (returns ALL lines)
     //    If an interactive view is active, append it after messages
-    const messageLines = this.scrollableComponent!.render(width);
+    const messageLines = this.scrollableComponent?.hidden
+      ? []
+      : this.scrollableComponent!.render(width);
     const allContentLines = this.interactiveLines
       ? [...messageLines, ...this.interactiveLines]
       : messageLines;
@@ -367,9 +419,8 @@ export class TUI {
     const visibleEnd = totalContent - this.scrollOffset;
     const visibleStart = Math.max(0, visibleEnd - scrollableHeight);
 
-    // Store full content lines and update selection scroll offset
+    // Store full content lines for selection text extraction
     this.lastFullContentLines = allContentLines;
-    this.selectionManager.setScrollOffset(visibleStart);
     const visibleContentLines = allContentLines.slice(visibleStart, visibleEnd);
 
     // 5. Pad with empty lines if content doesn't fill the area
@@ -380,6 +431,12 @@ export class TUI {
     }
     paddedContent.push(...visibleContentLines);
 
+    // Set selection scroll offset AFTER calculating padding.
+    // Screen row 1 is the first padded row. The first content row is at screen row (padCount + 1).
+    // screenToContent(row) = row + scrollOffset, so for row = padCount + 1 we need
+    // contentRow = visibleStart + 1 (1-based), meaning scrollOffset = visibleStart - padCount.
+    this.selectionManager.setScrollOffset(visibleStart - padCount);
+
     // 5b. Track where interactive content starts on screen (1-based row)
     if (this.interactiveLines && this.scrollOffset === 0) {
       const interactiveVisibleStart = Math.max(0, messageLines.length - visibleStart);
@@ -388,11 +445,7 @@ export class TUI {
       this.interactiveStartRow = 0;
     }
 
-    // 5c. Track region boundaries for mouse routing
-    //   Content region: rows 1 to scrollableHeight (messages area, minus interactive)
-    //   Interactive region: interactiveStartRow to scrollableHeight (when active)
-    //   Editor region: within fixed bottom
-    //   Status bar: last row of fixed bottom
+    // 5c. Track region boundaries for highlight/selection
     this.contentRowEnd = this.interactiveStartRow > 0
       ? this.interactiveStartRow - 1
       : scrollableHeight;
@@ -482,10 +535,11 @@ export class TUI {
 
   private handleEvent(event: KeyEvent): void {
     // Mouse events — separate path
-    if (event.type === "mouse_click" || event.type === "mouse_move" || event.type === "mouse_drag" || event.type === "mouse_release") {
+    if (event.type === "mouse_click" || event.type === "mouse_drag" || event.type === "mouse_release") {
       this.handleMouse(event);
       return;
     }
+
     if (event.type === "scroll_up" || event.type === "scroll_down") {
       if (this.scrollableComponent) {
         if (event.type === "scroll_up") this.scrollUp(3);
@@ -501,13 +555,9 @@ export class TUI {
     // App-level actions handled by TUI (quit, abort, scroll, modes)
     if (action && this.handleAppAction(action, event)) return;
 
-    // Reset double-press on non-abort keys
-    this.ctrlCPending = false;
-
     // Clear selection on keyboard input
     if (this.selectionManager.hasSelection() && !this.selectionManager.isSelecting()) {
       this.selectionManager.clearSelection();
-      this.hoveredRow = null;
       this.requestRender();
     }
 
@@ -543,13 +593,29 @@ export class TUI {
       return true;
     }
 
-    // Clipboard copy (only when selection exists — already resolved)
-    if (action === "editor.clipboard.copy" && this.selectionManager.hasSelection()) {
-      const text = this.selectionManager.getSelectedText(this.lastFullContentLines);
-      if (text.trim()) this.selectionManager.copyToClipboard(this.terminal, text);
-      this.selectionManager.clearSelection();
-      this.requestRender();
-      return true;
+    // Clipboard copy — check editor selection first, then messages selection
+    if (action === "editor.clipboard.copy") {
+      const editor = this.focusedComponent as Component & { hasSelection?: () => boolean; getSelectedText?: () => string | null };
+      if (editor?.hasSelection?.()) {
+        const text = editor.getSelectedText?.();
+        if (text?.trim()) {
+          void this.copyManager.copyToClipboard(text);
+          this.onFlashMessage?.("Copied!");
+        }
+        this.requestRender();
+        return true;
+      }
+      if (this.selectionManager.hasSelection()) {
+        const raw = this.selectionManager.getSelectedText(this.lastFullContentLines);
+        const text = cleanCopyText(raw);
+        if (text.trim()) {
+          void this.copyManager.copyToClipboard(text);
+          this.onFlashMessage?.("Copied!");
+        }
+        this.selectionManager.clearSelection();
+        this.requestRender();
+        return true;
+      }
     }
 
     // Messages scroll
@@ -565,10 +631,30 @@ export class TUI {
     }
     if (action === "messages.scroll.top") { this.scrollUp(999999); return true; }
     if (action === "messages.scroll.bottom") { this.scrollToBottom(); return true; }
+    if (action === "messages.scroll.prevPrompt" || action === "messages.scroll.nextPrompt") {
+      const dir = action === "messages.scroll.prevPrompt" ? "prev" : "next";
+      const targetLine = this.onScrollToPrompt?.(dir);
+      if (targetLine != null) {
+        // Convert content line index to scroll offset
+        const totalLines = this.lastFullContentLines.length;
+        const visibleHeight = this.terminal.rows - this.getFixedHeight();
+        this.scrollOffset = Math.max(0, totalLines - targetLine - visibleHeight);
+        this.autoScroll = this.scrollOffset === 0;
+        this.updateBreadcrumb();
+        this.requestRender();
+      }
+      return true;
+    }
+    if (action === "messages.collapse.toggle") {
+      if (this.onToggleCollapse?.()) {
+        this.requestRender();
+      }
+      return true;
+    }
 
-    // Mode switching
+    // Mode switching — delegate to app layer via callback
     if (action.startsWith("mode.")) {
-      this.onSystemMessage?.(`Mode: ${action.replace("mode.", "")}`);
+      this.onModeAction?.(action.replace("mode.", ""));
       return true;
     }
 
@@ -608,48 +694,32 @@ export class TUI {
     switch (action) {
       case "nav.up": return { type: "arrow", direction: "up", ctrl: false, alt: false };
       case "nav.down": return { type: "arrow", direction: "down", ctrl: false, alt: false };
-      case "nav.select": return { type: "enter" };
+      case "nav.select": return { type: "enter", shift: false };
       case "nav.back": return { type: "escape" };
       default: return null;
     }
   }
 
-  /** Contextual Ctrl+C: copy selection → cancel edit → close view → clear input → abort → exit. */
+  /** Contextual Ctrl+C: copy selection → close view → abort task → exit. */
   private handleCtrlC(): void {
     // Priority 0: If there's a text selection → copy to clipboard, consume event
     if (this.selectionManager.hasSelection()) {
-      const text = this.selectionManager.getSelectedText(this.lastFullContentLines);
+      const raw = this.selectionManager.getSelectedText(this.lastFullContentLines);
+      const text = cleanCopyText(raw);
+
       if (text.trim()) {
-        this.selectionManager.copyToClipboard(this.terminal, text);
+        void this.copyManager.copyToClipboard(text);
+        this.onFlashMessage?.("Copied!");
       }
       this.selectionManager.clearSelection();
       this.requestRender();
       return;
     }
 
-    // Priority 1: If an interactive view is open → send Ctrl+C to it
-    // (the view decides: cancel edit if editing, close if navigating)
+    // Priority 1: If an interactive view is open → send Ctrl+C to close it
     if (this.keyHandlerStack.length > 0) {
       const top = this.keyHandlerStack[this.keyHandlerStack.length - 1]!;
       top.handleKey({ type: "char", char: "c", ctrl: true, alt: false, shift: false });
-      this.requestRender();
-      return;
-    }
-
-    // Priority 2: If editor has text → clear it
-    const fc = this.focusedComponent as Component & {
-      getText?: () => string;
-      clear?: () => void;
-      isAutocompleteActive?: () => boolean;
-      dismissAutocomplete?: () => void;
-    };
-    if (fc?.isAutocompleteActive?.()) {
-      fc.dismissAutocomplete?.();
-      this.requestRender();
-      return;
-    }
-    if (fc?.getText && fc?.clear && fc.getText().trim().length > 0) {
-      fc.clear();
       this.requestRender();
       return;
     }
@@ -659,18 +729,8 @@ export class TUI {
       return;
     }
 
-    // Priority 3: Double Ctrl+C to exit
-    if (this.ctrlCPending) {
-      this.gracefulExit();
-      return;
-    }
-
-    this.ctrlCPending = true;
-    this.onSystemMessage?.("Press Ctrl+C again to exit, or Ctrl+D to quit.");
-    if (this.ctrlCTimer) clearTimeout(this.ctrlCTimer);
-    this.ctrlCTimer = setTimeout(() => {
-      this.ctrlCPending = false;
-    }, 2000);
+    // Priority 3: Exit immediately
+    this.gracefulExit();
   }
 
   /** Catch uncaught errors — show in TUI instead of crashing to raw terminal. */
@@ -688,12 +748,11 @@ export class TUI {
   }
 
   private gracefulExit(): void {
-    if (this.ctrlCTimer) { clearTimeout(this.ctrlCTimer); this.ctrlCTimer = null; }
     this.onExit?.();
     this.stop();
   }
 
-  // ── Mouse ───────────────────────────────────────────────
+  // ── Region classification + selection highlight ────────
 
   /** Classify a screen row: 'content' (messages/editor), 'interactive', or 'none'. */
   private getRegionType(row: number): "content" | "interactive" | "none" {
@@ -704,147 +763,15 @@ export class TUI {
     return "none"; // divider or out of bounds
   }
 
-  private handleMouse(event: KeyEvent): void {
-    // Mouse move → hover detection
-    if (event.type === "mouse_move" && "col" in event) {
-      this.hoverManager.onMouseMove(event.col, event.row, this.hitTester);
-      return;
-    }
-
-    if (event.type === "mouse_click" && "button" in event) {
-      // Try hit tester first for interactive elements
-      if (event.button === "left" && this.hoverManager.onClick(event.col, event.row, this.hitTester)) {
-        this.requestRender();
-        return;
-      }
-      if (event.button !== "left") return;
-
-      // Multi-click detection
-      const now = Date.now();
-      const samePos = event.row === this.lastClickRow && Math.abs(event.col - this.lastClickCol) <= 1;
-      this.clickCount = (samePos && now - this.lastClickTime < 400) ? this.clickCount + 1 : 1;
-      this.lastClickTime = now;
-      this.lastClickRow = event.row;
-      this.lastClickCol = event.col;
-
-      const region = this.getRegionType(event.row);
-
-      if (region === "interactive") {
-        // Interactive region: click = action, no text selection
-        this.selectionManager.clearSelection();
-        if (this.clickHandler?.(event.row, event.col)) {
-          this.requestRender();
-        }
-        return;
-      }
-
-      if (region === "content") {
-        this.selectionManager.clearSelection();
-
-        // Editor region: position cursor + multi-click
-        if (event.row >= this.editorRowStart && event.row <= this.editorRowEnd) {
-          const editor = this.focusedComponent as Component & {
-            setCursorFromClick?: (col: number) => void;
-            selectWordAtCursor?: () => void;
-            selectAllText?: () => void;
-          };
-          if (this.clickCount === 1) {
-            editor.setCursorFromClick?.(event.col);
-          } else if (this.clickCount === 2) {
-            editor.setCursorFromClick?.(event.col);
-            editor.selectWordAtCursor?.();
-          } else if (this.clickCount >= 3) {
-            editor.selectAllText?.();
-          }
-          this.requestRender();
-          return;
-        }
-
-        // Messages region: text selection + multi-click
-        if (this.clickCount === 1) {
-          this.selectionManager.startSelection(event.row, event.col);
-        } else if (this.clickCount === 2) {
-          this.selectionManager.selectWordAt(event.row, event.col, this.lastScreenLines);
-          this.requestRender();
-        } else if (this.clickCount >= 3) {
-          this.selectionManager.selectLine(event.row, this.lastScreenLines);
-          this.requestRender();
-        }
-        return;
-      }
-      // 'none' — ignore
-      return;
-    }
-
-    if (event.type === "mouse_drag" && "col" in event) {
-      // Only extend selection if we started in a content region
-      if (this.selectionManager.isSelecting()) {
-        // Clamp drag to content regions only
-        let row = event.row;
-        if (row > this.contentRowEnd && row < this.editorRowStart) {
-          row = this.contentRowEnd; // don't drag into interactive/divider
-        }
-        this.selectionManager.updateSelection(row, event.col);
-        this.requestRender();
-      }
-      return;
-    }
-
-    if (event.type === "mouse_release") {
-      if (this.selectionManager.isSelecting()) {
-        this.selectionManager.endSelection();
-        // Don't auto-copy — user copies with Ctrl+C
-        this.requestRender();
-      }
-      return;
-    }
-  }
-
-  /** Handle mouse click in the editor region — position cursor. */
-  private handleEditorClick(row: number, col: number): void {
-    if (!this.focusedComponent || !this.scrollableComponent) return;
-    // Editor is in the fixed-bottom region. Calculate its screen row.
-    const totalRows = this.terminal.rows;
-    const fixedHeight = this.getFixedHeight();
-    const fixedStartRow = totalRows - fixedHeight + 1; // 1-based
-
-    // Find the editor's offset within fixed components
-    let offset = 0;
-    for (const comp of this.fixedBottomComponents) {
-      if (comp === this.focusedComponent) {
-        // Editor found — check if click is within its rendered lines
-        const editorLines = comp.render(this.terminal.columns).length;
-        const editorStartRow = fixedStartRow + offset;
-        const editorEndRow = editorStartRow + editorLines - 1;
-        if (row >= editorStartRow && row <= editorEndRow) {
-          // Call setCursorFromClick if the component supports it
-          const editor = comp as Component & { setCursorFromClick?: (col: number) => void };
-          editor.setCursorFromClick?.(col);
-          this.requestRender();
-        }
-        return;
-      }
-      offset += comp.render(this.terminal.columns).length;
-    }
-  }
-
-  /** Apply selection highlight (content regions) and hover highlight (interactive regions). */
+  /** Apply selection highlight in content regions. */
   private applySelectionHighlight(screenLines: string[]): string[] {
-    const hasSelection = this.selectionManager.hasSelection();
-    const hasHover = this.hoveredRow !== null;
-    if (!hasSelection && !hasHover) return screenLines;
+    if (!this.selectionManager.hasSelection()) return screenLines;
 
     return screenLines.map((line, idx) => {
       const row = idx + 1;
       const region = this.getRegionType(row);
-
-      // Hover highlight in interactive regions
-      if (region === "interactive" && row === this.hoveredRow) {
-        return `\x1b[48;2;40;40;55m${line}\x1b[49m`;
-      }
-
-      // Selection highlight in content regions only
-      if (region !== "content" || !hasSelection) return line;
+      if (region !== "content") return line;
+      if (row >= this.editorRowStart && row <= this.editorRowEnd) return line;
 
       let result = "";
       let visCol = 0;
@@ -862,6 +789,107 @@ export class TUI {
       }
       return result;
     });
+  }
+
+  // ── Mouse handling ─────────────────────────────────────
+
+  private handleMouse(event: KeyEvent): void {
+    if (event.type === "mouse_click" && "button" in event) {
+      if (event.button !== "left") return;
+
+      // Multi-click detection
+      const now = Date.now();
+      const samePos = event.row === this.lastClickRow && Math.abs(event.col - this.lastClickCol) <= 1;
+      this.clickCount = (samePos && now - this.lastClickTime < 400) ? this.clickCount + 1 : 1;
+      this.lastClickTime = now;
+      this.lastClickRow = event.row;
+      this.lastClickCol = event.col;
+
+      const region = this.getRegionType(event.row);
+      this.selectionManager.clearSelection();
+
+      if (region === "content" && event.row < this.editorRowStart) {
+        // Messages region
+        if (this.clickCount === 1) {
+          this.mouseDownPos = { row: event.row, col: event.col };
+          this.isDragging = false;
+        } else if (this.clickCount === 2) {
+          this.mouseDownPos = null;
+          this.selectionManager.selectWordAt(event.row, event.col, this.lastScreenLines);
+        } else if (this.clickCount >= 3) {
+          this.mouseDownPos = null;
+          this.selectionManager.selectLine(event.row, this.lastScreenLines);
+        }
+      } else if (region === "content" && event.row >= this.editorRowStart && event.row <= this.editorRowEnd) {
+        // Editor region — position cursor
+        const editor = this.focusedComponent as Component & { setCursorFromClick?: (col: number) => void };
+        editor.setCursorFromClick?.(event.col);
+      }
+
+      this.requestRender();
+      return;
+    }
+
+    if (event.type === "mouse_drag" && "col" in event) {
+      // Lazy drag: start selection on first move from mousedown position
+      if (this.mouseDownPos && !this.isDragging) {
+        const moved = event.row !== this.mouseDownPos.row || event.col !== this.mouseDownPos.col;
+        if (moved) {
+          this.isDragging = true;
+          this.selectionManager.startSelection(this.mouseDownPos.row, this.mouseDownPos.col);
+        }
+      }
+      if (this.isDragging && this.selectionManager.isSelecting()) {
+        // Clamp drag to messages area
+        const row = Math.min(event.row, this.contentRowEnd);
+        this.selectionManager.updateSelection(row, event.col);
+
+        // Auto-scroll when dragging near edges
+        if (event.row <= 1) {
+          this.startAutoScroll("up");
+        } else if (event.row >= this.terminal.rows - this.getFixedHeight()) {
+          this.startAutoScroll("down");
+        } else {
+          this.stopAutoScroll();
+        }
+
+        this.requestRender();
+      }
+      return;
+    }
+
+    if (event.type === "mouse_release") {
+      this.stopAutoScroll();
+      if (this.isDragging && this.selectionManager.isSelecting()) {
+        this.selectionManager.endSelection();
+        // Copy selection to clipboard
+        const text = this.selectionManager.getSelectedText(this.lastFullContentLines);
+        if (text) {
+          void this.copyManager.copyToClipboard(text);
+          this.onFlashMessage?.("Copied!");
+        }
+      }
+      this.mouseDownPos = null;
+      this.isDragging = false;
+      this.requestRender();
+      return;
+    }
+  }
+
+  private startAutoScroll(direction: "up" | "down"): void {
+    if (this.autoScrollTimer) return;
+    this.autoScrollTimer = setInterval(() => {
+      if (direction === "up") this.scrollUp(2);
+      else this.scrollDown(2);
+      this.requestRender();
+    }, 80);
+  }
+
+  private stopAutoScroll(): void {
+    if (this.autoScrollTimer) {
+      clearInterval(this.autoScrollTimer);
+      this.autoScrollTimer = null;
+    }
   }
 
   private getFixedHeight(): number {

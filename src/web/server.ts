@@ -206,7 +206,7 @@ export async function runWeb(args: string[]): Promise<void> {
     });
   } else {
     logger.warn(
-      "Web client build not found. Run `pnpm run client:build` to serve the dashboard UI.",
+      "Web client build not found. Run `bun run client:build` to serve the dashboard UI.",
     );
   }
 
@@ -395,6 +395,7 @@ export async function runWeb(args: string[]): Promise<void> {
         clearInterval(keepAlive);
       }
     }, 30_000);
+    keepAlive.unref();
 
     req.raw.on("close", () => {
       clearInterval(keepAlive);
@@ -444,7 +445,7 @@ export async function runWeb(args: string[]): Promise<void> {
 
     // Fire orchestration in background
     (async () => {
-      const pm = getGlobalProviderManager();
+      const pm = await getGlobalProviderManager();
       if (pm.getProviders().length === 0) {
         broadcast({
           type: "provision_error",

@@ -17,7 +17,7 @@ export function startTimeoutChecker(): void {
   if (timeoutCheckerStarted) return;
   timeoutCheckerStarted = true;
   const intervalMs = 10000;
-  setInterval(async () => {
+  const checker = setInterval(async () => {
     if (THREAD_REGISTRY.size === 0) return;
     for (const [threadId, entry] of THREAD_REGISTRY.entries()) {
       try {
@@ -74,4 +74,5 @@ export function startTimeoutChecker(): void {
       }
     }
   }, intervalMs);
+  checker.unref();
 }

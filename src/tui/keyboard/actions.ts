@@ -41,6 +41,9 @@ export const ACTIONS = {
   "messages.scroll.pageDown": "Scroll messages page down",
   "messages.scroll.top": "Scroll to oldest message",
   "messages.scroll.bottom": "Scroll to newest message",
+  "messages.scroll.prevPrompt": "Jump to previous user prompt",
+  "messages.scroll.nextPrompt": "Jump to next user prompt",
+  "messages.collapse.toggle": "Expand/collapse focused message",
 
   // App
   "app.help": "Show help",

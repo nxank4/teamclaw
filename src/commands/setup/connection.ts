@@ -3,9 +3,8 @@
  */
 
 import {
-    confirm,
-    isCancel,
     cancel,
+    confirm,
     select,
     spinner,
     text,
@@ -33,13 +32,8 @@ export interface WizardState {
     anthropicApiKey?: string;
 }
 
-export function handleCancel<T>(v: T): T {
-    if (isCancel(v)) {
-        cancel("Cancelled.");
-        process.exit(0);
-    }
-    return v;
-}
+import { handleCancel } from "../../onboard/setup-flow.js";
+export { handleCancel };
 
 type ProviderType = ProviderConfigEntry["type"];
 
@@ -110,7 +104,7 @@ async function testProviderConnection(entry: ProviderConfigEntry): Promise<boole
     if (entry.type === "opencode-zen" || entry.type === "opencode-go") return true;
 
     const { providerFromConfig } = await import("../../providers/provider-factory.js");
-    const provider = providerFromConfig(entry);
+    const provider = await providerFromConfig(entry);
     if (!provider) return true;
 
     const s = spinner();

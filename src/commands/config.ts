@@ -1,8 +1,6 @@
 import {
-    cancel,
     confirm,
     intro,
-    isCancel,
     note,
     outro,
     select,
@@ -26,6 +24,7 @@ import { modelManagementMenu } from "./config/model-menu.js";
 import { advancedSettingsMenu, type AdvancedState } from "./config/advanced-menu.js";
 import { addProvider, listProviders } from "./providers.js";
 import { maskApiKey } from "../core/errors.js";
+import { handleCancel } from "../onboard/setup-flow.js";
 
 type MemoryBackend = "lancedb" | "local_json";
 type LoggingLevel = "info" | "verbose";
@@ -64,14 +63,6 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : {};
-}
-
-function handleCancel<T>(v: T): T {
-    if (isCancel(v)) {
-        cancel("Configuration editor cancelled.");
-        process.exit(0);
-    }
-    return v;
 }
 
 async function loadDashboardState(): Promise<DashboardState> {
@@ -645,7 +636,7 @@ export async function runConfigDashboard(): Promise<void> {
         );
 
         if (shouldSetup) {
-            const { runSetup } = await import("./setup.js");
+            const { runSetup } = await import("../onboard/setup-flow.js");
             await runSetup();
         } else {
             outro("Run " + pc.bold("openpawl setup") + " when you're ready.");

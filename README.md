@@ -33,29 +33,23 @@ OpenPawl replaces that friction with a team that remembers, learns, and holds it
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nxank4/openpawl/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/install.sh | sh
 ```
 
-Or via npm:
-
-```bash
-npm install -g @openpawl/cli
-```
-
-**Requirements:** Node.js >= 20, pnpm, and an LLM API key (Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, or local Ollama).
+**Requirements:** Node.js >= 20, bun, and an LLM API key (Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, or local Ollama).
 
 ---
 
 ## Quickstart
 
 ```bash
-openpawl setup                    # 6-step guided wizard
+openpawl setup                    # guided setup wizard
 openpawl work --goal "Build auth" # start a sprint
 openpawl standup                  # daily summary
 openpawl think "SSE or WebSocket?" # rubber duck mode
 ```
 
-The dashboard opens automatically at `http://localhost:8000`.
+The dashboard opens automatically at `http://localhost:8000`. A rich terminal UI (TUI) is also available for keyboard-driven workflows.
 
 ---
 
@@ -63,9 +57,9 @@ The dashboard opens automatically at `http://localhost:8000`.
 
 ### Team Orchestration
 
-9 specialized agents collaborate through a LangGraph pipeline: Coordinator, Worker Bot, Sprint Planner, Tech Lead, RFC Author, Post-Mortem Analyst, Retrospective, Memory Retrieval, and Human Approval. Independent tasks execute in parallel via the LangGraph Send API. Agents self-report confidence — uncertain work auto-routes to QA or rework. Good tasks get approved individually while bad ones go back.
+11 specialized agents collaborate through a 12-node LangGraph pipeline: Coordinator, Worker Bot, Sprint Planner, System Designer, RFC Author, Post-Mortem Analyst, Retrospective, Memory Retrieval, Human Approval, Partial Approval, and Review Workflow. Independent tasks execute in parallel via the LangGraph Send API. Agents self-report confidence — uncertain work auto-routes to QA or rework. Good tasks get approved individually while bad ones go back.
 
-Team composition is flexible: pick agents manually, let the system compose autonomously based on your goal, or use a pre-built template. You can build custom agents via `@openpawl/sdk` and plug them in.
+Team composition is flexible: pick agents manually, let the system compose autonomously based on your goal, or use a pre-built template. You can build custom agents via `@openpawl/sdk` and plug them in. Agent profiles track performance across runs and inform routing decisions.
 
 ### Memory and Learning
 
@@ -81,15 +75,18 @@ The team remembers everything across sessions. Success patterns get stored in La
 - **Context handoff** — auto-generates CONTEXT.md at session end
 - **Vibe coding score** — mirror showing how you collaborate with your team
 - **Async thinking** — submit a question before sleep, wake up to analysis
+- **Interactive chat** — conversational mode with your agent team
 
 ### Observability and Control
 
 - **Real-time dashboard** — Kanban, Eisenhower matrix, live graph, cost tracking
+- **Terminal UI** — rich TUI with keyboard navigation, themes, and mouse support
 - **Audit trail** — full decision log exported as markdown
 - **Replay mode** — re-run any past session for debugging
 - **Agent heatmap** — find utilization bottlenecks across runs
 - **Cost forecasting** — estimate cost before a run starts
 - **Webhook approval** — Slack/email approval for unattended runs
+- **MCP server** — Model Context Protocol integration for external tool access
 
 ---
 
@@ -111,7 +108,7 @@ openpawl work --template indie-hacker --goal "Build auth system"
 | `business-ops` | Process, Automate, Document |
 | `full-stack-sprint` | Frontend, Backend, DevOps, Lead |
 
-Five seed templates ship offline. Community templates at [openpawl-templates](https://github.com/nxank4/openpawl-templates).
+Five seed templates ship offline. Community templates at [openpawl-templates](https://github.com/codepawl/openpawl-templates).
 
 ---
 
@@ -120,13 +117,18 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 | Command | Description |
 |---------|-------------|
 | `setup` | Guided setup wizard |
+| `check` | Verify setup is working |
 | `work` | Start a work session (`--runs N`, `--template <id>`) |
 | `standup` | Daily standup summary |
 | `think` | Rubber duck mode — structured debate |
-| `config` | Manage configuration |
+| `chat` | Interactive chat with agent team |
+| `clarity` | Check goal clarity |
+| `config` | Manage configuration (get/set/unset) |
 | `model` | LLM selection: list, set, per-agent overrides |
-| `web` | Start/stop dashboard server |
+| `providers` | Configure and test LLM providers |
+| `web` | Start/stop/status dashboard server |
 | `templates` | Browse, install, publish marketplace templates |
+| `agent` | Manage custom agents |
 | `journal` | Decision journal: list, search, show, export |
 | `score` | Vibe coding score and trends |
 | `replay` | Replay past sessions for debugging |
@@ -134,14 +136,15 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 | `forecast` | Estimate run cost before execution |
 | `heatmap` | Agent utilization heatmap |
 | `diff` | Compare runs within or across sessions |
-| `memory` | Global memory: health, prune, export/import |
+| `memory` | Global memory: health, promote, export |
+| `cache` | Response cache management |
 | `profile` | Agent performance profiles |
-| `agent` | Manage custom agents |
-| `clarity` | Check goal clarity |
 | `drift` | Detect goal vs decision conflicts |
 | `handoff` | Generate or import CONTEXT.md |
 | `lessons` | Export lessons learned |
+| `sessions` | Session management |
 | `logs` | View session and gateway logs |
+| `demo` | Demo mode (no API key needed) |
 | `clean` | Remove session data (preserves memory) |
 | `update` | Self-update to latest version |
 
@@ -149,26 +152,32 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 
 ## Agent Architecture
 
-```
-Memory Retrieval ─► Sprint Planning ─► System Design ─► RFC Phase
-                                                           │
-                                                    Coordinator
-                                                     ┌────┼────┐
-                                                     ▼    ▼    ▼
-                                                   Worker Worker Worker
-                                                     └────┼────┘
-                                                          ▼
-                                                  Confidence Router
-                                                   ┌──────┼──────┐
-                                                   ▼      ▼      ▼
-                                                 Auto   QA Loop  Escalate
-                                                Approve    │
-                                                   └──────┼──────┘
-                                                          ▼
-                                                  Partial Approval
-                                                          │
-                                                          ▼
-                                              Post-Mortem ─► Memory Store
+```mermaid
+graph TD
+    A[Memory Retrieval] --> B[Sprint Planning]
+    B --> C[System Design]
+    C --> D[RFC Phase]
+    D --> E[Coordinator]
+
+    E --> W1[Worker]
+    E --> W2[Worker]
+    E --> W3[Worker]
+
+    W1 --> CR[Confidence Router]
+    W2 --> CR
+    W3 --> CR
+
+    CR -->|High| AA[Auto Approve]
+    CR -->|Medium| QA[QA Loop]
+    CR -->|Low| ESC[Escalate]
+
+    AA --> PA[Partial Approval]
+    QA --> PA
+    ESC --> PA
+
+    PA --> PM[Post-Mortem]
+    PM --> MS[(Memory Store)]
+    PA -->|Next cycle| E
 ```
 
 12-node LangGraph pipeline. Workers execute in parallel via Send API. The confidence router auto-approves high-confidence work, loops uncertain tasks through QA, and escalates failures. Post-mortem extracts lessons into vector memory for future runs.
@@ -177,15 +186,16 @@ Memory Retrieval ─► Sprint Planning ─► System Design ─► RFC Phase
 
 ## Dashboard
 
-Real-time WebSocket dashboard at `localhost:8000`:
+Real-time SSE dashboard at `localhost:8000`:
 
 - Kanban board with task pipeline
 - Eisenhower priority matrix
 - Live LangGraph node execution view
 - Summary cards: tasks, cost, confidence
 - Memory, replay, journal, heatmap, and score tabs
+- LLM request log with streaming progress
 - Interactive approval modal for human-in-the-loop
-- Light, dark, and system themes
+- Light, dark, and system themes with custom palettes
 
 ---
 
@@ -194,11 +204,13 @@ Real-time WebSocket dashboard at `localhost:8000`:
 | Layer | Technology |
 |-------|------------|
 | Orchestration | LangGraph.js |
-| Web server | Fastify + WebSocket |
-| Frontend | React, Tailwind CSS |
+| Web server | Fastify + SSE |
+| Frontend | React, Tailwind CSS, Vite |
+| Terminal UI | Custom TUI (ink-style) |
 | Vector memory | LanceDB (embedded) |
+| LLM providers | Anthropic, OpenAI, AWS Bedrock, Vertex AI, OpenRouter |
 | Validation | Zod |
-| Build | tsup |
+| Build | tsup + bun |
 | Tests | Vitest |
 | CLI prompts | @clack/prompts |
 
@@ -257,6 +269,21 @@ docker compose up
 
 ---
 
+## Development
+
+```bash
+bun install          # install dependencies
+bun run dev          # watch mode
+bun run build        # production build (tsup + web client)
+bun run typecheck    # type-check
+bun run test         # run tests (Vitest)
+bun run lint         # lint (eslint src/)
+bun run web          # start dashboard server
+bun run work         # start work session with dashboard
+```
+
+---
+
 ## Security
 
 - Dashboard has **no built-in auth** — bind to `127.0.0.1`
@@ -276,7 +303,6 @@ See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 | [ARCHITECTURE.md](./docs/ARCHITECTURE.md) | System design |
 | [CUSTOM_AGENTS.md](./docs/CUSTOM_AGENTS.md) | Custom agent SDK guide |
 | [WEBHOOKS.md](./docs/WEBHOOKS.md) | Webhook event schemas |
-| [PROVIDERS.md](./docs/PROVIDERS.md) | LLM provider setup |
 
 ---
 

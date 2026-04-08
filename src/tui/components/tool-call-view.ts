@@ -8,7 +8,6 @@ import { defaultTheme, ctp } from "../themes/default.js";
 export interface ToolCallViewState {
   executionId: string;
   toolName: string;
-  toolDisplayName: string;
   agentId: string;
   status: "pending" | "running" | "completed" | "failed" | "aborted";
   inputSummary: string;
@@ -19,20 +18,23 @@ export interface ToolCallViewState {
   expanded: boolean;
 }
 
-// Tool name → verb + target extraction
-const TOOL_VERBS: Record<string, string> = {
-  file_read: "Read",
-  file_write: "Wrote",
-  file_edit: "Edited",
-  file_list: "Listed",
-  shell_exec: "Ran",
-  execute_code: "Executed",
-  git_ops: "Git",
-  web_search: "Searched",
-  web_fetch: "Fetched",
+// Completed-tense verbs for each tool
+const TOOL_VERBS: Record<string, [string, string]> = {
+  // [completed verb, running verb]
+  file_read:    ["Read", "Reading"],
+  file_write:   ["Wrote", "Writing"],
+  file_edit:    ["Edited", "Editing"],
+  file_list:    ["Listed", "Listing"],
+  shell_exec:   ["Ran", "Running"],
+  execute_code: ["Executed", "Executing"],
+  git_ops:      ["Git", "Git"],
+  web_search:   ["Searched", "Searching"],
+  web_fetch:    ["Fetched", "Fetching"],
+  grep_search:  ["Searched", "Searching"],
+  list_dir:     ["Listed", "Listing"],
 };
 
-const SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
+const BRAILLE_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export class ToolCallView {
   private state: ToolCallViewState;
@@ -44,16 +46,13 @@ export class ToolCallView {
 
   render(width: number): string[] {
     const lines: string[] = [];
-    const { status, inputSummary, duration, expanded, fullOutput, outputSummary, progressMessage } = this.state;
+    const { status, inputSummary, duration, expanded, fullOutput, outputSummary } = this.state;
 
-    // Icon
     const icon = this.getIcon();
     const iconColor = this.getIconColor();
-
-    // Verb + target
     const verb = this.getVerb();
-    const target = inputSummary.slice(0, 40);
-    const durationStr = duration && duration > 100 ? `  ${formatDuration(duration)}` : "";
+    const target = inputSummary.slice(0, Math.min(50, width - 20));
+    const durationStr = duration && duration > 100 ? ` ${formatDuration(duration)}` : "";
 
     // Expand indicator
     const canExpand = !!fullOutput && fullOutput.split("\n").length > 1;
@@ -61,14 +60,10 @@ export class ToolCallView {
       ? (expanded ? "  ▾" : "  ▸")
       : "";
 
-    // Main line
-    const mainContent = `  ${iconColor(icon)} ${defaultTheme.bold(verb)}  ${defaultTheme.primary(target)}${durationStr}${expandHint}`;
+    // Main line: "  ⠋ Reading README.md...  (0.2s)"
+    const suffix = status === "running" ? "..." : "";
+    const mainContent = `  ${iconColor(icon)} ${verb} ${target}${suffix}${durationStr}${expandHint}`;
     lines.push(mainContent);
-
-    // Progress message (running state)
-    if (status === "running" && progressMessage) {
-      lines.push(`    ${defaultTheme.dim(progressMessage)}`);
-    }
 
     // Error summary (failed state)
     if (status === "failed" && outputSummary) {
@@ -85,7 +80,6 @@ export class ToolCallView {
           lines.push(`  ${defaultTheme.dim("│")} ${line}`);
         }
       } else {
-        // First 15 + ... + last 5
         for (const line of outputLines.slice(0, 15)) {
           lines.push(`  ${defaultTheme.dim("│")} ${line}`);
         }
@@ -123,14 +117,13 @@ export class ToolCallView {
   }
 
   get isExpanded(): boolean { return this.state.expanded; }
-  get isInteractive(): boolean { return this.state.status === "pending"; }
   get executionId(): string { return this.state.executionId; }
   get status(): string { return this.state.status; }
 
   private getIcon(): string {
     switch (this.state.status) {
       case "pending": return defaultTheme.symbols.pending;
-      case "running": return SPINNER_FRAMES[this.spinnerFrame % SPINNER_FRAMES.length]!;
+      case "running": return BRAILLE_SPINNER[this.spinnerFrame % BRAILLE_SPINNER.length]!;
       case "completed": return defaultTheme.symbols.success;
       case "failed": return defaultTheme.symbols.error;
       case "aborted": return "◼";
@@ -148,22 +141,19 @@ export class ToolCallView {
   }
 
   private getVerb(): string {
-    if (this.state.status === "running") {
-      const base = TOOL_VERBS[this.state.toolName] ?? this.state.toolDisplayName;
-      // Add -ing suffix for running state
-      if (base.endsWith("e")) return base.slice(0, -1) + "ing";
-      if (base === "Read") return "Reading";
-      if (base === "Ran") return "Running";
-      if (base === "Git") return "Git";
-      return base + "ing";
+    const entry = TOOL_VERBS[this.state.toolName];
+    if (entry) {
+      return this.state.status === "running" ? entry[1] : entry[0];
     }
-    return TOOL_VERBS[this.state.toolName] ?? this.state.toolDisplayName;
+    // Fallback: use toolName directly
+    const name = this.state.toolName.replace(/_/g, " ");
+    return this.state.status === "running" ? name + "..." : name;
   }
 }
 
-// ─── Helpers ─────────────────────────���───────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return defaultTheme.dim(`${ms}ms`);
-  return defaultTheme.dim(`${(ms / 1000).toFixed(1)}s`);
+  if (ms < 1000) return defaultTheme.dim(`(${ms}ms)`);
+  return defaultTheme.dim(`(${(ms / 1000).toFixed(1)}s)`);
 }

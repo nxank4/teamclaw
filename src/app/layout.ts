@@ -22,6 +22,7 @@ export interface AppLayout {
   statusBar: StatusBarComponent;
   messages: MessagesComponent;
   editor: EditorComponent;
+  divider: DividerComponent;
 }
 
 export function createLayout(terminal?: Terminal): AppLayout {
@@ -40,7 +41,13 @@ export function createLayout(terminal?: Terminal): AppLayout {
   tui.addFixedBottom(editor);
   tui.addFixedBottom(statusBar);
 
+  // Wire responsive layout providers
+  const layoutProvider = () => tui.getLayout();
+  editor.setLayoutProvider(layoutProvider);
+  messages.setLayoutProvider(layoutProvider);
+  statusBar.setLayoutProvider(layoutProvider);
+
   tui.setFocus(editor);
 
-  return { tui, statusBar, messages, editor };
+  return { tui, statusBar, messages, editor, divider };
 }

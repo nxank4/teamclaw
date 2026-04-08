@@ -43,7 +43,6 @@ export class ToolEventHandler {
         const view = new ToolCallView({
           executionId: event.executionId!,
           toolName: event.toolName!,
-          toolDisplayName: event.toolDisplayName ?? event.toolName!,
           agentId: event.agentId!,
           status: "running",
           inputSummary: event.inputSummary ?? "",
@@ -106,7 +105,6 @@ export class ToolEventHandler {
         const view = new ToolCallView({
           executionId: event.executionId!,
           toolName: event.toolName ?? "unknown",
-          toolDisplayName: event.toolDisplayName ?? event.toolName ?? "Tool",
           agentId: event.agentId ?? "unknown",
           status: "pending",
           inputSummary: event.description ?? "",

@@ -221,8 +221,15 @@ export async function fetchModelsForProvider(
     case "bedrock":
     case "vertex":
     case "azure":
-    // OpenCode — no /models listing endpoint; catalog is authoritative
+      return { models: [], source: "fallback" };
+
+    // OpenCode Zen — models endpoint is public (no auth needed)
     case "opencode-zen":
+      return fetchOpenAICompatibleModels(
+        baseUrl ?? getDefaultBaseUrl(providerId),
+        "",
+      );
+    // OpenCode Go — no models endpoint, use hardcoded catalog
     case "opencode-go":
       return { models: [], source: "fallback" };
 

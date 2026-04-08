@@ -5,7 +5,16 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    testTimeout: 15_000,
+    hookTimeout: 10_000,
     setupFiles: ["tests/setup.ts"],
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        maxForks: 4,
+        minForks: 1,
+      },
+    },
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],

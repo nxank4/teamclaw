@@ -213,12 +213,6 @@ export class SettingsView extends InteractiveView {
     return true;
   }
 
-  override handleClick(itemIndex: number): void {
-    if (itemIndex < 0 || itemIndex >= FIELDS.length) return;
-    this.selectedIndex = itemIndex;
-    this.startEditing();
-  }
-
   protected override getPanelTitle(): string { return "\u2699 Settings"; }
   protected override getPanelFooter(): string { return "\u2191\u2193 navigate \u00b7 Enter edit \u00b7 Esc close"; }
 
@@ -243,7 +237,7 @@ export class SettingsView extends InteractiveView {
             const opt = field.options![j]!;
             const sel = j === this.selectIndex;
             // Register each option as clickable → selects that option
-            this.registerClickRow(lines.length, j + FIELDS.length); // use offset to distinguish
+
             lines.push(`  \u2502  ${sel ? t.primary("\u25b8 " + opt) : "  " + opt}`);
           }
           lines.push(`  ${"─".repeat(35)}`);
@@ -260,7 +254,7 @@ export class SettingsView extends InteractiveView {
           lines.push(`  ${"─".repeat(35)}`);
         }
       } else {
-        this.registerClickRow(lines.length, i);
+
         const cursor = isSelected ? "\u25b8" : "\u2502";
         const label = field.label.padEnd(16);
         const displayValue = this.maskDisplay(field.key, value).padEnd(18);
@@ -347,7 +341,7 @@ export class SettingsView extends InteractiveView {
         try {
           const { getGlobalProviderManager, resetGlobalProviderManager } = await import("../../providers/provider-factory.js");
           resetGlobalProviderManager();
-          const mgr = getGlobalProviderManager();
+          const mgr = await getGlobalProviderManager();
           const providers = mgr.getProviders();
           if (providers.length > 0) {
             const ok = await providers[0]!.healthCheck().catch(() => false);

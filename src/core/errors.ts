@@ -173,12 +173,7 @@ export function validateApiKeyFormat(
   };
 }
 
-export function maskApiKey(key: string): string {
-  if (key.length <= 8) {
-    return `${key}...****`;
-  }
-  return `${key.slice(0, 8)}...****`;
-}
+export { maskCredential as maskApiKey } from "../credentials/masking.js";
 
 export const ERROR_MESSAGES: Record<string, { title: string; body: string; fix: string[] }> = {
   CONNECTION_FAILED: {

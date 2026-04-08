@@ -12,6 +12,7 @@
  */
 
 import { createRequire } from "node:module";
+import pc from "picocolors";
 import { intro, outro } from "@clack/prompts";
 import { logger } from "./core/logger.js";
 import { COMMANDS, findClosestCommand, findClosestSubcommand } from "./cli/fuzzy-matcher.js";
@@ -55,6 +56,39 @@ function printHelp(): void {
 }
 
 async function main(): Promise<void> {
+    // ── Proxy auto-detection ──────────────────────────────────────────────
+    // Node's fetch (undici) ignores HTTP_PROXY/HTTPS_PROXY. On Node >= 22.8,
+    // re-exec with --use-env-proxy so corporate proxies work.
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY
+      || process.env.https_proxy || process.env.http_proxy;
+
+    if (proxyUrl && !process.execArgv.includes("--use-env-proxy")) {
+      const [major] = process.versions.node.split(".").map(Number) as [number];
+      if (major >= 22) {
+        // Suppress the experimental warning from undici's EnvHttpProxyAgent
+        const nodeOpts = process.env.NODE_OPTIONS ?? "";
+        const env = {
+          ...process.env,
+          NODE_OPTIONS: nodeOpts.includes("--no-warnings") ? nodeOpts : `${nodeOpts} --no-warnings=ExperimentalWarning`.trim(),
+        };
+
+        logger.plain(pc.dim(`  Proxy detected (${proxyUrl}). Routing network requests through proxy...`));
+
+        const { spawnSync } = await import("node:child_process");
+        const result = spawnSync(
+          process.execPath,
+          ["--use-env-proxy", ...process.argv.slice(1)],
+          { stdio: "inherit", env },
+        );
+        process.exit(result.status ?? 1);
+      } else {
+        logger.warn(
+          `Proxy detected (${proxyUrl}) but Node ${process.versions.node} does not support --use-env-proxy (requires >= 22).`
+          + "\n  Network requests may fail. Upgrade Node or set NODE_OPTIONS=--use-env-proxy manually.",
+        );
+      }
+    }
+
     const args = process.argv.slice(2);
 
     // ── TUI entry points (before any commander parsing) ──────────────────
@@ -66,24 +100,7 @@ async function main(): Promise<void> {
             return;
         }
 
-        // Check if first-run setup is needed
-        const { existsSync } = await import("node:fs");
-        const { join } = await import("node:path");
-        const { homedir } = await import("node:os");
-        const configPath = join(homedir(), ".openpawl", "config.json");
-
-        if (!existsSync(configPath)) {
-            const { handleFirstRun } = await import("./onboard/index.js");
-            const result = await handleFirstRun();
-            if (result.isErr()) {
-                if (result.error.type === "cancelled") return;
-                logger.error(result.error.type === "not_interactive"
-                    ? result.error.message
-                    : `Setup failed: ${result.error.type}`);
-                return;
-            }
-        }
-
+        // TUI handles first-run setup via SetupWizardView when no config exists
         const { launchTUI } = await import("./app/index.js");
         await launchTUI();
         return;
@@ -150,22 +167,16 @@ async function main(): Promise<void> {
     // Pillar 1: openpawl setup
     // -------------------------------------------------------------------------
     if (cmd === "setup" || cmd === "init") {
-        // --reset flag: delete existing config, start fresh
         if (args.includes("--reset")) {
             const { existsSync, unlinkSync } = await import("node:fs");
-            const { join } = await import("node:path");
-            const { homedir } = await import("node:os");
-            const configPath = join(homedir(), ".openpawl", "config.json");
-            if (existsSync(configPath)) {
-                unlinkSync(configPath);
-                logger.success("Config reset.");
-            }
+            const { getGlobalConfigPath } = await import("./core/global-config.js");
+            const cfgPath = getGlobalConfigPath();
+            if (existsSync(cfgPath)) unlinkSync(cfgPath);
         }
-        const { handleFirstRun } = await import("./onboard/index.js");
-        const result = await handleFirstRun();
-        if (result.isErr() && result.error.type !== "cancelled") {
-            logger.error(`Setup failed: ${result.error.type}`);
-        }
+        const { readGlobalConfig } = await import("./core/global-config.js");
+        const { runSetup } = await import("./onboard/setup-flow.js");
+        const existing = readGlobalConfig();
+        await runSetup({ prefill: existing ?? undefined });
 
     // -------------------------------------------------------------------------
     // Pillar 2 + 3 + 4: openpawl work — zero-config, auto-web, smart recovery
@@ -480,6 +491,14 @@ async function main(): Promise<void> {
     } else if (cmd === "demo") {
         const { runDemo } = await import("./commands/demo.js");
         await runDemo(args.slice(1));
+
+    } else if (cmd === "settings") {
+        const { runSettings } = await import("./commands/settings.js");
+        await runSettings(args.slice(1));
+
+    } else if (cmd === "uninstall") {
+        const { runUninstall } = await import("./commands/uninstall.js");
+        await runUninstall(args.slice(1));
 
     } else {
         const match = findClosestCommand(rawCmd);

@@ -77,6 +77,8 @@ export class CrashHandler {
   }
 
   private handleShutdown(_signal: string): void {
+    const forceExit = setTimeout(() => process.exit(0), 200);
+    forceExit.unref();
     this.sessionShutdown()
       .catch(() => {})
       .finally(() => process.exit(0));

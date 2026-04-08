@@ -41,7 +41,7 @@ export async function validateOrPromptConfig(
     }
 
     // Check if we have at least one LLM provider configured
-    const pm = getGlobalProviderManager();
+    const pm = await getGlobalProviderManager();
     const hasProviders = pm.getProviders().length > 0;
 
     if (hasProviders && rosterOk && !opts.forceDiscover) {
@@ -65,7 +65,7 @@ export async function validateOrPromptConfig(
             );
         }
 
-        const { runSetup } = await import("../commands/setup.js");
+        const { runSetup } = await import("../onboard/setup-flow.js");
         await runSetup();
         clearTeamConfigCache();
 

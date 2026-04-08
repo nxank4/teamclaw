@@ -42,7 +42,7 @@ export async function discoverModels(forceRefresh = false): Promise<DiscoveryRes
   const providers: ProviderStatus[] = [];
 
   // 1. Check configured providers from ProviderManager
-  const mgr = getGlobalProviderManager();
+  const mgr = await getGlobalProviderManager();
   const configuredProviders = mgr.getProviders();
 
   for (const provider of configuredProviders) {

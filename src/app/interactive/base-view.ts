@@ -1,8 +1,12 @@
 /**
  * Base class for interactive TUI views.
- * Handles ↑/↓ navigation, Esc/Ctrl+C to close, mouse click routing,
+ * Handles ↑/↓ navigation, Esc/Ctrl+C to close,
  * and key handler stack management.
  * Subclasses implement getItemCount(), handleCustomKey(), and renderLines().
+ *
+ * Opt-in filter: set `filterEnabled = true` in subclass. Typing characters
+ * populates `filterText`. Subclass should use `matchesFilter(label)` to
+ * filter items in `renderLines()` and `getItemCount()`.
  */
 import type { KeyEvent } from "../../tui/core/input.js";
 import type { TUI } from "../../tui/core/tui.js";
@@ -12,10 +16,17 @@ import { renderPanel } from "../../tui/components/panel.js";
 
 export abstract class InteractiveView {
   protected selectedIndex = 0;
+  protected scrollOffset = 0;
   protected active = false;
+  protected filterEnabled = false;
+  protected filterText = "";
+  /** When true, hides editor + status bar while the view is active. */
+  protected fullscreen = false;
 
-  // Maps screen row (1-based) → item index for click handling
-  protected rowToItem: Map<number, number> = new Map();
+  /** Max visible items — reads from responsive layout. */
+  protected get maxVisible(): number {
+    return this.tui.getLayout().maxSelectItems;
+  }
 
   constructor(
     protected tui: TUI,
@@ -25,24 +36,29 @@ export abstract class InteractiveView {
   activate(): void {
     this.active = true;
     this.selectedIndex = 0;
+    this.scrollOffset = 0;
+    if (this.fullscreen) {
+      this.tui.setFixedBottomHidden("editor", true);
+      this.tui.setFixedBottomHidden("status", true);
+      this.tui.setFixedBottomHidden("divider", true);
+      this.tui.setScrollableHidden(true);
+    }
     this.tui.pushKeyHandler(this);
-    this.tui.setClickHandler((row, _col) => this.handleScreenClick(row));
     this.render();
   }
 
   deactivate(): void {
     if (!this.active) return;
     this.active = false;
+    if (this.fullscreen) {
+      this.tui.setScrollableHidden(false);
+      this.tui.setFixedBottomHidden("divider", false);
+      this.tui.setFixedBottomHidden("editor", false);
+      this.tui.setFixedBottomHidden("status", false);
+    }
     this.tui.popKeyHandler();
-    this.tui.setClickHandler(null);
     this.tui.clearInteractiveView();
     this.onClose();
-  }
-
-  /** Handle mouse click on a specific item index. Override for Enter-on-click. */
-  handleClick(itemIndex: number): void {
-    this.selectedIndex = itemIndex;
-    this.render();
   }
 
   handleKey(event: KeyEvent): boolean {
@@ -65,23 +81,65 @@ export abstract class InteractiveView {
         this.render();
         return true;
       }
+      // First Esc clears filter, second Esc closes view
+      if (this.filterEnabled && this.filterText) {
+        this.filterText = "";
+        this.selectedIndex = 0;
+        this.scrollOffset = 0;
+        this.render();
+        return true;
+      }
       this.deactivate();
       return true;
     }
 
     if (event.type === "char" && event.char === "q" && !event.ctrl && !this.isEditing()) {
+      // If filtering, treat 'q' as a filter character, not close
+      if (this.filterEnabled) {
+        this.filterText += event.char;
+        this.selectedIndex = 0;
+        this.scrollOffset = 0;
+        this.render();
+        return true;
+      }
       this.deactivate();
+      return true;
+    }
+
+    // Filter: typing characters filters the list
+    if (this.filterEnabled && !this.isEditing() && event.type === "char" && !event.ctrl && !event.alt) {
+      this.filterText += event.char;
+      this.selectedIndex = 0;
+      this.scrollOffset = 0;
+      this.render();
+      return true;
+    }
+
+    // Filter: backspace removes last filter character
+    if (this.filterEnabled && !this.isEditing() && event.type === "backspace" && this.filterText) {
+      this.filterText = this.filterText.slice(0, -1);
+      this.selectedIndex = 0;
+      this.scrollOffset = 0;
+      this.render();
       return true;
     }
 
     if (!this.isEditing()) {
       if (event.type === "arrow" && event.direction === "up") {
-        this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+        const count = this.getItemCount();
+        if (count > 0) {
+          this.selectedIndex = this.selectedIndex <= 0 ? count - 1 : this.selectedIndex - 1;
+          this.adjustScroll();
+        }
         this.render();
         return true;
       }
       if (event.type === "arrow" && event.direction === "down") {
-        this.selectedIndex = Math.min(this.getItemCount() - 1, this.selectedIndex + 1);
+        const count = this.getItemCount();
+        if (count > 0) {
+          this.selectedIndex = this.selectedIndex >= count - 1 ? 0 : this.selectedIndex + 1;
+          this.adjustScroll();
+        }
         this.render();
         return true;
       }
@@ -91,9 +149,7 @@ export abstract class InteractiveView {
   }
 
   protected render(): void {
-    this.rowToItem.clear();
     const contentLines = this.renderLines();
-    // Wrap in Panel if subclass provides a panelTitle
     const title = this.getPanelTitle();
     const footer = this.getPanelFooter();
     if (title) {
@@ -109,14 +165,6 @@ export abstract class InteractiveView {
   /** Override to add footer hints to the panel. */
   protected getPanelFooter(): string | undefined { return undefined; }
 
-  /** Register a rendered line as clickable for a specific item index.
-   *  Call during renderLines() — lineIndex is 0-based within the interactive content. */
-  protected registerClickRow(lineIndex: number, itemIndex: number): void {
-    // Screen row = interactiveStartRow + lineIndex (calculated after render by TUI)
-    // Store as relative offset — resolved during click handling
-    this.rowToItem.set(lineIndex, itemIndex);
-  }
-
   protected get theme() {
     return defaultTheme;
   }
@@ -129,24 +177,62 @@ export abstract class InteractiveView {
     return t.bold(title) + " ".repeat(gap) + t.dim(hint);
   }
 
-  private handleScreenClick(screenRow: number): boolean {
-    if (!this.active) return false;
-    const baseRow = this.tui.getInteractiveStartRow();
-    if (baseRow === 0) return false;
+  /** Case-insensitive substring match against the current filter text. */
+  protected matchesFilter(label: string): boolean {
+    if (!this.filterText) return true;
+    return label.toLowerCase().includes(this.filterText.toLowerCase());
+  }
 
-    const relativeRow = screenRow - baseRow;
-    const itemIndex = this.rowToItem.get(relativeRow);
-    if (itemIndex !== undefined) {
-      this.handleClick(itemIndex);
-      return true;
-    }
+  /** Render the filter input line (call from renderLines when filterEnabled). */
+  protected renderFilterLine(): string {
+    const t = this.theme;
+    if (!this.filterText) return `  ${t.dim("Type to search...")}`;
+    return `  ${t.dim("Filter:")} ${this.filterText}${t.primary("▌")}`;
+  }
 
-    // Click outside interactive content → close view
-    if (screenRow < baseRow) {
-      this.deactivate();
-      return true;
+  /** Adjust scrollOffset so selectedIndex stays in the visible window. */
+  protected adjustScroll(): void {
+    const count = this.getItemCount();
+    if (count <= this.maxVisible) {
+      this.scrollOffset = 0;
+      return;
     }
-    return false;
+    // Wrap-around jump: selected at 0 means we wrapped from bottom
+    if (this.selectedIndex === 0) {
+      this.scrollOffset = 0;
+    } else if (this.selectedIndex === count - 1) {
+      this.scrollOffset = count - this.maxVisible;
+    }
+    // Keep selected in view
+    if (this.selectedIndex < this.scrollOffset) {
+      this.scrollOffset = this.selectedIndex;
+    } else if (this.selectedIndex >= this.scrollOffset + this.maxVisible) {
+      this.scrollOffset = this.selectedIndex - this.maxVisible + 1;
+    }
+  }
+
+  /** Get the visible window for the current scroll state. */
+  protected getVisibleRange(): { start: number; end: number; aboveCount: number; belowCount: number } {
+    const count = this.getItemCount();
+    if (count <= this.maxVisible) {
+      return { start: 0, end: count, aboveCount: 0, belowCount: 0 };
+    }
+    const start = this.scrollOffset;
+    const end = Math.min(count, start + this.maxVisible);
+    return { start, end, aboveCount: start, belowCount: count - end };
+  }
+
+  /** Wrap item lines with scroll indicators when items are hidden. */
+  protected addScrollIndicators(lines: string[], aboveCount: number, belowCount: number): string[] {
+    const t = this.theme;
+    const result = [...lines];
+    if (aboveCount > 0) {
+      result.unshift(t.dim(`  ${"▲"} ${aboveCount} more`));
+    }
+    if (belowCount > 0) {
+      result.push(t.dim(`  ${"▼"} ${belowCount} more`));
+    }
+    return result;
   }
 
   protected abstract getItemCount(): number;

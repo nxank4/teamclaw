@@ -3,6 +3,7 @@
  * Primary: OSC 52 (works over SSH, tmux). Fallback: platform commands.
  */
 import { execFileSync } from "node:child_process";
+import os from "node:os";
 import type { Terminal } from "../core/terminal.js";
 import type { LineTracker } from "./line-tracker.js";
 
@@ -21,23 +22,26 @@ export class CopyManager {
   async copyToClipboard(text: string): Promise<boolean> {
     const method = await detectClipboardMethod();
 
-    // Try OSC 52 first (works everywhere including SSH)
-    if (method === "osc52" || this.terminal) {
-      try {
-        const b64 = Buffer.from(text, "utf-8").toString("base64");
-        const seq = `\x1b]52;c;${b64}\x07`;
-        if (this.terminal) {
-          this.terminal.write(seq);
-        } else {
-          process.stdout.write(seq);
-        }
-        return true;
-      } catch {
-        // Fall through to platform commands
+    // Send OSC 52 as best-effort (works in terminals that support it, silently ignored otherwise)
+    try {
+      const b64 = Buffer.from(text, "utf-8").toString("base64");
+      const seq = `\x1b]52;c;${b64}\x07`;
+      if (this.terminal) {
+        this.terminal.write(seq);
+      } else {
+        process.stdout.write(seq);
       }
+    } catch {
+      // OSC 52 failed — continue to platform fallback
     }
 
-    return this.copyViaPlatform(text, method);
+    // Also try platform clipboard command (pbcopy/xclip/xsel/wl-copy/clip.exe)
+    // This ensures copy works even when OSC 52 is disabled or unsupported
+    if (method !== "osc52") {
+      return this.copyViaPlatform(text, method);
+    }
+
+    return true;
   }
 
   /** Copy a message, reconstructing original text without visual line breaks. */
@@ -105,11 +109,21 @@ async function detectClipboardMethod(): Promise<ClipboardMethod> {
     cachedMethod = "xclip";
   } else if (commandExists("xsel")) {
     cachedMethod = "xsel";
+  } else if (isWSL() && commandExists("clip.exe")) {
+    cachedMethod = "clip";
   } else {
     cachedMethod = "osc52";
   }
 
   return cachedMethod;
+}
+
+function isWSL(): boolean {
+  try {
+    return os.release().toLowerCase().includes("microsoft");
+  } catch {
+    return false;
+  }
 }
 
 function commandExists(cmd: string): boolean {
@@ -119,6 +133,31 @@ function commandExists(cmd: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Clean copied text: strip box-drawing characters, ANSI escapes,
+ * and normalize leading whitespace so all lines start at column 0.
+ */
+export function cleanCopyText(text: string): string {
+  const lines = text.split("\n");
+  // Strip box-drawing borders and decorative chars
+  const cleaned = lines.map((line) => {
+    // Remove box-drawing chars used in user message borders and agent accent borders
+    let s = line.replace(/[┌┐└┘│─┃▸◆●○✗⚙]/g, " ");
+    // Collapse runs of spaces from removed chars
+    s = s.replace(/^ {2,}/, (match) => match); // preserve leading indent for now
+    return s;
+  });
+  // Strip common leading whitespace (dedent)
+  const nonEmpty = cleaned.filter((l) => l.trim().length > 0);
+  if (nonEmpty.length === 0) return text;
+  const minIndent = nonEmpty.reduce(
+    (min, l) => Math.min(min, (l.match(/^\s*/) ?? [""])[0]!.length),
+    Infinity,
+  );
+  if (!Number.isFinite(minIndent) || minIndent === 0) return cleaned.join("\n");
+  return cleaned.map((l) => l.slice(Math.min(minIndent, l.length))).join("\n");
 }
 
 /** Reset cached method (for testing). */

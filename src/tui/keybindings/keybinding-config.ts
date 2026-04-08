@@ -1,6 +1,6 @@
 /**
  * Keybinding configuration — loads user keybinding overrides from JSON.
- * Supports Claude Code style (context-based) and OpenCode style (simple action→key).
+ * Supports OpenPawl style (context-based) and OpenCode style (simple action→key).
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -8,14 +8,14 @@ import { homedir } from "node:os";
 
 export type KeybindingContext = "global" | "chat" | "palette" | "panel" | "permission" | "shell";
 
-export interface ClaudeCodeBinding {
+export interface ContextBinding {
   context: KeybindingContext;
   bindings: Record<string, string | null>; // key → action, null = unbind
 }
 
 export interface KeybindingConfigFile {
   $schema?: string;
-  bindings?: ClaudeCodeBinding[];
+  bindings?: ContextBinding[];
   leader?: string;
   [action: string]: unknown;
 }
@@ -58,7 +58,7 @@ export function loadKeybindingConfig(): LoadResult {
     result.leader = config.leader;
   }
 
-  // Claude Code style: context-based bindings
+  // OpenPawl style: context-based bindings
   if (Array.isArray(config.bindings)) {
     for (const group of config.bindings) {
       if (!group.context || !group.bindings) continue;

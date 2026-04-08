@@ -30,8 +30,8 @@ export const WINDOWS_KEYMAP: KeymapPreset = {
   "editor.clipboard.copy": "ctrl+c",
   "editor.clipboard.paste": "ctrl+v",
 
-  "editor.history.prev": "up",
-  "editor.history.next": "down",
+  "editor.history.prev": "alt+up",
+  "editor.history.next": "alt+down",
 
   "editor.submit": "enter",
   "editor.clear": "ctrl+u",
@@ -42,6 +42,9 @@ export const WINDOWS_KEYMAP: KeymapPreset = {
   "messages.scroll.pageDown": "pagedown",
   "messages.scroll.top": "ctrl+home",
   "messages.scroll.bottom": "ctrl+end",
+  "messages.scroll.prevPrompt": "ctrl+up",
+  "messages.scroll.nextPrompt": "ctrl+down",
+  "messages.collapse.toggle": "ctrl+e",
 
   "app.help": "f1",
   "app.quit": "ctrl+d",
@@ -49,8 +52,10 @@ export const WINDOWS_KEYMAP: KeymapPreset = {
   "app.settings": "ctrl+,",
   "app.cancel": "escape",
 
-  "nav.up": "up",
-  "nav.down": "down",
+  // nav.up/down use placeholder keys — resolveContextual remaps
+  // editor.history.prev/next → nav.up/down when an interactive view is active.
+  "nav.up": "f24",
+  "nav.down": "f25",
   "nav.select": "enter",
   "nav.back": "escape",
 
@@ -82,8 +87,8 @@ export const MAC_KEYMAP: KeymapPreset = {
 
 export const VIM_KEYMAP: KeymapPreset = {
   ...WINDOWS_KEYMAP,
-  "nav.up": ["up", "k"],
-  "nav.down": ["down", "j"],
+  "nav.up": "k",
+  "nav.down": "j",
   "nav.select": ["enter", "l"],
   "nav.back": ["escape", "h", "q"],
   "editor.delete.wordLeft": "ctrl+w",

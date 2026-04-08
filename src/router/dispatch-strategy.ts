@@ -8,6 +8,7 @@
 
 import { EventEmitter } from "node:events";
 import { Result, ok, err } from "neverthrow";
+import { buildIdentityPrefix } from "./agent-registry.js";
 import type {
   RouteDecision,
   DispatchResult,
@@ -23,7 +24,7 @@ export interface DispatcherEvents {
   "dispatch:start": (sessionId: string, decision: RouteDecision) => void;
   "dispatch:agent:start": (sessionId: string, agentId: string) => void;
   "dispatch:agent:token": (sessionId: string, agentId: string, token: string) => void;
-  "dispatch:agent:tool": (sessionId: string, agentId: string, toolName: string, status: string) => void;
+  "dispatch:agent:tool": (sessionId: string, agentId: string, toolName: string, status: string, details?: Record<string, unknown>) => void;
   "dispatch:agent:done": (sessionId: string, agentId: string, result: AgentResult) => void;
   "dispatch:done": (sessionId: string, result: DispatchResult) => void;
   "dispatch:error": (sessionId: string, error: RouterError) => void;
@@ -257,13 +258,17 @@ export class Dispatcher extends EventEmitter {
 
     this.emit("dispatch:agent:start", sessionId, assignment.agentId);
 
+    // Build full system prompt: identity prefix + agent-specific instructions
+    const identity = buildIdentityPrefix(agent.name, assignment.model);
+    const fullSystemPrompt = identity + "\n\n" + agent.systemPrompt;
+
     const startTime = Date.now();
     const result = await this.agentRunner.run(
       assignment.agentId,
       prompt,
       assignment.tools,
       {
-        systemPrompt: agent.systemPrompt,
+        systemPrompt: fullSystemPrompt,
         model: assignment.model,
       },
       signal,

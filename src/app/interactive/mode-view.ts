@@ -41,11 +41,6 @@ export class ModeView extends InteractiveView {
     this.deactivate();
   }
 
-  override handleClick(itemIndex: number): void {
-    this.selectedIndex = itemIndex;
-    this.selectAndClose();
-  }
-
   protected handleCustomKey(event: KeyEvent): boolean {
     if (event.type === "enter") {
       this.selectAndClose();
@@ -69,7 +64,7 @@ export class ModeView extends InteractiveView {
       const name = mode.name.padEnd(14);
       const current = isCurrent ? t.success("(current)") : "";
 
-      this.registerClickRow(lines.length, i);
+
       if (isSelected) {
         lines.push(`    ${cursor}${t.bold(name)} ${t.dim(mode.description)}  ${current}`);
       } else {

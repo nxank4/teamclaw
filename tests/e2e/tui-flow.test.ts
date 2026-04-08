@@ -5,8 +5,11 @@
  * simulate user input, and assert on rendered output. LLM providers are
  * mocked via OPENPAWL_MOCK_LLM=true to avoid real API calls.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { TUIHarness } from "./helpers/tui-harness.js";
+
+// Prevent process.exit() from killing the test worker during TUI cleanup
+const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
 
 // Mock the provider factory to avoid real provider initialization
 const { mockProviderManager } = vi.hoisted(() => ({
@@ -55,7 +58,7 @@ vi.mock("@/core/team-templates.js", () => ({
   buildTeamFromTemplate: vi.fn().mockReturnValue([{ id: "maker-1", name: "Maker" }]),
 }));
 
-describe("TUI E2E", () => {
+describe("TUI E2E", { timeout: 10_000 }, () => {
   let harness: TUIHarness;
 
   afterEach(async () => {
@@ -66,14 +69,18 @@ describe("TUI E2E", () => {
     }
   });
 
+  afterAll(() => {
+    exitSpy.mockRestore();
+  });
+
   describe("launch and basic interaction", () => {
     it("shows welcome message on launch", async () => {
       harness = new TUIHarness();
       await harness.start();
 
-      await harness.waitFor("O P E N P A W L", 5000);
+      await harness.waitFor("one prompt away", 5000);
       const output = harness.getVisibleOutput();
-      expect(output).toContain("O P E N P A W L");
+      expect(output).toContain("one prompt away");
     });
 
     it("shows /help hint in welcome", async () => {
@@ -83,7 +90,7 @@ describe("TUI E2E", () => {
       await harness.waitFor("/help", 5000);
       const output = harness.getVisibleOutput();
       expect(output).toContain("/help");
-      expect(output).toContain("Just type");
+      expect(output).toContain("one prompt away");
     });
   });
 

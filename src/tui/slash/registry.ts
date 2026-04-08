@@ -1,6 +1,8 @@
 /**
  * Slash command registry — register, lookup, and autocomplete commands.
+ * Uses a Trie for fast prefix-based autocomplete.
  */
+import { Trie } from "../autocomplete/trie.js";
 
 export interface CommandContext {
   /** Add a message to the messages component. */
@@ -24,11 +26,14 @@ export interface SlashCommand {
 
 export class CommandRegistry {
   private commands = new Map<string, SlashCommand>();
+  private trie = new Trie();
 
   register(command: SlashCommand): void {
     this.commands.set(command.name, command);
+    this.trie.insert(command.name);
     for (const alias of command.aliases ?? []) {
       this.commands.set(alias, command);
+      this.trie.insert(alias);
     }
   }
 
@@ -38,6 +43,18 @@ export class CommandRegistry {
       this.commands.delete(cmd.name);
       for (const alias of cmd.aliases ?? []) {
         this.commands.delete(alias);
+      }
+      this.rebuildTrie();
+    }
+  }
+
+  private rebuildTrie(): void {
+    this.trie = new Trie();
+    const seen = new Set<string>();
+    for (const [key] of this.commands) {
+      if (!seen.has(key)) {
+        this.trie.insert(key);
+        seen.add(key);
       }
     }
   }
@@ -55,17 +72,15 @@ export class CommandRegistry {
   }
 
   getSuggestions(partial: string): SlashCommand[] {
-    const query = partial.toLowerCase();
+    const matches = this.trie.search(partial, 20);
     const seen = new Set<string>();
     const results: SlashCommand[] = [];
 
-    for (const [, cmd] of this.commands) {
-      if (seen.has(cmd.name)) continue;
-      if (cmd.hidden) continue;
-      if (cmd.name.startsWith(query) || (cmd.aliases?.some((a) => a.startsWith(query)) ?? false)) {
-        results.push(cmd);
-        seen.add(cmd.name);
-      }
+    for (const name of matches) {
+      const cmd = this.commands.get(name);
+      if (!cmd || cmd.hidden || seen.has(cmd.name)) continue;
+      results.push(cmd);
+      seen.add(cmd.name);
     }
 
     return results.sort((a, b) => a.name.localeCompare(b.name));
