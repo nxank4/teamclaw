@@ -6,6 +6,7 @@
 import type { Component } from "../core/component.js";
 import { bold, italic } from "../core/ansi.js";
 import { wrapText } from "../utils/wrap.js";
+import { visibleWidth } from "../utils/text-width.js";
 import { defaultTheme, ctp } from "../themes/default.js";
 
 export class MarkdownComponent implements Component {
@@ -50,8 +51,17 @@ export function renderMarkdown(md: string, width: number): string[] {
     }
 
     // Inside code block — no inline processing, render with border
+    // Wrap long lines to fit within the bordered box (width - 2 for "│ " prefix)
     if (inCodeBlock) {
-      result.push(ctp.surface1("│ ") + ctp.text(line));
+      const codeWidth = width - 2;
+      if (visibleWidth(line) > codeWidth) {
+        const wrapped = wrapText(line, codeWidth);
+        for (const wl of wrapped) {
+          result.push(ctp.surface1("│ ") + ctp.text(wl));
+        }
+      } else {
+        result.push(ctp.surface1("│ ") + ctp.text(line));
+      }
       continue;
     }
 
@@ -79,7 +89,10 @@ export function renderMarkdown(md: string, width: number): string[] {
     // Blockquote
     if (line.startsWith("> ") || line === ">") {
       const content = line.slice(2);
-      result.push(defaultTheme.markdown.blockquote(processInline(content)));
+      const wrapped = wrapText(processInline(content), width - 2);
+      for (const wl of wrapped) {
+        result.push(defaultTheme.markdown.blockquote(wl));
+      }
       continue;
     }
 

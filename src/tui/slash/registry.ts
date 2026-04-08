@@ -72,7 +72,7 @@ export class CommandRegistry {
   }
 
   getSuggestions(partial: string): SlashCommand[] {
-    const matches = this.trie.search(partial, 20);
+    const matches = this.trie.search(partial, 50);
     const seen = new Set<string>();
     const results: SlashCommand[] = [];
 

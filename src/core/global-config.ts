@@ -146,6 +146,17 @@ export interface OpenPawlGlobalConfig {
       permission?: string;
     }>;
   };
+  hebbian?: {
+    enabled?: boolean;
+    activationDecay?: number;
+    strengthDecay?: number;
+    edgeDecay?: number;
+    hebbianLR?: number;
+    spreadFactor?: number;
+    maxHops?: number;
+    candidateCount?: number;
+    finalCount?: number;
+  };
 }
 
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";

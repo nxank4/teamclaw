@@ -63,6 +63,12 @@ export class MessagesComponent implements Component {
 
     for (let i = 0; i < this.messages.length; i++) {
       const msg = this.messages[i]!;
+
+      // Dimmed divider between consecutive system messages
+      if (i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system") {
+        allLines.push("  " + ctp.surface1("─".repeat(Math.min(30, maxBubbleWidth - 4))));
+      }
+
       this.messageBoundaries.push(allLines.length);
 
       // Check render cache
@@ -143,6 +149,17 @@ export class MessagesComponent implements Component {
           return "  " + prefix + ctp.overlay1(line);
         });
       }
+      case "system": {
+        const content = msg.content || "";
+        if (content.includes("\x1b[")) {
+          // Already styled (e.g., panel output from /help) — pass through
+          const wrapped = wrapText(content, maxBubbleWidth);
+          return wrapped.map((line) => "  " + line);
+        }
+        const colorFn = detectSystemColor(content);
+        const wrapped = wrapText(content, maxBubbleWidth - 2);
+        return wrapped.map((line) => "  " + colorFn(line));
+      }
       default: {
         const hasAnsi = (msg.content || "").includes("\x1b[");
         const colorFn = hasAnsi ? (s: string) => s : ctp.overlay1;
@@ -173,18 +190,18 @@ export class MessagesComponent implements Component {
       const preview = msgLines.slice(0, COLLAPSE_PREVIEW);
       allLines.push(...preview);
       const hidden = msgLines.length - COLLAPSE_PREVIEW;
-      allLines.push("  " + ctp.overlay0(`  ▸ ${hidden} more lines — Enter to expand`));
+      allLines.push("  " + ctp.overlay0(`  ▸ ${hidden} more lines — Ctrl+E to expand`));
     } else {
       allLines.push(...msgLines);
     }
   }
 
   addMessage(msg: ChatMessage): void {
-    // Auto-collapse previous long assistant/agent messages
+    // Auto-collapse previous long tool messages (not assistant/agent text)
     for (let i = 0; i < this.messages.length; i++) {
       const prev = this.messages[i]!;
       if (
-        (prev.role === "assistant" || prev.role === "agent") &&
+        prev.role === "tool" &&
         prev.collapsible &&
         prev.collapsed === undefined
       ) {
@@ -346,4 +363,22 @@ export class MessagesComponent implements Component {
     }
     return 0;
   }
+}
+
+/** Detect system message subtype and return the appropriate color function. */
+function detectSystemColor(content: string): (s: string) => string {
+  const first = content.slice(0, 40);
+  // Success / status messages
+  if (first.startsWith("**") || /\bactive\b|\bmode\b|\bcaptured\b|\bswitching\b/i.test(first)) {
+    return ctp.green;
+  }
+  // Help / usage messages
+  if (first.startsWith("Usage:") || first.startsWith("Example:") || content.includes("Use `/")) {
+    return ctp.overlay1;
+  }
+  // Error-like messages
+  if (/^(Error|No |Not |Cannot |Failed)/i.test(first)) {
+    return ctp.red;
+  }
+  return ctp.overlay2;
 }

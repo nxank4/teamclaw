@@ -7,6 +7,7 @@ import type { VectorMemory } from "../core/knowledge-base.js";
 import type { HttpEmbeddingFunction } from "../core/knowledge-base.js";
 import type { SuccessPatternStore } from "../memory/success/store.js";
 import type { GlobalMemoryManager } from "../memory/global/store.js";
+import type { HebbianIntegration } from "../memory/hebbian-integration.js";
 import { retrieveSuccessPatterns } from "../memory/success/retriever.js";
 import { logger, isDebugMode } from "../core/logger.js";
 import { readGlobalConfig } from "../core/global-config.js";
@@ -24,6 +25,7 @@ export class MemoryRetrievalNode {
   private readonly successStore: SuccessPatternStore | null;
   private readonly embedder: HttpEmbeddingFunction | null;
   private readonly globalManager: GlobalMemoryManager | null;
+  private readonly hebbian: HebbianIntegration | null;
   private readonly memoryTopK: number;
 
   constructor(
@@ -33,6 +35,7 @@ export class MemoryRetrievalNode {
     successStore: SuccessPatternStore | null = null,
     embedder: HttpEmbeddingFunction | null = null,
     globalManager: GlobalMemoryManager | null = null,
+    hebbian: HebbianIntegration | null = null,
   ) {
     this.vectorMemory = vectorMemory;
     this.maxRetroActions = maxRetroActions;
@@ -40,8 +43,9 @@ export class MemoryRetrievalNode {
     this.successStore = successStore;
     this.embedder = embedder;
     this.globalManager = globalManager;
+    this.hebbian = hebbian;
     this.memoryTopK = readGlobalConfig()?.tokenOptimization?.memoryTopK ?? 3;
-    log(`MemoryRetrievalNode initialized (maxActions: ${maxRetroActions}, maxProjects: ${maxProjectMemories}, successStore: ${!!successStore}, globalManager: ${!!globalManager})`);
+    log(`MemoryRetrievalNode initialized (maxActions: ${maxRetroActions}, maxProjects: ${maxProjectMemories}, successStore: ${!!successStore}, globalManager: ${!!globalManager}, hebbian: ${!!hebbian})`);
   }
 
   async retrieveMemories(state: GraphState): Promise<Partial<GraphState>> {
@@ -66,9 +70,24 @@ export class MemoryRetrievalNode {
       ]);
 
       // Retrieve success patterns if store is available
-      const successPatterns = this.successStore && this.embedder
+      let successPatterns = this.successStore && this.embedder
         ? await retrieveSuccessPatterns(this.successStore, this.embedder, userGoal)
         : [];
+
+      // Hebbian re-ranking: if available, re-rank success patterns
+      if (this.hebbian?.enabled && successPatterns.length > 0) {
+        const candidates = successPatterns.map((p) => ({
+          id: p.id,
+          content: `${p.taskDescription} ${p.approach}`,
+          similarity: p.confidence,
+          metadata: { category: "pattern" as const },
+        }));
+        const reranked = this.hebbian.rerank(candidates, successPatterns.length);
+        const rerankedIds = reranked.map((r) => r.node.id);
+        successPatterns = rerankedIds
+          .map((id) => successPatterns.find((p) => p.id === id))
+          .filter((p): p is NonNullable<typeof p> => p != null);
+      }
 
       const memoriesLines: string[] = [];
 
@@ -177,7 +196,8 @@ export function createMemoryRetrievalNode(
   successStore: SuccessPatternStore | null = null,
   embedder: HttpEmbeddingFunction | null = null,
   globalManager: GlobalMemoryManager | null = null,
+  hebbian: HebbianIntegration | null = null,
 ): (state: GraphState) => Promise<Partial<GraphState>> {
-  const node = new MemoryRetrievalNode(vectorMemory, maxRetroActions, maxProjectMemories, successStore, embedder, globalManager);
+  const node = new MemoryRetrievalNode(vectorMemory, maxRetroActions, maxProjectMemories, successStore, embedder, globalManager, hebbian);
   return (state: GraphState) => node.retrieveMemories(state);
 }

@@ -27,6 +27,7 @@ import { createSprintPlanningNode } from "../agents/planning.js";
 import { createRFCNode } from "../agents/rfc.js";
 import { createSystemDesignNode } from "../agents/system-design.js";
 import { createMemoryRetrievalNode } from "../agents/memory-retrieval.js";
+import { initHebbianIntegration, type HebbianIntegration } from "../memory/hebbian-integration.js";
 import type { VectorMemory } from "./knowledge-base.js";
 import { SuccessPatternStore } from "../memory/success/store.js";
 import { GlobalMemoryManager } from "../memory/global/store.js";
@@ -93,12 +94,24 @@ export class TeamOrchestration {
   private sessionStartTime: number = 0;
   private sessionTimeoutMs: number = 0;
   private sessionMaxRuns: number = 0;
+  private hebbianIntegration: HebbianIntegration | null = null;
 
   /** Configure session limits without starting a run/stream. */
   configureSession(opts: { maxRuns?: number; timeoutMinutes?: number }): void {
     this.sessionStartTime = Date.now();
     this.sessionTimeoutMs = (opts.timeoutMinutes ?? 0) * 60 * 1000;
     this.sessionMaxRuns = opts.maxRuns ?? 0;
+  }
+
+  /** Clean up Hebbian memory (decay + close). Call at session end. */
+  cleanupHebbian(): void {
+    this.hebbianIntegration?.cleanup();
+    this.hebbianIntegration = null;
+  }
+
+  /** Get the Hebbian integration for external use (e.g., storing lessons). */
+  getHebbian(): HebbianIntegration | null {
+    return this.hebbianIntegration;
   }
 
   private teamComposition: TeamComposition | undefined;
@@ -193,8 +206,16 @@ export class TeamOrchestration {
     const systemDesignNode = createSystemDesignNode(workspacePath ?? "", sharedLlmAdapter, signal);
     const rfcNode = createRFCNode(workspacePath ?? "", this.team, sharedLlmAdapter, signal);
 
+    // Initialize Hebbian memory layer (re-ranking on top of LanceDB)
+    try {
+      this.hebbianIntegration = initHebbianIntegration();
+    } catch {
+      // Non-critical — proceed without Hebbian layer
+    }
+    const hebbianIntegration = this.hebbianIntegration;
+
     const memoryRetrievalNode = vectorMemory
-      ? createMemoryRetrievalNode(vectorMemory, 5, 2, successStore, vmEmbedder, globalManager)
+      ? createMemoryRetrievalNode(vectorMemory, 5, 2, successStore, vmEmbedder, globalManager, hebbianIntegration)
       : createMemoryRetrievalNode({} as VectorMemory);
 
     const wrapWithTelemetry = (

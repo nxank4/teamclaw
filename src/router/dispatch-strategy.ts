@@ -55,6 +55,7 @@ export interface AgentRunner {
 export class Dispatcher extends EventEmitter {
   private abortControllers = new Map<string, AbortController>();
   private currentSessionId = "";
+  private currentSessionHistory: Array<{ role: string; content: string }> = [];
 
   constructor(
     private registry: AgentRegistry,
@@ -72,8 +73,10 @@ export class Dispatcher extends EventEmitter {
     sessionId: string,
     prompt: string,
     decision: RouteDecision,
+    sessionHistory?: Array<{ role: string; content: string }>,
   ): Promise<Result<DispatchResult, RouterError>> {
     this.currentSessionId = sessionId;
+    this.currentSessionHistory = sessionHistory ?? [];
     this.emit("dispatch:start", sessionId, decision);
 
     const controller = new AbortController();
@@ -269,6 +272,7 @@ export class Dispatcher extends EventEmitter {
       assignment.tools,
       {
         systemPrompt: fullSystemPrompt,
+        sessionHistory: this.currentSessionHistory,
         model: assignment.model,
       },
       signal,

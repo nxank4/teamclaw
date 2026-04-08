@@ -17,4 +17,5 @@ export default defineConfig({
   // Keep bundling deterministic and avoid noisy post-tree-shake "unused import"
   // warnings emitted for shared externals across multi-entry CLI bundles.
   treeshake: false,
+  external: ["bun:sqlite", "better-sqlite3"],
 });
