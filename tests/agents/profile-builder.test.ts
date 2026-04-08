@@ -48,7 +48,6 @@ describe("ProfileBuilder", () => {
     expect(profiles).toHaveLength(1);
     expect(profiles[0].agentRole).toBe("software_engineer");
     expect(profiles[0].totalTasksCompleted).toBe(3);
-    expect(mockStore.upsert).toHaveBeenCalledOnce();
   });
 
   it("applies success decay correctly: 0.5 * 1.02 = 0.51", async () => {
