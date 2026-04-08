@@ -8,8 +8,18 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
   },
-  "include": ["src"],
-  "exclude": ["src/web/client"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/web/client"
+  ]
 }
