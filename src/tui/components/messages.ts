@@ -9,6 +9,7 @@ import { visibleWidth } from "../utils/text-width.js";
 import { defaultTheme, ctp } from "../themes/default.js";
 import { renderMarkdown } from "./markdown.js";
 import { CopyManager } from "../text/copy-manager.js";
+import { ToolCallView } from "./tool-call-view.js";
 
 export interface ChatMessage {
   role: "user" | "assistant" | "agent" | "tool" | "system" | "error";
@@ -35,6 +36,15 @@ export class MessagesComponent implements Component {
   private messageBoundaries: number[] = [];
   private layoutProvider?: () => LayoutConfig;
 
+  /** Active tool call views, keyed by executionId. */
+  private activeToolCalls = new Map<string, ToolCallView>();
+  /** Insertion order for tool call rendering. */
+  private toolCallOrder: string[] = [];
+
+  // Render cache — avoids re-running renderMarkdown/wrapText on every frame
+  private renderCache = new Map<number, { lines: string[]; hash: number; width: number; collapsed: boolean }>();
+  private lastRenderWidth = 0;
+
   constructor(id: string) {
     this.id = id;
   }
@@ -45,83 +55,108 @@ export class MessagesComponent implements Component {
     const maxBubbleWidth = Math.min(Math.floor(width * bubblePct), width - 8);
     this.messageBoundaries = [];
 
-    for (const msg of this.messages) {
+    // Width change invalidates all caches
+    if (width !== this.lastRenderWidth) {
+      this.renderCache.clear();
+      this.lastRenderWidth = width;
+    }
+
+    for (let i = 0; i < this.messages.length; i++) {
+      const msg = this.messages[i]!;
       this.messageBoundaries.push(allLines.length);
 
-      switch (msg.role) {
-        case "user": {
-          // RIGHT aligned bordered bubble
-          const userMaxWidth = Math.min(Math.floor(width * 0.5), maxBubbleWidth);
-          const wrapped = wrapText(msg.content || "", userMaxWidth - 4);
-          const contentWidth = wrapped.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
-          const boxWidth = contentWidth + 4; // border + padding each side
-          const leftPad = " ".repeat(Math.max(0, width - boxWidth));
+      // Check render cache
+      const hash = this.contentHash(msg.content);
+      const cached = this.renderCache.get(i);
+      if (cached && cached.hash === hash && cached.width === width && cached.collapsed === !!msg.collapsed) {
+        allLines.push(...cached.lines);
+        allLines.push("");
+        continue;
+      }
 
-          const msgLines: string[] = [];
-          msgLines.push(leftPad + ctp.surface1("┌" + "─".repeat(boxWidth - 2) + "┐"));
-          for (const line of wrapped) {
-            const padRight = contentWidth - visibleWidth(line);
-            msgLines.push(leftPad + ctp.surface1("│") + " " + ctp.text(line) + " ".repeat(padRight) + " " + ctp.surface1("│"));
-          }
-          msgLines.push(leftPad + ctp.surface1("└" + "─".repeat(boxWidth - 2) + "┘"));
+      // Cache miss — render and store
+      const msgLines = this.renderMessage(msg, width, maxBubbleWidth);
+      const outputLines: string[] = [];
+      this.pushMaybeCollapsed(outputLines, msgLines, msg, width);
+      this.renderCache.set(i, { lines: outputLines, hash, width, collapsed: !!msg.collapsed });
+      allLines.push(...outputLines);
+      allLines.push(""); // spacing
+    }
 
-          this.pushMaybeCollapsed(allLines, msgLines, msg, width);
-          break;
-        }
-        case "assistant":
-        case "agent": {
-          // LEFT aligned with colored accent border + markdown body
-          const nameLabel = msg.agentName ?? msg.role;
-          const nameFn = msg.agentColor ?? defaultTheme.agentName;
-          const accentBorder = msg.agentColor ?? ctp.overlay2;
-
-          const msgLines: string[] = [];
-          msgLines.push("  " + accentBorder("┃") + " " + nameFn(`[${nameLabel}]`));
-          const mdLines = renderMarkdown(msg.content || "", maxBubbleWidth - 4);
-          for (const line of mdLines) {
-            // Wrap in ctp.text() so plain paragraph text gets a readable color
-            // (markdown elements like code/links already have their own colors)
-            msgLines.push("  " + accentBorder("┃") + " " + ctp.text(line));
-          }
-
-          this.pushMaybeCollapsed(allLines, msgLines, msg, width);
-          break;
-        }
-        case "error": {
-          // LEFT aligned, red with prefix on first line only
-          const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
-          for (let i = 0; i < wrapped.length; i++) {
-            const prefix = i === 0 ? "✗ " : "  ";
-            allLines.push("  " + defaultTheme.error(prefix + wrapped[i]));
-          }
-          break;
-        }
-        case "tool": {
-          // LEFT aligned, overlay1 with teal icon
-          const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
-          for (let i = 0; i < wrapped.length; i++) {
-            const prefix = i === 0 ? ctp.teal("⚙ ") : "  ";
-            allLines.push("  " + prefix + ctp.overlay1(wrapped[i]!));
-          }
-          break;
-        }
-        default: {
-          // system and others — LEFT aligned
-          // If content already has ANSI codes (pre-styled), pass through as-is.
-          // Otherwise apply overlay1 color.
-          const hasAnsi = (msg.content || "").includes("\x1b[");
-          const colorFn = hasAnsi ? (s: string) => s : ctp.overlay1;
-          const wrapped = wrapText(msg.content || "", maxBubbleWidth);
-          for (const line of wrapped) {
-            allLines.push("  " + colorFn(line));
-          }
-          break;
+    // Render active tool calls after messages (not cached — they animate)
+    if (this.toolCallOrder.length > 0) {
+      for (const id of this.toolCallOrder) {
+        const view = this.activeToolCalls.get(id);
+        if (view) {
+          const toolLines = view.render(bubblePct > 0 ? maxBubbleWidth : width);
+          allLines.push(...toolLines);
         }
       }
-      allLines.push(""); // spacing between messages
+      allLines.push("");
     }
 
     return allLines;
+  }
+
+  /** Render a single message to styled lines (before collapse). */
+  private renderMessage(msg: ChatMessage, width: number, maxBubbleWidth: number): string[] {
+    switch (msg.role) {
+      case "user": {
+        const userMaxWidth = Math.min(Math.floor(width * 0.5), maxBubbleWidth);
+        const wrapped = wrapText(msg.content || "", userMaxWidth - 4);
+        const contentWidth = wrapped.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
+        const boxWidth = contentWidth + 4;
+        const leftPad = " ".repeat(Math.max(0, width - boxWidth));
+        const lines: string[] = [];
+        lines.push(leftPad + ctp.surface1("┌" + "─".repeat(boxWidth - 2) + "┐"));
+        for (const line of wrapped) {
+          const padRight = contentWidth - visibleWidth(line);
+          lines.push(leftPad + ctp.surface1("│") + " " + ctp.text(line) + " ".repeat(padRight) + " " + ctp.surface1("│"));
+        }
+        lines.push(leftPad + ctp.surface1("└" + "─".repeat(boxWidth - 2) + "┘"));
+        return lines;
+      }
+      case "assistant":
+      case "agent": {
+        const nameLabel = msg.agentName ?? msg.role;
+        const nameFn = msg.agentColor ?? defaultTheme.agentName;
+        const accentBorder = msg.agentColor ?? ctp.overlay2;
+        const lines: string[] = [];
+        lines.push("  " + accentBorder("┃") + " " + nameFn(`[${nameLabel}]`));
+        const mdLines = renderMarkdown(msg.content || "", maxBubbleWidth - 4);
+        for (const line of mdLines) {
+          lines.push("  " + accentBorder("┃") + " " + ctp.text(line));
+        }
+        return lines;
+      }
+      case "error": {
+        const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
+        return wrapped.map((line, i) => {
+          const prefix = i === 0 ? "✗ " : "  ";
+          return "  " + defaultTheme.error(prefix + line);
+        });
+      }
+      case "tool": {
+        const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
+        return wrapped.map((line, i) => {
+          const prefix = i === 0 ? ctp.teal("⚙ ") : "  ";
+          return "  " + prefix + ctp.overlay1(line);
+        });
+      }
+      default: {
+        const hasAnsi = (msg.content || "").includes("\x1b[");
+        const colorFn = hasAnsi ? (s: string) => s : ctp.overlay1;
+        const wrapped = wrapText(msg.content || "", maxBubbleWidth);
+        return wrapped.map((line) => "  " + colorFn(line));
+      }
+    }
+  }
+
+  /** Fast content hash for cache invalidation. */
+  private contentHash(content: string): number {
+    const len = content.length;
+    if (len === 0) return 0;
+    return len * 31 + content.charCodeAt(0) + content.charCodeAt(len - 1) + content.charCodeAt(len >> 1);
   }
 
   /** Push message lines, applying collapse if needed. */
@@ -146,13 +181,15 @@ export class MessagesComponent implements Component {
 
   addMessage(msg: ChatMessage): void {
     // Auto-collapse previous long assistant/agent messages
-    for (const prev of this.messages) {
+    for (let i = 0; i < this.messages.length; i++) {
+      const prev = this.messages[i]!;
       if (
         (prev.role === "assistant" || prev.role === "agent") &&
         prev.collapsible &&
         prev.collapsed === undefined
       ) {
         prev.collapsed = true;
+        this.renderCache.delete(i); // collapse state changed
       }
     }
     this.messages.push(msg);
@@ -162,6 +199,7 @@ export class MessagesComponent implements Component {
   replaceLast(content: string): void {
     if (this.messages.length > 0) {
       this.messages[this.messages.length - 1]!.content = content;
+      this.renderCache.delete(this.messages.length - 1);
     }
   }
 
@@ -169,6 +207,7 @@ export class MessagesComponent implements Component {
   replaceLastWith(msg: ChatMessage): void {
     if (this.messages.length > 0) {
       this.messages[this.messages.length - 1] = msg;
+      this.renderCache.delete(this.messages.length - 1);
     } else {
       this.messages.push(msg);
     }
@@ -181,11 +220,59 @@ export class MessagesComponent implements Component {
     } else {
       const last = this.messages[this.messages.length - 1]!;
       last.content += chunk;
+      this.renderCache.delete(this.messages.length - 1);
     }
+  }
+
+  /** Start tracking a new tool call with a spinner. */
+  startToolCall(executionId: string, toolName: string, inputSummary: string, agentId: string): void {
+    if (this.activeToolCalls.has(executionId)) return;
+    const view = new ToolCallView({
+      executionId,
+      toolName,
+      agentId,
+      status: "running",
+      inputSummary,
+    });
+    this.activeToolCalls.set(executionId, view);
+    this.toolCallOrder.push(executionId);
+  }
+
+  /** Mark a tool call as completed or failed. */
+  completeToolCall(executionId: string, success: boolean, outputSummary: string, duration: number): void {
+    const view = this.activeToolCalls.get(executionId);
+    if (!view) return;
+    view.complete({ success, summary: outputSummary, duration });
+  }
+
+  /** Advance all running tool call spinners (call from timer). */
+  advanceToolSpinners(): void {
+    for (const view of this.activeToolCalls.values()) {
+      if (view.status === "running") {
+        view.advanceSpinner();
+      }
+    }
+  }
+
+  /** Check if any tool calls are currently running. */
+  hasRunningToolCalls(): boolean {
+    for (const view of this.activeToolCalls.values()) {
+      if (view.status === "running") return true;
+    }
+    return false;
+  }
+
+  /** Clear all tool call views (call on agent:done). */
+  clearToolCalls(): void {
+    this.activeToolCalls.clear();
+    this.toolCallOrder = [];
   }
 
   clear(): void {
     this.messages = [];
+    this.renderCache.clear();
+    this.activeToolCalls.clear();
+    this.toolCallOrder = [];
   }
 
   getMessageCount(): number {
@@ -222,13 +309,17 @@ export class MessagesComponent implements Component {
     const msg = this.messages[index];
     if (!msg || !msg.collapsible) return false;
     msg.collapsed = !msg.collapsed;
+    this.renderCache.delete(index);
     return true;
   }
 
   /** Collapse all collapsible messages. */
   collapseAll(): void {
-    for (const msg of this.messages) {
-      if (msg.collapsible) msg.collapsed = true;
+    for (let i = 0; i < this.messages.length; i++) {
+      if (this.messages[i]!.collapsible) {
+        this.messages[i]!.collapsed = true;
+        this.renderCache.delete(i);
+      }
     }
   }
 
