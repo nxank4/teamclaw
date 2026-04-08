@@ -54,7 +54,7 @@ jobs:
         run: bun install --ignore-scripts
 
       - name: Run tests
-        run: bash scripts/test.sh
+        run: bun test
 
   build:
     name: Build
