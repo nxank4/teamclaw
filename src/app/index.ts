@@ -646,14 +646,30 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       layout.messages.hidden = false;
       addWelcomeMessage();
 
+      // Reset cached provider manager so detectConfig reads fresh config
+      const { resetGlobalProviderManager } = await import("../providers/provider-factory.js");
+      resetGlobalProviderManager();
+
       const newState = await detectConfig();
       ctx.configState = newState;
       if (newState.hasProvider) {
         layout.statusBar.updateSegment(0, newState.providerName, ctp.subtext1);
         if (newState.isConnected) {
           layout.statusBar.updateSegment(1, "\u25cf connected", ctp.green);
+
+          const { getActiveProviderState } = await import("../providers/active-state.js");
+          const activeState = getActiveProviderState();
+          const { getConfigValue } = await import("../core/configManager.js");
+          const modelResult = getConfigValue("model", { raw: true });
+          activeState.setActive(newState.providerName, modelResult.value ?? "auto", { autoDetected: true });
+        } else {
+          layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
         }
       }
+
+      // Re-initialize session router so TUI can talk to the LLM
+      await initSessionRouter(ctx, opts, layout, registry).catch(() => {});
+
       layout.tui.requestRender();
     });
     wizard.activate();
