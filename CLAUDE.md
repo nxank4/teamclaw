@@ -4,72 +4,106 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OpenPawl orchestrates AI agent teams via LangGraph. Users define goals and teams; agents collaborate to complete them. Multi-run mode learns from failed runs via RAG (LanceDB). Pure team coordination, no economics.
+OpenPawl is an interactive AI agent TUI with two modes: **chat mode** (single agent responds to prompts with tool calling) and **sprint mode** (autonomous multi-agent task execution from a goal). Agents use native API tool calling, hebbian memory for learning, and context engineering for long conversations.
 
 ## Commands
 
 - Runtime: Node **>= 20**, **bun**.
-- `bun install` — install deps (run if `node_modules` missing or `vitest not found`)
-- `bun run build` — build (via tsup, includes web client)
-- `bun run typecheck` — type-check
-- `bun run test` — tests (Vitest)
+- `bun install` — install deps
+- `bun run build` — build (tsup + web client)
+- `bun run typecheck` — type-check (`tsc --noEmit`)
+- `bun run test` — tests (bun test, NOT Vitest)
 - `bun run test -- path/to/file.test.ts` — run a single test file
-- `bun run test:watch -- path/to/file.test.ts` — watch a single test file
+- `bun run test:watch` — watch mode
 - `bun run lint` — lint (`eslint src/`)
-- `bun run dev` — watch mode
-- `bun run web` — web UI (http://localhost:8000)
-- `bun run work` — work sessions with web dashboard
+- `bun run dev` — tsup watch mode
 - Pre-commit hook runs: typecheck → lint → tests (all must pass)
 
 ## Architecture
 
-### LangGraph Simulation (src/core/simulation.ts)
+### TUI Application (src/app/index.ts)
 
-12-node orchestration graph. Linear pipeline feeds into a looping execution phase:
+Main entry point. Interactive terminal UI with:
+- Editor component for user input (multiline, history, autocomplete)
+- Messages component for conversation display (tree-structured agent responses)
+- Status bar, divider, thinking indicator
+- Slash commands (`/sprint`, `/compact`, `/settings`, `/sessions`, `/plan`, etc.)
+- Session management with persistence and recovery
 
-```
-__start__ → memory_retrieval → sprint_planning → system_design → rfc_phase → coordinator → preview_gate
-```
+### Chat Mode (src/router/)
 
-From `preview_gate`, conditional edges fan out:
-- `preview_gate` → approval | worker_task | worker_collect | END
-- `approval` → coordinator (feedback) | worker dispatch
-- `worker_task` → `confidence_router` → `worker_collect` → `partial_approval` → `increment_cycle` → coordinator (loop) | END
+User prompt → `PromptRouter` → intent classification → agent selection → `LLMAgentRunner` → `callLLMMultiTurn` with native tool calling → streamed response to TUI.
 
-The `increment_cycle` node terminates via `__end__` when `timeoutMs` elapsed or `maxRuns` reached.
+Key files:
+- `src/router/prompt-router.ts` — routes prompts to agents, emits dispatch events
+- `src/router/agent-registry.ts` — built-in agents (coder, reviewer, planner, tester, debugger, researcher, assistant)
+- `src/router/llm-agent-runner.ts` — bridges agents to LLM with tool loop, doom-loop detection, context compaction
+- `src/router/dispatch-strategy.ts` — sequential/parallel agent dispatch
 
-### Graph State (src/core/graph-state.ts)
+### Sprint Mode (src/sprint/)
 
-`GameStateAnnotation` defines all shared state. Key fields: `task_queue` (merge-by-task_id reducer), `cycle_count`, `team`, `bot_stats`, `planning_document`, `architecture_document`, `rfc_document`, `approval_pending/response`, `ancestral_lessons`, `preview`, `messages` (concat reducer). Nodes return `Partial<GraphState>` with only changed keys.
+`/sprint <goal>` → `SprintRunner` → planner agent breaks goal into tasks → sequential execution with keyword-based agent assignment → events streamed to TUI.
 
-### Agent Pattern
+- `src/sprint/sprint-runner.ts` — orchestrator with pause/resume/stop
+- `src/sprint/create-sprint-runner.ts` — factory wiring to `callLLMMultiTurn`
+- `src/sprint/task-parser.ts` — parses planner output (JSON or numbered list)
 
-Each LangGraph node receives `GraphState`, returns `Partial<GraphState>`. All nodes set `__node__: "node_name"` for streaming identification. Agent implementations live in `src/agents/` and are wrapped by node factories in `src/graph/nodes/`.
+### LLM Engine (src/engine/llm.ts)
 
-### Work Session Flow (src/work-runner.ts)
+Three entry points:
+- `callLLM(prompt, options)` — single-turn streaming
+- `callLLMWithMessages(messages, options)` — multi-turn with context compression
+- `callLLMMultiTurn(opts)` — agentic loop with native tool calling (handles tool calls, gets results, continues)
 
-1. **Init** — resolve goal, validate gateway health, load team config, init vector memory
-2. **Multi-run loop** — for each run: initialize providers, create `TeamOrchestration`, stream execution chunks (each has `__node__`), update dashboard, learn from failures via PostMortemAnalyst, persist success patterns
-3. **Cleanup** — stop services, export audit trail, generate CONTEXT.md handoff, run retrospective if rework detected
+### Provider System (src/providers/)
 
-### Web Server (src/web/server.ts)
+Multi-provider LLM support: Anthropic, OpenAI-compatible, Bedrock, Vertex, GitHub Copilot. Auto-detection, health monitoring, model discovery, smart routing.
 
-Fastify + SSE for real-time dashboard updates. Single active orchestration at a time. `broadcast()` sends events to all SSE clients. Key endpoints: `GET /api/events` (SSE stream), `POST /api/session/start`, `GET /api/config`, `/proxy/*` (SSE proxy to avoid CORS).
+### Tool System (src/tools/)
+
+Built-in tools: `file_read`, `file_write`, `file_edit`, `file_list`, `shell_exec`, `web_search`, `web_fetch`, `git_ops`, `execute_code`. Tool registry with per-agent permissions, sandboxed execution, MCP server support.
+
+### Context Engineering (src/context/)
+
+- `context-tracker.ts` — monitors token utilization, triggers compaction at thresholds
+- `compaction.ts` — three strategies: tool result masking (high), message pruning (critical), LLM summarization (emergency)
+- `doom-loop-detector.ts` — detects repeated identical tool calls, blocks or warns
+- `tool-output-handler.ts` — summarizes large tool outputs, offloads to scratch files
+- `project-context.ts` — injects CLAUDE.md and project type into agent prompts
+
+### Memory (src/memory/)
+
+- `hebbian/` — hebbian learning: strengthens associations between concepts based on co-activation
+- `success/` — success pattern store: persists what worked across sessions
+- `global/` — global memory manager
+- `hybrid-retriever.ts` — combines vector search with hebbian associations
+- Vector memory via embedded LanceDB
+
+### Session Management (src/session/)
+
+- `session-manager.ts` — create, resume, list, delete sessions
+- `session.ts` — session state, message history, token tracking
+- `session-recovery.ts` — crash recovery for interrupted sessions
+- `session-store.ts` — persistence to disk
+- `prompt-history-store.ts` — prompt history across sessions
+
+### TUI Components (src/tui/)
+
+- `components/` — messages (tree-structured), markdown renderer (with syntax highlighting, table rendering), editor, status bar, thinking indicator, tool call views
+- `primitives/` — badge, separator, columns, selectable list, confirm prompt
+- `core/` — terminal abstraction, differential renderer, ANSI utilities, input handling
+- `themes/` — Catppuccin Mocha color palette
+- `utils/` — ANSI-aware text wrapping, width calculation, truncation
 
 ### Superpowers Modules
 
-- `src/think/` — Multi-round deliberation sessions for complex reasoning
-- `src/clarity/` — Goal clarity analysis (vague verbs, missing success criteria); suggests rewrites
-- `src/drift/` — Detects conflicts between original goal and actual task execution
-- `src/journal/` — Decision journal; tracks critical decisions, checks for supersession/contradictions
-- `src/briefing/` — Session briefing: prior run summaries, team performance, left-open items
-- `src/handoff/` — Generates CONTEXT.md handoff from final state (left-to-do, resume commands)
-- `src/personality/` — Agent personality injection (traits, communication styles, pushback detection)
-
-### LLM & Memory
-
-- LLM requests route through configured providers (Anthropic, OpenAI, etc.).
-- Vector memory via embedded LanceDB. Success patterns and failure lessons persist across runs.
+- `src/think/` — multi-round deliberation for complex reasoning
+- `src/clarity/` — goal clarity analysis (vague verbs, missing success criteria)
+- `src/drift/` — detects conflicts between goal and task execution
+- `src/journal/` — decision journal with supersession/contradiction checks
+- `src/personality/` — agent personality injection (traits, communication styles)
+- `src/briefing/` — session briefing from prior runs
+- `src/handoff/` — generates CONTEXT.md handoff from final state
 
 ## Code Style
 
@@ -80,12 +114,12 @@ Fastify + SSE for real-time dashboard updates. Single active orchestration at a 
 
 ## Testing
 
-- Vitest. Test files: `tests/*.test.ts` or colocated `src/**/*.test.ts`.
+- Bun test runner. Test files: `tests/*.test.ts` or colocated `src/**/*.test.ts`.
 - Run `bun run test` before pushing when touching logic.
 
 ## Commits & PRs
 
-- Concise action-oriented messages (e.g. `fix: add reducer to graph-state Annotation`).
+- Concise action-oriented messages (e.g. `fix: correct event payload keys in sprint runner`).
 - Group related changes; don't bundle unrelated refactors.
 - **Auto-commit cadence:** Commit and push after each major logical unit of work (new feature, bug fix, refactor). Do NOT wait until the entire task is done — commit at natural milestones. Aim for commits in the ~200-1000 lines changed range. Avoid micro-commits for trivial edits (typos, single-line fixes) and avoid mega-commits with 2000+ lines.
 - **Pre-commit safety checks:** Before every commit, run `git status` and `git diff --stat` to review what is staged. Check for accidentally included large files, build artifacts (`dist/`, `node_modules/`), secrets (`.env`, credentials), or binary blobs. If any staged file exceeds 500KB or any folder adds 50+ new files, stop and ask before committing.
@@ -216,4 +250,4 @@ Located at `.githooks/pre-commit`, installed via `make install-hooks` (sets `cor
 
 ## Tech Stack
 
-LangGraph.js, Zod, Fastify + SSE, LanceDB, Provider Manager, tsup, Vitest. Web client: React + Tailwind CSS. No Python.
+TypeScript (ESM), Bun, tsup, Zod, LanceDB, cli-highlight. Multi-provider LLM (Anthropic SDK, OpenAI-compatible, Bedrock, Vertex). No Python.
