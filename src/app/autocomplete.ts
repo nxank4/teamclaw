@@ -15,9 +15,10 @@ export function createAutocompleteProvider(
     getSuggestions(input: string, cursorPos: number): AutocompleteSuggestion[] {
       const text = input.slice(0, cursorPos);
 
-      // / prefix → slash commands
-      if (text.startsWith("/")) {
-        const partial = text.slice(1).split(" ")[0] ?? "";
+      // / prefix → slash commands (only while still typing the command name,
+      // not after a space which indicates the user is typing arguments)
+      if (text.startsWith("/") && !text.includes(" ")) {
+        const partial = text.slice(1);
         return registry.getSuggestions(partial).map((cmd) => ({
           label: `/${cmd.name}`,
           description: cmd.description,

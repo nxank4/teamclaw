@@ -352,6 +352,13 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /** Check if the last message is an agent/assistant message. */
+  isLastAgentMessage(): boolean {
+    if (this.messages.length === 0) return false;
+    const last = this.messages[this.messages.length - 1]!;
+    return last.role === "agent" || last.role === "assistant";
+  }
+
   /** Append text to the last message (streaming). */
   appendToLast(chunk: string): void {
     if (this.messages.length === 0) {
