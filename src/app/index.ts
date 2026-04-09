@@ -99,6 +99,7 @@ function wireRouterEvents(
   layout: AppLayout,
   onAssistantResponse?: (agentId: string, content: string) => void,
   onPlanReady?: () => void,
+  onQueueDrain?: () => void,
 ): () => void {
   let streamingForAgent: string | null = null;
   let streamedContent = "";
@@ -228,6 +229,9 @@ function wireRouterEvents(
     if (responseText && onPlanReady) {
       onPlanReady();
     }
+
+    // Drain prompt queue if messages are waiting
+    onQueueDrain?.();
   };
 
   const onDispatchError = (_sessionId: string, error: { type: string }) => {
@@ -422,8 +426,6 @@ export interface LaunchOptions {
   terminal?: Terminal;
   /** Custom sessions directory for testing. */
   sessionsDir?: string;
-  /** Resume the most recent TUI session. */
-  resume?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +456,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     toolOutputHandler: null as { cleanup: () => Promise<void> } | null,
     configState: null as ConfigState | null,
     modeSystem: null as ModeSystem | null,
+    onQueueDrain: null as (() => void) | null,
   };
 
   // Register built-in commands (/help, /clear, /quit)
@@ -471,6 +474,10 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.editor.setAutocompleteProvider(
     createAutocompleteProvider(registry, process.cwd()),
   );
+
+  // Prompt queue — queue messages while agent is busy
+  const promptQueue: { text: string; fullPrompt: string; attachedFiles?: string[] }[] = [];
+  let agentBusy = false;
 
   // Handle editor submit — text + optional attached files
   layout.editor.onSubmit = async (text: string, attachedFiles?: string[]) => {
@@ -585,7 +592,24 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           if (fileSections.length > 0) {
             fullPrompt = fileSections.join("\n\n") + "\n\n" + text;
           }
-          // Show user what was sent (file tags + message)
+        }
+
+        // If agent is busy, queue the message
+        if (agentBusy) {
+          promptQueue.push({ text, fullPrompt, attachedFiles });
+          layout.messages.addMessage({
+            role: "user",
+            content: text,
+            timestamp: new Date(),
+            pending: true,
+          });
+          layout.divider.setLabel(`\u23f3 ${promptQueue.length} queued`);
+          layout.tui.requestRender();
+          break;
+        }
+
+        // Show user message
+        if (attachedFiles && attachedFiles.length > 0) {
           const tags = attachedFiles.map((f) => `[@${f.split("/").pop()}]`).join(" ");
           msgCtx.addMessage("user", `${tags} ${text}`);
         } else {
@@ -609,18 +633,99 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         }
 
         // Route through PromptRouter if available, else fallback
-        if (ctx.router && ctx.chatSession) {
-          await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
-        } else {
-          await handleChatFallback(fullPrompt, layout, msgCtx);
+        agentBusy = true;
+        try {
+          if (ctx.router && ctx.chatSession) {
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
+          } else {
+            await handleChatFallback(fullPrompt, layout, msgCtx);
+          }
+        } finally {
+          agentBusy = false;
         }
         break;
       }
     }
   };
 
-  // TUI abort handler
-  layout.tui.onAbort = () => false;
+  // Process next queued prompt (called from onAgentDone via wireRouterEvents)
+  const processNextFromQueue = async () => {
+    if (promptQueue.length === 0) {
+      layout.divider.setLabel(null);
+      layout.tui.requestRender();
+      return;
+    }
+    const next = promptQueue.shift()!;
+    layout.divider.setLabel(
+      promptQueue.length > 0 ? `\u23f3 ${promptQueue.length} queued` : null,
+    );
+    // Mark the pending bubble as active
+    layout.messages.markNextPendingAsActive();
+    layout.tui.requestRender();
+
+    // Add to session if not already there (pending messages weren't saved)
+    if (ctx.chatSession) {
+      ctx.chatSession.addMessage({ role: "user", content: next.text });
+    }
+
+    agentBusy = true;
+    try {
+      if (ctx.router && ctx.chatSession) {
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, {
+          addMessage: (role: string, content: string) => {
+            layout.messages.addMessage({
+              role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
+              content,
+              timestamp: new Date(),
+            });
+            if (ctx.chatSession && role !== "error") {
+              ctx.chatSession.addMessage({
+                role: role as "user" | "assistant" | "system" | "tool",
+                content,
+                metadata: role === "system" ? { transient: true } : undefined,
+              });
+            }
+            layout.tui.requestRender();
+          },
+          clearMessages: () => { layout.messages.clear(); ctx.chatSession?.clearMessages(); },
+          requestRender: () => layout.tui.requestRender(),
+          exit: () => { layout.tui.stop(); },
+          tui: layout.tui,
+        });
+      } else {
+        await handleChatFallback(next.fullPrompt, layout, {
+          addMessage: (role: string, content: string) => {
+            layout.messages.addMessage({
+              role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
+              content,
+              timestamp: new Date(),
+            });
+            layout.tui.requestRender();
+          },
+          requestRender: () => layout.tui.requestRender(),
+          exit: () => { layout.tui.stop(); },
+          tui: layout.tui,
+        });
+      }
+    } finally {
+      agentBusy = false;
+    }
+  };
+
+  // Wire queue drain to ctx so initSessionRouter can pass it to wireRouterEvents
+  ctx.onQueueDrain = () => void processNextFromQueue();
+
+  // TUI abort handler — clear queue on Esc/Ctrl+C if messages are queued
+  layout.tui.onAbort = () => {
+    if (promptQueue.length > 0) {
+      layout.messages.removePendingMessages();
+      promptQueue.length = 0;
+      layout.divider.setLabel(null);
+      layout.tui.requestRender();
+      return true;
+    }
+    return false;
+  };
 
   // Welcome message
   let versionStr = "0.0.1";
@@ -1524,6 +1629,7 @@ async function initSessionRouter(
     toolOutputHandler: { cleanup: () => Promise<void> } | null;
     configState: ConfigState | null;
     modeSystem: ModeSystem | null;
+    onQueueDrain: (() => void) | null;
   },
   opts: LaunchOptions | undefined,
   layout: AppLayout,
@@ -1844,6 +1950,9 @@ async function initSessionRouter(
     // Plan-ready callback: show execute confirmation when agent finishes in plan mode
     if (ctx.modeSystem?.getMode() !== "plan-only") return;
     showPlanConfirmation(ctx, layout);
+  }, () => {
+    // Queue drain callback: process next queued prompt
+    ctx.onQueueDrain?.();
   });
   ctx.cleanupSession = wireSessionEvents(ctx.sessionMgr, layout);
 
