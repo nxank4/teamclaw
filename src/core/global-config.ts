@@ -32,21 +32,13 @@ export interface OpenPawlGlobalConfig {
   version: 1;
   activeProvider?: string;
   activeModel?: string;
+  model?: string;
   meta?: {
     version: string;
     createdAt?: string;
     updatedAt?: string;
     setupVersion?: string;
   };
-  managedGateway?: boolean;
-  gatewayHost?: string;
-  gatewayPort?: number;
-  apiPort?: number;
-  gatewayUrl?: string;
-  apiUrl?: string;
-  token?: string;
-  model?: string;
-  chatEndpoint?: string;
   dashboardPort: number;
   debugMode: boolean;
   agentModels?: Record<string, string>;
@@ -159,9 +151,6 @@ export interface OpenPawlGlobalConfig {
   };
 }
 
-const DEFAULT_GATEWAY_HOST = "127.0.0.1";
-const DEFAULT_GATEWAY_PORT = 18789;
-const DEFAULT_CHAT_ENDPOINT = "/v1/chat/completions";
 const DEFAULT_DASHBOARD_PORT = 9001;
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -177,34 +166,6 @@ function toPositiveInt(value: unknown, fallback: number): number {
         ? Number(value)
         : Number.NaN;
   return Number.isInteger(n) && n > 0 ? n : fallback;
-}
-
-function parseHostAndPortFromUrl(raw: string): { host?: string; port?: number } {
-  try {
-    const withScheme = raw.includes("://") ? raw : `http://${raw}`;
-    const u = new URL(withScheme);
-    const port = u.port ? Number(u.port) : undefined;
-    const validPort = Number.isInteger(port) && (port as number) > 0
-      ? (port as number)
-      : undefined;
-    return {
-      host: u.hostname || undefined,
-      port: validPort,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function normalizeHost(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return DEFAULT_GATEWAY_HOST;
-  if (!trimmed.includes("://")) return trimmed;
-  try {
-    return new URL(trimmed).hostname || DEFAULT_GATEWAY_HOST;
-  } catch {
-    return DEFAULT_GATEWAY_HOST;
-  }
 }
 
 export function getGlobalConfigPath(): string {
@@ -225,29 +186,6 @@ export function buildDefaultGlobalConfig(): OpenPawlGlobalConfig {
 }
 
 export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): OpenPawlGlobalConfig {
-  const fromGatewayUrl =
-    typeof input.gatewayUrl === "string" && input.gatewayUrl.trim()
-      ? parseHostAndPortFromUrl(input.gatewayUrl)
-      : {};
-
-  const gatewayHost = normalizeHost(
-    (typeof input.gatewayHost === "string" && input.gatewayHost.trim()) ||
-      fromGatewayUrl.host ||
-      DEFAULT_GATEWAY_HOST,
-  );
-
-  const gatewayPort = toPositiveInt(
-    input.gatewayPort ?? fromGatewayUrl.port,
-    DEFAULT_GATEWAY_PORT,
-  );
-
-  const apiPort = toPositiveInt(input.apiPort, gatewayPort + 2);
-  const token = typeof input.token === "string" ? input.token.trim() : "";
-  const model = typeof input.model === "string" ? input.model.trim() : "";
-  const chatEndpoint =
-    typeof input.chatEndpoint === "string" && input.chatEndpoint.trim()
-      ? input.chatEndpoint.trim()
-      : DEFAULT_CHAT_ENDPOINT;
   const dashboardPort = toPositiveInt(input.dashboardPort, DEFAULT_DASHBOARD_PORT);
   const debugMode = typeof input.debugMode === "boolean" ? input.debugMode : false;
 
@@ -398,7 +336,7 @@ export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): Ope
       : undefined;
   const activeModel = typeof input.activeModel === "string" && input.activeModel.trim()
     ? input.activeModel.trim()
-    : model || undefined;
+    : undefined;
 
   // Parse tokenOptimization — pass through if present, no deep validation needed
   const rawTokenOpt = (input as Record<string, unknown>).tokenOptimization;
@@ -459,28 +397,11 @@ export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): Ope
         }
       : undefined;
 
-  // Gateway fields are optional — include only when present in input
-  const gatewayFields: Partial<OpenPawlGlobalConfig> = {};
-  if (typeof input.managedGateway === "boolean") gatewayFields.managedGateway = input.managedGateway;
-  if (gatewayHost !== DEFAULT_GATEWAY_HOST || input.gatewayHost) gatewayFields.gatewayHost = gatewayHost;
-  if (gatewayPort !== DEFAULT_GATEWAY_PORT || input.gatewayPort) {
-    gatewayFields.gatewayPort = gatewayPort;
-    gatewayFields.gatewayUrl = `ws://${gatewayHost}:${gatewayPort}`;
-  }
-  if (input.apiPort) {
-    gatewayFields.apiPort = apiPort;
-    gatewayFields.apiUrl = `http://${gatewayHost}:${apiPort}`;
-  }
-  if (token) gatewayFields.token = token;
-  if (model) gatewayFields.model = model;
-  if (chatEndpoint !== DEFAULT_CHAT_ENDPOINT || input.chatEndpoint) gatewayFields.chatEndpoint = chatEndpoint;
-
   return {
     version: 1,
     ...(activeProvider ? { activeProvider } : {}),
     ...(activeModel ? { activeModel } : {}),
     ...(meta ? { meta } : {}),
-    ...gatewayFields,
     dashboardPort,
     debugMode,
     ...(agentModels && Object.keys(agentModels).length > 0 ? { agentModels } : {}),

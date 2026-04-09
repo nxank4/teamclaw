@@ -170,7 +170,6 @@ export interface SessionConfig {
     user_goal?: string;
     team_template?: string;
     approval_keywords?: string[];
-    gateway_url?: string;
     team_model?: string;
 }
 
@@ -209,10 +208,6 @@ function creativityToTemperature(creativity: number): number {
 
 export function getSessionTemperature(): number {
     return creativityToTemperature(getSessionCreativity());
-}
-
-export function getGatewayUrl(): string {
-    return sessionOverrides.gateway_url?.trim() ?? "";
 }
 
 export function getTeamModel(): string {

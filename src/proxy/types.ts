@@ -20,7 +20,7 @@ export interface ProxyErrorEvent {
 
 export interface ProxyHealthResponse {
   connected: boolean;
-  gatewayUrl: string;
+  providerUrl: string;
   uptime: number;
 }
 

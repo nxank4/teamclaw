@@ -36,7 +36,7 @@ export class ProxyService {
   health(): ProxyHealthResponse {
     return {
       connected: true,
-      gatewayUrl: "provider-manager",
+      providerUrl: "provider-manager",
       uptime: Date.now() - this.startTime,
     };
   }
