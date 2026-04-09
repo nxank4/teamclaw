@@ -12,7 +12,6 @@ export interface TeamConfig {
   roster?: Array<{ role: string; count: number; description: string }>;
   workers?: Record<string, string>;
   worker_url?: string;
-  gateway_url?: string;
   team_model?: string;
   bots?: Array<{ id: string; role_id: string; name?: string; worker_url?: string }>;
   goal?: string;
@@ -92,7 +91,6 @@ export async function loadTeamConfig(): Promise<TeamConfig | null> {
       roster,
       team_mode,
       worker_url: typeof parsed.worker_url === "string" ? parsed.worker_url : undefined,
-      gateway_url: typeof parsed.gateway_url === "string" ? parsed.gateway_url : undefined,
       team_model: typeof parsed.team_model === "string" ? parsed.team_model : undefined,
       workers:
         parsed.workers && typeof parsed.workers === "object" && !Array.isArray(parsed.workers)
