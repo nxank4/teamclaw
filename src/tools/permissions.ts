@@ -32,7 +32,10 @@ export class PermissionResolver {
       };
     }
 
-    // "confirm" — always ask
+    // "confirm" — ask each time, unless user granted always-approve via "!"
+    if (this.sessionGrants.has(toolName)) {
+      return { allowed: true };
+    }
     return {
       needsConfirmation: true,
       risk: riskLevel,
