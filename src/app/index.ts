@@ -20,8 +20,9 @@ import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
 import { type ConfigState, detectConfig, showConfigWarning } from "./config-check.js";
-import { setLoggerMuted } from "../core/logger.js";
+import { setLoggerMuted, logger, isDebugMode } from "../core/logger.js";
 import { defaultTheme, ctp } from "../tui/themes/default.js";
+import { bold } from "../tui/core/ansi.js";
 import { findClosest } from "../utils/fuzzy.js";
 import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
@@ -453,7 +454,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // Register app commands (/status, /settings, /model, /mode, /cost, etc.)
   registerAllCommands(registry, tuiSession);
-  console.error("[debug] registry has", registry.getAll().map((c: { name: string }) => c.name));
+  if (isDebugMode()) {
+    logger.debug(`registry has ${registry.getAll().map((c: { name: string }) => c.name).join(", ")}`);
+  }
 
   // Set up autocomplete (updated later when router is ready)
   layout.editor.setAutocompleteProvider(
@@ -609,54 +612,37 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     // Use default version
   }
 
-  const BANNER_ART = [
-    "  ___                   ____                _ ",
-    " / _ \\ _ __   ___ _ __ |  _ \\ __ ___      _| |",
-    "| | | | '_ \\ / _ \\ '_ \\| |_) / _` \\ \\ /\\ / / |",
-    "| |_| | |_) |  __/ | | |  __/ (_| |\\ V  V /| |",
-    " \\___/| .__/ \\___|_| |_|_|   \\__,_| \\_/\\_/ |_|",
-    "      |_|",
-  ];
-  const BANNER_WIDTH = 53;
-
   /** Build the welcome banner content, freshly computed for current terminal width. */
   const buildWelcomeContent = (): string => {
     const termWidth = process.stdout.columns ?? 80;
-    const currentLayout = layout.tui.getLayout();
     const lines: string[] = [];
 
-    if (currentLayout.showAsciiArt || termWidth >= 54) {
-      const pad = Math.max(0, Math.floor((termWidth - BANNER_WIDTH) / 2));
-      const padding = " ".repeat(pad);
-      lines.push("");
-      for (const line of BANNER_ART) {
-        lines.push(ctp.surface2(padding + line));
-      }
-      lines.push("");
-    } else {
-      const fallback = "OPENPAWL";
-      const pad = Math.max(0, Math.floor((termWidth - fallback.length) / 2));
-      lines.push("");
-      lines.push(ctp.mauve(" ".repeat(pad) + fallback));
-      lines.push("");
-    }
+    const title = `OpenPawl v${versionStr}`;
+    const titlePad = Math.max(0, Math.floor((termWidth - title.length) / 2));
+    lines.push("");
+    lines.push(" ".repeat(titlePad) + bold(ctp.mauve(title)));
 
     const tagline = "Your AI team, one prompt away.";
     const tagPad = Math.max(0, Math.floor((termWidth - tagline.length) / 2));
     lines.push(ctp.overlay0(" ".repeat(tagPad) + tagline));
-    const verLine = `v${versionStr}`;
-    const verPad = Math.max(0, Math.floor((termWidth - verLine.length) / 2));
-    lines.push(ctp.surface2(" ".repeat(verPad) + verLine));
     lines.push("");
 
     const ruleWidth = Math.min(60, termWidth - 4);
     lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
     lines.push("");
-    lines.push(`  ${ctp.blue("/help")}       Show commands       ${ctp.blue("@coder")}     Route to Coder`);
-    lines.push(`  ${ctp.blue("/settings")}   Configure provider  ${ctp.blue("@reviewer")}  Route to Reviewer`);
-    lines.push(`  ${ctp.blue("/agents")}     List agents         ${ctp.blue("@planner")}   Route to Planner`);
-    lines.push(`  ${ctp.peach("!command")}    Run shell command   ${ctp.blue("@tester")}    Route to Tester`);
-    lines.push(`  ${ctp.blue("@file")}       Reference a file    ${ctp.blue("@debugger")}  Route to Debugger`);
+    if (termWidth >= 70) {
+      lines.push(`  ${ctp.blue("/help")}       Show commands       ${ctp.blue("@coder")}     Route to Coder`);
+      lines.push(`  ${ctp.blue("/settings")}   Configure provider  ${ctp.blue("@reviewer")}  Route to Reviewer`);
+      lines.push(`  ${ctp.blue("/agents")}     List agents         ${ctp.blue("@planner")}   Route to Planner`);
+      lines.push(`  ${ctp.peach("!command")}    Run shell command   ${ctp.blue("@tester")}    Route to Tester`);
+      lines.push(`  ${ctp.blue("@file")}       Reference a file    ${ctp.blue("@debugger")}  Route to Debugger`);
+    } else {
+      lines.push(`  ${ctp.blue("/help")}       Show commands`);
+      lines.push(`  ${ctp.blue("/settings")}   Configure provider`);
+      lines.push(`  ${ctp.blue("/agents")}     List agents`);
+      lines.push(`  ${ctp.peach("!command")}    Run shell command`);
+      lines.push(`  ${ctp.blue("@file")}       Reference a file`);
+    }
     lines.push("");
     lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
 
@@ -1353,17 +1339,26 @@ async function initSessionRouter(
     },
   }));
 
+  const PLAN_ONLY_TOOLS = new Set(["file_read", "file_list", "web_search", "web_fetch"]);
+  const filterToolsForMode = (toolNames: string[], appCtx: typeof ctx): string[] => {
+    return appCtx.modeSystem?.getMode() === "plan-only"
+      ? [...toolNames].filter((t) => PLAN_ONLY_TOOLS.has(t))
+      : toolNames;
+  };
+
   const agentRunner = createLLMAgentRunner({
     onToken: (agentId, token) => tokenEmitter.emit(agentId, token),
     onToolCall: (agentId, toolName, status, details) => toolEmitter.emit(agentId, toolName, status, details as Record<string, unknown> | undefined),
     getToolSchemas: toolRegistry
       ? (toolNames) => {
-          // In plan-only mode, restrict to read-only tools
-          const PLAN_ONLY_TOOLS = new Set(["file_read", "file_list", "web_search", "web_fetch"]);
-          const filtered = ctx.modeSystem?.getMode() === "plan-only"
-            ? [...toolNames].filter((t) => PLAN_ONLY_TOOLS.has(t))
-            : toolNames;
+          const filtered = filterToolsForMode(toolNames, ctx);
           return toolRegistry!.exportForLLM(filtered);
+        }
+      : undefined,
+    getNativeTools: toolRegistry
+      ? (toolNames) => {
+          const filtered = filterToolsForMode(toolNames, ctx);
+          return toolRegistry!.exportForAPI(filtered);
         }
       : undefined,
     executeTool: toolExecutor
@@ -1382,7 +1377,7 @@ async function initSessionRouter(
             workingDirectory: process.cwd(),
           });
           if (result.isOk()) {
-            return result.value.summary || JSON.stringify(result.value.data);
+            return result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
           }
           return `Error: ${result.error.type}`;
         }

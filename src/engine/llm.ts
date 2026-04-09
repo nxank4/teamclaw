@@ -10,6 +10,7 @@
 import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { compressContext, estimateTokens } from "../context/compressor.js";
+import type { ChatMessage, NativeToolDefinition } from "../providers/stream-types.js";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -110,14 +111,14 @@ export async function callLLM(
  */
 export async function callLLMWithMessages(
   messages: Message[],
-  options?: LLMCallOptions & { tools?: ToolDef[]; maxContextTokens?: number },
+  options?: LLMCallOptions & { tools?: ToolDef[]; nativeTools?: NativeToolDefinition[]; maxContextTokens?: number },
 ): Promise<LLMResponse> {
   // Compress context if exceeding 70% of context window
-  let messagesToSerialize = messages;
+  let workMessages = messages;
   const maxCtx = options?.maxContextTokens ?? 128_000;
-  if (estimateTokens(messages) > maxCtx * 0.7 && messages.length > 6) {
+  if (estimateTokens(workMessages) > maxCtx * 0.7 && workMessages.length > 6) {
     const result = await compressContext(
-      messages,
+      workMessages,
       maxCtx,
       6,
       0.7,
@@ -129,29 +130,67 @@ export async function callLLMWithMessages(
         return resp.text;
       },
     );
-    messagesToSerialize = result.messages;
+    workMessages = result.messages;
   }
 
-  const prompt = serializeMessages(messagesToSerialize);
-  const systemParts: string[] = [];
+  const mgr = await getGlobalProviderManager();
+  const model = options?.model ?? resolveModelForAgent("agent");
 
-  if (options?.systemPrompt) {
-    systemParts.push(options.systemPrompt);
+  // Convert internal Message[] to provider ChatMessage[]
+  const chatMessages: ChatMessage[] = workMessages.map((m) => ({
+    role: m.role,
+    content: m.content,
+    toolCalls: m.toolCalls?.map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      arguments: JSON.stringify(tc.input),
+    })),
+    toolCallId: m.toolCallId,
+  }));
+
+  // Stream with native messages + tools
+  const chunks: string[] = [];
+  let usage = { input: 0, output: 0 };
+  let nativeToolCalls: Array<{ id: string; name: string; arguments: string }> | undefined;
+
+  for await (const chunk of mgr.stream("", {
+    model: model || undefined,
+    temperature: options?.temperature,
+    systemPrompt: options?.systemPrompt,
+    signal: options?.signal,
+    messages: chatMessages,
+    tools: options?.nativeTools,
+  })) {
+    if (chunk.content) {
+      chunks.push(chunk.content);
+      options?.onChunk?.(chunk.content);
+    }
+    if (chunk.toolCalls) {
+      nativeToolCalls = chunk.toolCalls;
+    }
+    if (chunk.done && chunk.usage) {
+      usage = {
+        input: chunk.usage.promptTokens,
+        output: chunk.usage.completionTokens,
+      };
+    }
   }
 
-  if (options?.tools && options.tools.length > 0) {
-    systemParts.push(formatToolsPrompt(options.tools));
+  const text = chunks.join("");
+
+  // Prefer native tool calls from provider, fallback to text parsing
+  let toolCalls: ToolCall[] = [];
+  if (nativeToolCalls?.length) {
+    toolCalls = nativeToolCalls.map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      input: JSON.parse(tc.arguments || "{}"),
+    }));
+  } else if (text) {
+    toolCalls = parseToolCalls(text);
   }
 
-  const response = await callLLM(prompt, {
-    ...options,
-    systemPrompt: systemParts.join("\n\n"),
-  });
-
-  // Parse tool calls from the response text
-  const toolCalls = parseToolCalls(response.text);
-
-  return { ...response, toolCalls };
+  return { text, toolCalls, usage };
 }
 
 /**
@@ -164,6 +203,8 @@ export async function callLLMMultiTurn(opts: {
   systemPrompt?: string;
   userMessage: string;
   tools?: ToolDef[];
+  /** Native tool definitions (OpenAI function-calling format). Preferred over text-based tools. */
+  nativeTools?: NativeToolDefinition[];
   handleTool: (name: string, args: Record<string, unknown>) => Promise<string>;
   onChunk?: (text: string) => void;
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
@@ -199,6 +240,7 @@ export async function callLLMMultiTurn(opts: {
       model: opts.model,
       systemPrompt: opts.systemPrompt,
       tools: opts.tools,
+      nativeTools: opts.nativeTools,
       onChunk: opts.onChunk,
       signal: opts.signal,
       temperature: opts.temperature,
