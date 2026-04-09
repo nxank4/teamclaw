@@ -1766,7 +1766,7 @@ async function initSessionRouter(
 function registerRouterCommands(
   registry: CommandRegistry,
   router: PromptRouter,
-  session: Session,
+  _session: Session,
   _layout: AppLayout,
 ): void {
   registry.register({

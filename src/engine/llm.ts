@@ -305,47 +305,6 @@ export async function callLLMMultiTurn(opts: {
 // ── Internal helpers ───────────────────────────────────
 
 /**
- * Serialize a messages array into a single prompt string.
- * Models understand this format from training on chat transcripts.
- */
-function serializeMessages(messages: Message[]): string {
-  return messages
-    .filter(m => m.role !== "system") // system is passed separately
-    .map(m => {
-      if (m.role === "tool") {
-        return `[Tool Result${m.toolCallId ? ` (${m.toolCallId})` : ""}]\n${m.content}`;
-      }
-      const prefix = m.role === "user" ? "User" : "Assistant";
-      return `${prefix}: ${m.content}`;
-    })
-    .join("\n\n");
-}
-
-/**
- * Format tool definitions into a system prompt section.
- */
-function formatToolsPrompt(tools: ToolDef[]): string {
-  const toolDescriptions = tools.map(t => {
-    const params = JSON.stringify(t.parameters, null, 2);
-    return `### ${t.name}\n${t.description}\nParameters:\n\`\`\`json\n${params}\n\`\`\``;
-  }).join("\n\n");
-
-  return `## Available Tools
-
-You have access to the following tools. To use a tool, respond with a tool_call block:
-
-\`\`\`tool_call
-{"name": "tool_name", "input": {"param": "value"}}
-\`\`\`
-
-You can make multiple tool calls in a single response. After each tool call, you will receive the result and can continue.
-
-When you are done and have no more tool calls to make, respond with your final answer as plain text (no tool_call blocks).
-
-${toolDescriptions}`;
-}
-
-/**
  * Parse tool_call blocks from model response text.
  * Supports multiple formats:
  *   1. ```tool_call\n{"name": "...", "input": {...}}\n```

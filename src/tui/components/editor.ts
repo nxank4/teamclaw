@@ -117,7 +117,6 @@ export class EditorComponent implements Component {
     const isEmpty = this.lines.length === 1 && this.lines[0] === "";
     const totalVisual = this.cachedVisualLines.length;
     const visibleCount = Math.min(totalVisual, this.maxVisibleLines);
-    const hasAbove = this.inputScrollOffset > 0;
     const hasBelow = this.inputScrollOffset + visibleCount < totalVisual;
 
     // Scroll indicator (shown on divider line above, if scrolled)

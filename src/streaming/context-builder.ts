@@ -37,7 +37,7 @@ export class ContextBuilder {
       const maxTokens = options.maxContextTokens ?? 100_000;
 
       // 1. System message
-      let systemContent = options.agentSystemPrompt || `You are ${options.agentId}, an AI assistant.`;
+      const systemContent = options.agentSystemPrompt || `You are ${options.agentId}, an AI assistant.`;
 
       // Tools are now passed via native API tool calling (not system prompt).
       // Export native tool definitions for the provider.
