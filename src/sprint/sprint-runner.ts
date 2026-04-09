@@ -7,11 +7,36 @@ import { EventEmitter } from "node:events";
 import type { AgentRegistry } from "../router/agent-registry.js";
 import type { SprintTask, SprintState, SprintResult, SprintOptions, SprintEventMap } from "./types.js";
 import { parseTasks } from "./task-parser.js";
+import { validatePlan, reorderSetupFirst } from "./plan-validator.js";
+import { resolveModelForAgent } from "../core/model-config.js";
 
 const PLANNER_PROMPT = (goal: string, maxTasks: number) =>
-  `Break this goal into concrete, actionable tasks (max ${maxTasks}). ` +
-  `Each task should be a single unit of work that one developer could complete. ` +
-  `Output a numbered list:\n\nGoal: ${goal}`;
+  `You are planning a sprint to accomplish this goal: "${goal}"\n\n` +
+  `STEP 1 — GOAL ANALYSIS:\n` +
+  `Before generating tasks, identify the 3-5 core feature areas the goal requires.\n` +
+  `Example: "coffee shop website" → menu display, product pages, shopping cart, order checkout, admin dashboard.\n` +
+  `Example: "todo app" → task list view, add/edit/delete tasks, filters/search, persistence.\n` +
+  `Think about what a USER of this product would actually use.\n\n` +
+  `STEP 2 — TASK ALLOCATION (max ${maxTasks} tasks):\n` +
+  `Distribute tasks across the feature areas you identified:\n` +
+  `- Task 1: ALWAYS project setup (init project, install deps, create config)\n` +
+  `- Tasks 2–${Math.max(3, maxTasks - 1)}: Core features from your goal analysis. ` +
+  `Most tasks (60-80%) should directly implement what the user asked for. ` +
+  `Do NOT fill the plan with generic auth/login/CRUD — only include auth if the goal requires it.\n` +
+  `- Last task: ALWAYS testing (write and run tests to verify the build)\n` +
+  `- If the goal implies a web app, include at least one frontend/UI task.\n\n` +
+  `RULES:\n` +
+  `1. GOAL FOCUS: Task descriptions must be specific to the domain. ` +
+  `"Create src/pages/menu.tsx with coffee product cards, prices, and add-to-cart buttons" NOT "Implement /api/users endpoint".\n` +
+  `2. DEPENDENCY ORDER: Order tasks so dependencies come first. ` +
+  `If task N needs output from task M, M must come first. Include "dependsOn" with 1-based task numbers.\n` +
+  `3. MVP SCOPE: Build the MINIMUM viable version. Do NOT add:\n` +
+  `   - Payment (Stripe, PayPal), email (SendGrid, Nodemailer), OAuth/social login, Docker, CI/CD, monitoring — unless explicitly requested\n` +
+  `4. NO ASSUMED LIBRARIES: Only use ORMs/frameworks (Prisma, TypeORM, Mongoose) if the user mentioned them. Prefer built-in approaches.\n` +
+  `5. SPECIFICITY: Each task must name the exact file path, what it should contain, and the technology to use.\n\n` +
+  `Output as a JSON array:\n` +
+  `[{"description": "...", "dependsOn": []}, {"description": "...", "dependsOn": [1]}]\n\n` +
+  `Goal: ${goal}`;
 
 const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
   const context = state.tasks
@@ -21,6 +46,26 @@ const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
   const prior = context ? `\n\nCompleted so far:\n${context}` : "";
   return `${task.description}${prior}\n\nWorking directory: ${process.cwd()}`;
 };
+
+/**
+ * Patterns in model IDs that indicate small models (<7B params).
+ * Sprint mode requires stronger reasoning; warn the user.
+ */
+const SMALL_MODEL_PATTERNS = [
+  /\b(1\.?[0-5]b|2b|3b|4b|5b|6b|7b)\b/i,      // explicit param counts ≤7B
+  /\bmini\b/i,                                    // "mini" variants
+  /\b(phi-?[23]|gemma-?2b|tinyllama|smollm)\b/i, // known small models
+  /\bhaiku\b/i,                                   // Claude Haiku (smaller tier)
+];
+
+function isSmallModel(modelId: string): boolean {
+  return SMALL_MODEL_PATTERNS.some((p) => p.test(modelId));
+}
+
+/** Keywords in task descriptions that imply the agent must write/modify files. */
+const WRITE_INTENT_KEYWORDS = ["create", "build", "implement", "write", "add", "generate", "set up", "setup", "configure", "install"];
+/** Tools that constitute a write action. */
+const WRITE_TOOLS = new Set(["file_write", "file_edit", "shell_exec"]);
 
 const KEYWORD_RULES: Array<{ keywords: string[]; agent: string }> = [
   { keywords: ["test", "spec", "verify", "coverage"], agent: "tester" },
@@ -62,7 +107,20 @@ export class SprintRunner extends EventEmitter {
     };
     this.emitTyped("sprint:start", { goal });
 
+    // Check model capability — warn if model appears too small for multi-step tasks
+    const activeModel = resolveModelForAgent("default");
+    if (isSmallModel(activeModel)) {
+      this.emitTyped("sprint:error", {
+        error: new Error(
+          `Model "${activeModel}" may be too small for sprint mode. ` +
+          `Multi-step autonomous tasks require stronger reasoning (recommended: 70B+ params or equivalent). ` +
+          `Consider switching to a larger model with /model.`,
+        ),
+      });
+    }
+
     // Phase 1: Planning
+    this.emitTyped("sprint:planning", undefined);
     let planResponse: string;
     try {
       planResponse = await this.runAgent("planner", {
@@ -82,6 +140,18 @@ export class SprintRunner extends EventEmitter {
       this.emitTyped("sprint:done", { result });
       return result;
     }
+
+    // Validate plan and emit warnings
+    const warnings = validatePlan(this.state.tasks, goal);
+    for (const w of warnings) {
+      this.emitTyped("sprint:warning", { warning: w.message, type: w.type, taskIndex: w.taskIndex });
+    }
+
+    // Auto-fix: move setup task to front if it exists but isn't first
+    if (warnings.some(w => w.type === "missing_setup")) {
+      reorderSetupFirst(this.state.tasks);
+    }
+
     this.state.phase = "executing";
     this.emitTyped("sprint:plan", { tasks: this.state.tasks });
 
@@ -95,6 +165,7 @@ export class SprintRunner extends EventEmitter {
       const agentName = this.assignAgent(task);
       task.assignedAgent = agentName;
       task.status = "in_progress";
+      task.toolsCalled = [];
       this.emitTyped("sprint:task:start", { task, agentName });
 
       try {
@@ -103,8 +174,15 @@ export class SprintRunner extends EventEmitter {
           signal: this.abortController.signal,
         });
         task.result = result;
-        task.status = "completed";
-        this.state.completedTasks++;
+
+        // Validate: if task implies writing but agent never wrote, mark incomplete
+        if (this.taskExpectsWrite(task) && !this.taskDidWrite(task)) {
+          task.status = "incomplete";
+          task.error = "Task expects file creation/modification but agent only performed read operations";
+        } else {
+          task.status = "completed";
+          this.state.completedTasks++;
+        }
       } catch (err) {
         task.status = "failed";
         task.error = err instanceof Error ? err.message : String(err);
@@ -155,6 +233,28 @@ export class SprintRunner extends EventEmitter {
     _opts: { prompt: string; signal: AbortSignal },
   ): Promise<string> {
     throw new Error("runAgent must be wired to LLM before calling run()");
+  }
+
+  /** Record a tool call for the currently executing task. */
+  recordToolCall(toolName: string): void {
+    const task = this.state.tasks[this.state.currentTaskIndex];
+    if (task && task.status === "in_progress") {
+      task.toolsCalled ??= [];
+      if (!task.toolsCalled.includes(toolName)) {
+        task.toolsCalled.push(toolName);
+      }
+    }
+  }
+
+  /** Check if a task description implies file creation/modification. */
+  private taskExpectsWrite(task: SprintTask): boolean {
+    const lower = task.description.toLowerCase();
+    return WRITE_INTENT_KEYWORDS.some((kw) => lower.includes(kw));
+  }
+
+  /** Check if any write tools were called during this task. */
+  private taskDidWrite(task: SprintTask): boolean {
+    return (task.toolsCalled ?? []).some((t) => WRITE_TOOLS.has(t));
   }
 
   protected assignAgent(task: SprintTask): string {

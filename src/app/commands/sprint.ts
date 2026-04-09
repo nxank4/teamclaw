@@ -17,6 +17,7 @@ import type { SprintRunner } from "../../sprint/sprint-runner.js";
 import type { SprintTask, SprintResult, SprintState } from "../../sprint/types.js";
 import { createSprintRunner } from "../../sprint/create-sprint-runner.js";
 import { renderPanel, panelSection } from "../../tui/components/panel.js";
+import { ctp } from "../../tui/themes/default.js";
 
 export interface SprintCommandDeps {
   agents: AgentRegistry;
@@ -37,6 +38,7 @@ function taskIcon(status: SprintTask["status"]): string {
   switch (status) {
     case "completed": return "+";
     case "failed": return "x";
+    case "incomplete": return "?";
     case "in_progress": return ">";
     default: return " ";
   }
@@ -63,6 +65,12 @@ function formatDuration(ms: number): string {
   return `${mins}m ${remSecs}s`;
 }
 
+/** Get terminal-aware panel options so panels use full available width. */
+function sprintPanelOpts(title: string): { title: string; termWidth: number; maxWidth: number } {
+  const termWidth = process.stdout.columns ?? 120;
+  return { title, termWidth, maxWidth: Math.max(40, termWidth - 4) };
+}
+
 /** Build a summary panel for a finished sprint. */
 function buildSummaryPanel(result: SprintResult): string {
   const lines = [
@@ -75,7 +83,7 @@ function buildSummaryPanel(result: SprintResult): string {
     ...panelSection("Tasks"),
     formatTaskList(result.tasks),
   ];
-  return renderPanel({ title: "Sprint Complete" }, lines).join("\n");
+  return renderPanel(sprintPanelOpts("Sprint Complete"), lines).join("\n");
 }
 
 /** Build a status panel from current sprint state. */
@@ -100,7 +108,7 @@ function buildStatusPanel(state: SprintState): string {
       }
     }
   }
-  return renderPanel({ title: "Sprint" }, lines).join("\n");
+  return renderPanel(sprintPanelOpts("Sprint"), lines).join("\n");
 }
 
 export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
@@ -151,7 +159,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
           ...panelSection("Task Plan"),
           formatTaskList(state.tasks),
         ];
-        ctx.addMessage("system", renderPanel({ title: "Sprint Plan" }, lines).join("\n"));
+        ctx.addMessage("system", renderPanel(sprintPanelOpts("Sprint Plan"), lines).join("\n"));
         return;
       }
 
@@ -200,12 +208,24 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
+      runner.on("sprint:planning", () => {
+        layout.messages.addMessage({
+          role: "agent",
+          agentName: agentDisplayName("planner"),
+          content: "Analyzing goal and generating task plan...",
+          timestamp: new Date(),
+        });
+        layout.statusBar.updateSegment(3, "Planning sprint...", ctp.teal);
+        ctx.requestRender();
+      });
+
       runner.on("sprint:plan", ({ tasks }: { tasks: SprintTask[] }) => {
         const lines = [
           ...panelSection("Task Plan"),
           formatTaskList(tasks),
         ];
-        ctx.addMessage("system", renderPanel({ title: `Sprint — ${tasks.length} tasks` }, lines).join("\n"));
+        ctx.addMessage("system", renderPanel(sprintPanelOpts(`Sprint \u2014 ${tasks.length} tasks`), lines).join("\n"));
+        layout.statusBar.updateSegment(3, "Executing tasks...", ctp.teal);
         ctx.requestRender();
       });
 
@@ -248,12 +268,18 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
 
       runner.on("sprint:done", ({ result }: { result: SprintResult }) => {
         ctx.addMessage("system", buildSummaryPanel(result));
+        layout.statusBar.updateSegment(3, "idle", ctp.overlay0);
         ctx.requestRender();
       });
 
       runner.on("sprint:error", ({ error, task }: { error: Error; task?: SprintTask }) => {
         const taskInfo = task ? ` (task: ${task.description})` : "";
         ctx.addMessage("error", `Sprint error${taskInfo}: ${error.message}`);
+        ctx.requestRender();
+      });
+
+      runner.on("sprint:warning", ({ warning, type }: { warning: string; type: string; taskIndex?: number }) => {
+        ctx.addMessage("system", `[${type}] ${warning}`);
         ctx.requestRender();
       });
 

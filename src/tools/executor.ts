@@ -64,11 +64,11 @@ export class ToolExecutor extends EventEmitter {
     }
 
     if ("needsConfirmation" in check && check.needsConfirmation) {
-      const approved = await this.requestConfirmation(toolName, context.agentId, validatedInput);
-      if (!approved) {
+      const approval = await this.requestConfirmation(toolName, context.agentId, validatedInput);
+      if (approval === "denied") {
         return err({ type: "permission_denied", toolName, level: permission });
       }
-      if (permission === "session") {
+      if (approval === "always" || permission === "session") {
         this.permissionResolver.grantSession(toolName);
       }
     }
@@ -137,19 +137,22 @@ export class ToolExecutor extends EventEmitter {
     toolName: string,
     agentId: string,
     input: unknown,
-  ): Promise<boolean> {
+  ): Promise<"denied" | "once" | "always"> {
     // If nobody is listening for confirmations, auto-approve
     if (this.listenerCount("tool:confirmation_needed") === 0) {
-      return true;
+      return "once";
     }
 
-    return new Promise<boolean>((resolve) => {
+    const tool = this.registry.get(toolName);
+    return new Promise<"denied" | "once" | "always">((resolve) => {
       this.emit("tool:confirmation_needed", {
         toolName,
         agentId,
         input,
-        approve: () => resolve(true),
-        reject: () => resolve(false),
+        riskLevel: tool?.riskLevel ?? "moderate",
+        category: tool?.category ?? "custom",
+        approve: (always?: boolean) => resolve(always ? "always" : "once"),
+        reject: () => resolve("denied"),
       });
     });
   }

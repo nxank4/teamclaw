@@ -26,6 +26,7 @@ import { bold } from "../tui/core/ansi.js";
 import { visibleWidth } from "../tui/utils/text-width.js";
 import { separator } from "../tui/primitives/separator.js";
 import { findClosest } from "../utils/fuzzy.js";
+import { renderConfirmBox } from "../tui/components/confirm-box.js";
 import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
@@ -92,6 +93,109 @@ function agentDisplayName(agentId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Tool permission prompt formatter
+// ---------------------------------------------------------------------------
+
+/** Map of tool names to their primary argument key (the one to display prominently). */
+const TOOL_PRIMARY_ARG: Record<string, string> = {
+  shell_exec: "command",
+  file_read: "path",
+  file_write: "path",
+  file_edit: "file_path",
+  file_list: "path",
+  git_ops: "command",
+  execute_code: "code",
+  web_search: "query",
+  web_fetch: "url",
+};
+
+/** Risk indicator icon + color for each risk level. */
+function riskIndicator(riskLevel: string): { icon: string; color: (s: string) => string } {
+  switch (riskLevel) {
+    case "dangerous":
+    case "destructive":
+      return { icon: "\u26a0", color: ctp.yellow };
+    case "moderate":
+      return { icon: "\u270e", color: ctp.blue };
+    default:
+      return { icon: "\u2713", color: ctp.green };
+  }
+}
+
+/** Build the styled action buttons string. */
+function permissionButtons(): string {
+  const y = ctp.green(`[${bold("Y")}]es`);
+  const n = ctp.red(`[${bold("N")}]o`);
+  const a = ctp.yellow(`[${bold("!")}]Always`);
+  return `${y}    ${n}    ${a}`;
+}
+
+/** Format the tool permission prompt using a renderPanel confirm box. */
+function formatToolPermissionPrompt(toolName: string, input: unknown, riskLevel: string): string {
+  const risk = riskIndicator(riskLevel);
+  const inputObj = typeof input === "object" && input !== null
+    ? input as Record<string, unknown> : null;
+
+  // Extract primary argument for clean display
+  const primaryKey = TOOL_PRIMARY_ARG[toolName];
+  const primaryValue = primaryKey && inputObj ? String(inputObj[primaryKey] ?? "") : "";
+
+  // Build content lines
+  const contentLines: string[] = [];
+
+  if (primaryValue) {
+    const display = primaryValue.length > 120
+      ? primaryValue.slice(0, 117) + "..."
+      : primaryValue;
+    contentLines.push(ctp.text(display));
+  }
+
+  // Show remaining args (excluding primary and metadata like timeout)
+  const HIDDEN_ARGS = new Set([primaryKey, "timeout", "signal", "cwd", "env"].filter(Boolean));
+  if (inputObj) {
+    const extras = Object.entries(inputObj)
+      .filter(([k]) => !HIDDEN_ARGS.has(k))
+      .filter(([, v]) => v !== undefined && v !== null && v !== "");
+    if (extras.length > 0) {
+      const extraStr = extras.map(([k, v]) => {
+        const val = typeof v === "string" ? v : JSON.stringify(v);
+        const short = val.length > 60 ? val.slice(0, 57) + "..." : val;
+        return `${k}: ${short}`;
+      }).join("  ");
+      contentLines.push(ctp.overlay0(extraStr));
+    }
+  } else if (!primaryValue && input !== undefined) {
+    contentLines.push(ctp.overlay0(String(input).slice(0, 120)));
+  }
+
+  // Title: risk icon + tool name (rendered in top border by renderPanel)
+  const title = `${risk.color(risk.icon)} ${bold(toolName)}`;
+
+  return renderConfirmBox({
+    title,
+    contentLines,
+    buttons: permissionButtons(),
+    borderColor: ctp.surface1,
+    titleColor: (s: string) => s,
+    maxWidth: Math.min(80, (process.stdout.columns ?? 90) - 10),
+  });
+}
+
+/** Format a resolved permission prompt (after user presses Y/N/!). */
+function formatToolPermissionResolved(toolName: string, riskLevel: string, result: string, resultColor: (s: string) => string): string {
+  const risk = riskIndicator(riskLevel);
+  const title = `${risk.color(risk.icon)} ${bold(toolName)}`;
+  return renderConfirmBox({
+    title,
+    contentLines: [resultColor(result)],
+    buttons: "",
+    borderColor: ctp.surface1,
+    titleColor: (s: string) => s,
+    maxWidth: Math.min(80, (process.stdout.columns ?? 90) - 10),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Wire PromptRouter dispatch events → TUI message display
 // ---------------------------------------------------------------------------
 
@@ -126,6 +230,14 @@ function wireRouterEvents(
       layout.tui.requestRender();
     });
 
+    // If a previous thinking message is still showing, clear its stale text
+    // before starting a new one (prevents duplicate indicators during parallel dispatch)
+    if (thinkingMsgAdded) {
+      thinking.stop();
+      layout.messages.replaceLast("");
+      thinkingMsgAdded = false;
+    }
+
     // Add agent message immediately (badge visible from the start)
     // Thinking indicator text becomes the message content — renders inside tree
     thinking.start();
@@ -151,8 +263,9 @@ function wireRouterEvents(
       layout.messages.replaceLast("");
       layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} working...`, ctp.teal);
     }
-    if (streamingForAgent !== agentId) {
-      // New agent started streaming — add a labeled message
+    if (streamingForAgent !== agentId || !layout.messages.isLastAgentMessage()) {
+      // New agent started streaming, or last message is no longer the agent's
+      // (e.g., a permission prompt was inserted mid-stream)
       streamingForAgent = agentId;
       layout.messages.addMessage({
         role: "agent",
@@ -519,6 +632,14 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         // Check TUI registry first (has /help, /status, /settings, etc.)
         const result = registry.lookup(`/${parsed.name} ${parsed.args}`);
         if (result) {
+          // Auto-name session from sprint goal
+          if (parsed.name === "sprint" && parsed.args.trim() && ctx.chatSession) {
+            const title = ctx.chatSession.getState().title;
+            if (title === "Untitled session" || title === "New session") {
+              const { generateSessionName } = await import("../session/session-name.js");
+              ctx.chatSession.setTitle(generateSessionName(parsed.args));
+            }
+          }
           await result.command.execute(result.args, msgCtx);
         } else if (ctx.router && ctx.chatSession) {
           // Fall through to PromptRouter for its slash commands (/agents, /compact, etc.)
@@ -615,9 +736,10 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         }
 
         // Auto-name session from first user message
-        if (ctx.chatSession?.getState().title === "New session") {
-          const name = text.replace(/\s+/g, " ").trim().slice(0, 60);
-          if (name) ctx.chatSession.setTitle(name);
+        if (ctx.chatSession?.getState().title === "Untitled session" || ctx.chatSession?.getState().title === "New session") {
+          const { generateSessionName } = await import("../session/session-name.js");
+          const name = generateSessionName(text);
+          if (name !== "Untitled session") ctx.chatSession.setTitle(name);
         }
 
         // Guard: don't attempt LLM calls when no provider is configured
@@ -803,6 +925,20 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   ]);
   layout.statusBar.setRightText(ctp.overlay0("/help"));
 
+  // ── Workspace config overlay ──────────────────────────────────────
+  {
+    const { isWorkspaceInitialized, readWorkspaceConfig, getWorkspaceInfo } = await import("../core/workspace.js");
+    if (isWorkspaceInitialized()) {
+      const wsConfig = readWorkspaceConfig();
+      if (wsConfig) {
+        const { setWorkspaceOverlay } = await import("../core/global-config.js");
+        setWorkspaceOverlay(wsConfig as Record<string, unknown>);
+      }
+      const info = getWorkspaceInfo();
+      layout.statusBar.setRightText(ctp.overlay0(`\ud83d\udcc1 ${info.projectName}  /help`));
+    }
+  }
+
   const configState = await detectConfig();
   ctx.configState = configState;
   if (configState.hasProvider) {
@@ -820,6 +956,33 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
     }
   }
+  // ── Provider registry: background refresh + status bar sync ──────────
+  {
+    const { getProviderRegistry } = await import("../providers/provider-registry.js");
+    const providerRegistry = getProviderRegistry();
+
+    // Non-blocking background discovery (populates model lists, checks health)
+    providerRegistry.refreshAll().catch(() => {});
+
+    // When registry state changes (provider save, refresh, wizard), re-sync status bar
+    providerRegistry.on("models:refreshed", async () => {
+      try {
+        const { resetGlobalProviderManager } = await import("../providers/provider-factory.js");
+        resetGlobalProviderManager();
+        const newState = await detectConfig();
+        ctx.configState = newState;
+        if (newState.hasProvider) {
+          layout.statusBar.updateSegment(0, newState.providerName, ctp.subtext1);
+          layout.statusBar.updateSegment(1,
+            newState.isConnected ? "\u25cf connected" : "\u25cb disconnected",
+            newState.isConnected ? ctp.green : ctp.red,
+          );
+        }
+        layout.tui.requestRender();
+      } catch { /* swallow — status bar stays as-is */ }
+    });
+  }
+
   if (!configState.hasProvider) {
     // Hide chat UI during first-run setup — only wizard + status bar visible
     layout.editor.hidden = true;
@@ -854,6 +1017,10 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
         }
       }
+
+      // Refresh provider registry so model lists and state sync
+      const { getProviderRegistry } = await import("../providers/provider-registry.js");
+      getProviderRegistry().refreshAll().catch(() => {});
 
       // Re-initialize session router so TUI can talk to the LLM
       await initSessionRouter(ctx, opts, layout, registry).catch(() => {});
@@ -1629,52 +1796,37 @@ async function initSessionRouter(
     toolExecutor = new ToolExecutor(reg, new PermissionResolver());
 
     // Wire tool confirmation: show inline prompt for dangerous tools
-    toolExecutor.on("tool:confirmation_needed", ({ toolName, input, approve, reject }: {
-      toolName: string; input: unknown; approve: () => void; reject: () => void;
+    toolExecutor.on("tool:confirmation_needed", ({ toolName, input, riskLevel, approve, reject }: {
+      toolName: string; input: unknown; riskLevel: string; category: string;
+      approve: (always?: boolean) => void; reject: () => void;
     }) => {
-      const inputSummary = typeof input === "object" && input !== null
-        ? JSON.stringify(input).slice(0, 80)
-        : String(input).slice(0, 80);
+      const prompt = formatToolPermissionPrompt(toolName, input, riskLevel);
       layout.messages.addMessage({
         role: "system",
-        content: ctp.yellow(`\u25c6 ${toolName} ${inputSummary}\n  Allow? [Y]es [N]o [!]Always`),
+        content: prompt,
         timestamp: new Date(),
       });
       layout.tui.requestRender();
 
-      // Push a key handler that waits for Y/N/!
+      const resolve = (result: string, color: (s: string) => string, action: () => void) => {
+        layout.tui.popKeyHandler();
+        layout.messages.replaceLast(
+          formatToolPermissionResolved(toolName, riskLevel, result, color),
+        );
+        layout.tui.requestRender();
+        action();
+      };
+
       layout.tui.pushKeyHandler({
         handleKey: (event) => {
           if (event.type === "char" && !event.ctrl) {
             const ch = event.char.toLowerCase();
-            if (ch === "y") {
-              layout.tui.popKeyHandler();
-              layout.messages.addMessage({ role: "system", content: ctp.green("\u2713 Approved"), timestamp: new Date() });
-              layout.tui.requestRender();
-              approve();
-              return true;
-            }
-            if (ch === "n") {
-              layout.tui.popKeyHandler();
-              layout.messages.addMessage({ role: "system", content: ctp.red("\u2717 Denied"), timestamp: new Date() });
-              layout.tui.requestRender();
-              reject();
-              return true;
-            }
-            if (ch === "!") {
-              layout.tui.popKeyHandler();
-              layout.messages.addMessage({ role: "system", content: ctp.green("\u2713 Always approved for session"), timestamp: new Date() });
-              layout.tui.requestRender();
-              approve();
-              return true;
-            }
+            if (ch === "y") { resolve("\u2713 Approved", ctp.green, () => approve()); return true; }
+            if (ch === "n") { resolve("\u2717 Denied", ctp.red, () => reject()); return true; }
+            if (ch === "!") { resolve("\u2713 Always approved for session", ctp.green, () => approve(true)); return true; }
           }
-          if (event.type === "escape") {
-            layout.tui.popKeyHandler();
-            reject();
-            return true;
-          }
-          return true; // consume all keys while waiting
+          if (event.type === "escape") { resolve("\u2717 Denied", ctp.red, () => reject()); return true; }
+          return true;
         },
       });
     });
@@ -1776,7 +1928,8 @@ async function initSessionRouter(
           if (result.isOk()) {
             return result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
           }
-          return `Error: ${result.error.type}`;
+          const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
+          throw new Error(`${result.error.type}${cause}`);
         }
       : undefined,
     doomLoopDetector,
@@ -1795,6 +1948,15 @@ async function initSessionRouter(
 
   ctx.router = new RouterClass({}, ctx.sessionMgr, null, agentRunner);
   await ctx.router.initialize();
+
+  // Load workspace-local agents (.openpawl/agents/) if workspace exists
+  {
+    const { isWorkspaceInitialized, getWorkspacePath } = await import("../core/workspace.js");
+    if (isWorkspaceInitialized()) {
+      const wsAgentsDir = getWorkspacePath() + "/agents";
+      await ctx.router.getRegistry().loadUserAgents(wsAgentsDir);
+    }
+  }
 
   // Now that the router exists, wire the emitters to it.
   tokenEmitter.emit = (agentId: string, token: string) => {
