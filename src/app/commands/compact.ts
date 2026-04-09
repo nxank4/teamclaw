@@ -27,7 +27,7 @@ export function createCompactCommand(deps: CompactCommandDeps): SlashCommand {
 
       if (!forceEmergency && snapshot.level === "normal") {
         const lines = [
-          ...panelSection("Context Usage"),
+          "",
           `  Tokens:  ~${snapshot.estimatedTokens.toLocaleString()} / ${snapshot.maxTokens.toLocaleString()}`,
           `  Usage:   ${snapshot.utilizationPercent}%`,
           `  Level:   ${snapshot.level}`,
