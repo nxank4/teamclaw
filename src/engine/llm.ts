@@ -149,6 +149,19 @@ export async function callLLMWithMessages(
   }));
 
   // Stream with native messages + tools
+  const nativeToolCount = options?.nativeTools?.length ?? 0;
+  if (nativeToolCount > 0) {
+    try {
+      const fs = await import("node:fs");
+      fs.writeFileSync("/tmp/openpawl-tools-debug.json", JSON.stringify({
+        nativeToolCount,
+        toolNames: options!.nativeTools!.map(t => t.function.name),
+        messageCount: chatMessages.length,
+        messageRoles: chatMessages.map(m => m.role),
+      }, null, 2));
+    } catch { /* ignore */ }
+  }
+
   const chunks: string[] = [];
   let usage = { input: 0, output: 0 };
   let nativeToolCalls: Array<{ id: string; name: string; arguments: string }> | undefined;

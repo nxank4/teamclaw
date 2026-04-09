@@ -256,7 +256,6 @@ function makeResult(
     duration: 0,
     inputTokens: usage?.input ?? 0,
     outputTokens: usage?.output ?? 0,
-    costUSD: 0,
     error,
   };
 }
