@@ -17,8 +17,5 @@ export function renderConfirmPrompt(options: ConfirmOptions): string {
     : options.dangerLevel === "warning" ? ctp.yellow
     : ctp.text;
 
-  const confirm = ctp.green(`[${confirmLabel[0]?.toUpperCase()}]`) + ctp.green(confirmLabel.slice(1));
-  const cancel = ctp.red(`[${cancelLabel[0]?.toUpperCase()}]`) + ctp.red(cancelLabel.slice(1));
-
-  return `${color(message)} ${confirm} ${cancel}`;
+  return `${color(message)}  ${ctp.green(confirmLabel)}=${ctp.green("yes")}  ${ctp.red(cancelLabel)}=${ctp.red("no")}`;
 }
