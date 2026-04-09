@@ -7,6 +7,7 @@
  *   - PromptRouter (src/router/) for intent classification + agent dispatch
  */
 
+import { VERSION } from "../version.js";
 import { createLayout } from "./layout.js";
 import {
   CommandRegistry,
@@ -23,6 +24,7 @@ import { setLoggerMuted, logger, isDebugMode } from "../core/logger.js";
 import { defaultTheme, ctp } from "../tui/themes/default.js";
 import { bold } from "../tui/core/ansi.js";
 import { visibleWidth } from "../tui/utils/text-width.js";
+import { separator } from "../tui/primitives/separator.js";
 import { findClosest } from "../utils/fuzzy.js";
 import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
@@ -97,6 +99,8 @@ function wireRouterEvents(
   router: PromptRouter,
   layout: AppLayout,
   onAssistantResponse?: (agentId: string, content: string) => void,
+  onPlanReady?: () => void,
+  onQueueDrain?: () => void,
 ): () => void {
   let streamingForAgent: string | null = null;
   let streamedContent = "";
@@ -221,6 +225,14 @@ function wireRouterEvents(
     layout.messages.bakeToolCalls();
     layout.statusBar.updateSegment(3, "idle", ctp.overlay0);
     layout.tui.requestRender();
+
+    // If in plan mode and agent just responded, show execute confirmation
+    if (responseText && onPlanReady) {
+      onPlanReady();
+    }
+
+    // Drain prompt queue if messages are waiting
+    onQueueDrain?.();
   };
 
   const onDispatchError = (_sessionId: string, error: { type: string }) => {
@@ -415,8 +427,6 @@ export interface LaunchOptions {
   terminal?: Terminal;
   /** Custom sessions directory for testing. */
   sessionsDir?: string;
-  /** Resume the most recent TUI session. */
-  resume?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +457,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     toolOutputHandler: null as { cleanup: () => Promise<void> } | null,
     configState: null as ConfigState | null,
     modeSystem: null as ModeSystem | null,
+    onQueueDrain: null as (() => void) | null,
   };
 
   // Register built-in commands (/help, /clear, /quit)
@@ -464,6 +475,10 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.editor.setAutocompleteProvider(
     createAutocompleteProvider(registry, process.cwd()),
   );
+
+  // Prompt queue — queue messages while agent is busy
+  const promptQueue: { text: string; fullPrompt: string; attachedFiles?: string[] }[] = [];
+  let agentBusy = false;
 
   // Handle editor submit — text + optional attached files
   layout.editor.onSubmit = async (text: string, attachedFiles?: string[]) => {
@@ -578,7 +593,24 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
           if (fileSections.length > 0) {
             fullPrompt = fileSections.join("\n\n") + "\n\n" + text;
           }
-          // Show user what was sent (file tags + message)
+        }
+
+        // If agent is busy, queue the message
+        if (agentBusy) {
+          promptQueue.push({ text, fullPrompt, attachedFiles });
+          layout.messages.addMessage({
+            role: "user",
+            content: text,
+            timestamp: new Date(),
+            pending: true,
+          });
+          layout.divider.setLabel(`\u23f3 ${promptQueue.length} queued`);
+          layout.tui.requestRender();
+          break;
+        }
+
+        // Show user message
+        if (attachedFiles && attachedFiles.length > 0) {
           const tags = attachedFiles.map((f) => `[@${f.split("/").pop()}]`).join(" ");
           msgCtx.addMessage("user", `${tags} ${text}`);
         } else {
@@ -602,36 +634,98 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         }
 
         // Route through PromptRouter if available, else fallback
-        if (ctx.router && ctx.chatSession) {
-          await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
-        } else {
-          await handleChatFallback(fullPrompt, layout, msgCtx);
+        agentBusy = true;
+        try {
+          if (ctx.router && ctx.chatSession) {
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
+          } else {
+            await handleChatFallback(fullPrompt, layout, msgCtx);
+          }
+        } finally {
+          agentBusy = false;
         }
         break;
       }
     }
   };
 
-  // TUI abort handler
-  layout.tui.onAbort = () => false;
+  // Process next queued prompt (called from onAgentDone via wireRouterEvents)
+  const processNextFromQueue = async () => {
+    if (promptQueue.length === 0) {
+      layout.divider.setLabel(null);
+      layout.tui.requestRender();
+      return;
+    }
+    const next = promptQueue.shift()!;
+    layout.divider.setLabel(
+      promptQueue.length > 0 ? `\u23f3 ${promptQueue.length} queued` : null,
+    );
+    // Mark the pending bubble as active
+    layout.messages.markNextPendingAsActive();
+    layout.tui.requestRender();
+
+    // Add to session if not already there (pending messages weren't saved)
+    if (ctx.chatSession) {
+      ctx.chatSession.addMessage({ role: "user", content: next.text });
+    }
+
+    const queueMsgCtx = {
+      addMessage: (role: string, content: string) => {
+        layout.messages.addMessage({
+          role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
+          content,
+          timestamp: new Date(),
+        });
+        if (ctx.chatSession && role !== "error") {
+          ctx.chatSession.addMessage({
+            role: role as "user" | "assistant" | "system" | "tool",
+            content,
+            metadata: role === "system" ? { transient: true } : undefined,
+          });
+        }
+        layout.tui.requestRender();
+      },
+      clearMessages: () => { layout.messages.clear(); ctx.chatSession?.clearMessages(); },
+      requestRender: () => layout.tui.requestRender(),
+      exit: () => { layout.tui.stop(); },
+      tui: layout.tui,
+    };
+
+    agentBusy = true;
+    try {
+      if (ctx.router && ctx.chatSession) {
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx);
+      } else {
+        await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
+      }
+    } finally {
+      agentBusy = false;
+    }
+  };
+
+  // Wire queue drain to ctx so initSessionRouter can pass it to wireRouterEvents
+  ctx.onQueueDrain = () => void processNextFromQueue();
+
+  // TUI abort handler — clear queue on Esc/Ctrl+C if messages are queued
+  layout.tui.onAbort = () => {
+    if (promptQueue.length > 0) {
+      layout.messages.removePendingMessages();
+      promptQueue.length = 0;
+      layout.divider.setLabel(null);
+      layout.tui.requestRender();
+      return true;
+    }
+    return false;
+  };
 
   // Welcome message
-  let versionStr = "0.0.1";
-  try {
-    const { createRequire } = await import("node:module");
-    const require = createRequire(import.meta.url);
-    const pkg = require("../../package.json") as { version: string };
-    versionStr = pkg.version;
-  } catch {
-    // Use default version
-  }
 
   /** Build the welcome banner content, freshly computed for current terminal width. */
   const buildWelcomeContent = (): string => {
     const termWidth = process.stdout.columns ?? 80;
     const lines: string[] = [];
 
-    const title = `OpenPawl v${versionStr}`;
+    const title = `OpenPawl v${VERSION}`;
     const titlePad = Math.max(0, Math.floor((termWidth - title.length) / 2));
     lines.push("");
     lines.push(" ".repeat(titlePad) + bold(ctp.mauve(title)));
@@ -641,8 +735,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     lines.push(ctp.overlay0(" ".repeat(tagPad) + tagline));
     lines.push("");
 
-    const ruleWidth = Math.min(termWidth - 4, termWidth);
-
+    // Command table — build rows first, then center the block
     const leftItems: [string, string][] = [
       [ctp.blue("/help"), "Show commands"],
       [ctp.blue("/settings"), "Configure provider"],
@@ -658,29 +751,42 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       [ctp.blue("@debugger"), "Debugger"],
     ];
 
-    if (termWidth >= 80) {
-      // Two-column layout: each column gets half the width with a small gap
-      const colWidth = Math.floor((termWidth - 6) / 2); // 2 indent + 2 gap + 2 margin
+    const tableLines: string[] = [];
+    if (termWidth >= 60) {
+      // Two-column: fixed-width table, then center the whole block
+      const lColWidth = 28; // "/settings   Configure provider" ~28 visible chars
       for (let r = 0; r < leftItems.length; r++) {
         const [lCmd, lDesc] = leftItems[r]!;
         const [rCmd, rDesc] = rightItems[r]!;
-        const lText = `  ${lCmd}  ${ctp.subtext0(lDesc)}`;
-        const lVisible = visibleWidth(lText);
-        const gap = " ".repeat(Math.max(2, colWidth - lVisible + 2));
-        lines.push(`${lText}${gap}${rCmd}  ${ctp.subtext0(rDesc)}`);
+        const lText = `${lCmd}  ${ctp.subtext0(lDesc)}`;
+        const lVis = visibleWidth(lText);
+        const gap = " ".repeat(Math.max(2, lColWidth - lVis));
+        tableLines.push(`${lText}${gap}${rCmd}  ${ctp.subtext0(rDesc)}`);
       }
     } else {
       // Single-column: stack commands then agents
       for (const [cmd, desc] of leftItems) {
-        lines.push(`  ${cmd}  ${ctp.subtext0(desc)}`);
+        tableLines.push(`${cmd}  ${ctp.subtext0(desc)}`);
       }
-      lines.push("");
+      tableLines.push("");
       for (const [cmd, desc] of rightItems) {
-        lines.push(`  ${cmd}  ${ctp.subtext0(desc)}`);
+        tableLines.push(`${cmd}  ${ctp.subtext0(desc)}`);
       }
     }
+
+    // Center the table block
+    const maxTableWidth = tableLines.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
+    const tablePad = " ".repeat(Math.max(0, Math.floor((termWidth - maxTableWidth) / 2)));
+    for (const row of tableLines) {
+      lines.push(tablePad + row);
+    }
+
+    // Tip line — centered
     lines.push("");
-    lines.push(ctp.surface1("\u2500".repeat(ruleWidth)));
+    const tip = "Use /sessions to view previous conversations.";
+    const tipPad = Math.max(0, Math.floor((termWidth - tip.length) / 2));
+    lines.push(" ".repeat(tipPad) + ctp.overlay0(tip));
+    lines.push("");
 
     return lines.join("\n");
   };
@@ -788,17 +894,15 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.tui.requestRender();
   };
 
-  // ── Register /plan and /execute (needs modeSystem) ──────────────
+  // ── Register /plan (needs modeSystem) ───────────────────────────
   {
-    const { createPlanCommand, createExecuteCommand } = await import("./commands/plan.js");
+    const { createPlanCommand } = await import("./commands/plan.js");
     const planDeps = {
       modeSystem,
       updateModeDisplay,
-      getSession: () => ctx.chatSession,
       flashMessage: (msg: string) => layout.tui.onFlashMessage?.(msg),
     };
     registry.register(createPlanCommand(planDeps));
-    registry.register(createExecuteCommand(planDeps));
   }
 
   // ── Leader key ─────────────────────────────────────────────────
@@ -1234,6 +1338,95 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 // Session helpers
 // ---------------------------------------------------------------------------
 
+function showPlanConfirmation(
+  ctx: {
+    chatSession: Session | null;
+    modeSystem: import("../tui/keybindings/mode-system.js").ModeSystem | null;
+    router: PromptRouter | null;
+  },
+  layout: AppLayout,
+): void {
+  const session = ctx.chatSession;
+  if (!session) return;
+
+  // Find last assistant message as the plan — must be substantial (200+ chars)
+  const messages = session.messages;
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  if (!lastAssistant?.content || lastAssistant.content.length < 200) return;
+
+  // Build confirmation UI
+  const termW = process.stdout.columns ?? 80;
+  const lines = [
+    "",
+    separator({ width: Math.min(40, termW - 8), label: "Plan ready", padding: 4 }),
+    `    Execute this plan? ${ctp.green("[Y]es")}  ${ctp.overlay1("[N]o (keep planning)")}  ${ctp.overlay1("[E]dit (refine)")}`,
+    "",
+  ];
+  layout.tui.setInteractiveView(lines);
+
+  const handler = {
+    handleKey(event: import("../tui/core/input.js").KeyEvent): boolean {
+      const dismiss = () => {
+        layout.tui.popKeyHandler();
+        layout.tui.clearInteractiveView();
+      };
+
+      if (event.type === "char" && (event.char === "y" || event.char === "Y")) {
+        dismiss();
+        const planText = lastAssistant.content;
+        ctx.modeSystem?.setMode("default");
+
+        // Inject plan as transient system message (sent to LLM but not rendered in chat)
+        if (session) {
+          session.addMessage({
+            role: "system",
+            content: `Execute this plan step by step. Use all available tools.\n\n---\n${planText}\n---`,
+            metadata: { transient: true },
+          });
+        }
+
+        // Show brief status in chat
+        layout.messages.addMessage({
+          role: "system",
+          content: ctp.green("\u25a3 Executing plan..."),
+          timestamp: new Date(),
+        });
+        layout.tui.requestRender();
+
+        // Route execution prompt to the agent
+        if (ctx.router && session) {
+          setTimeout(() => {
+            void handleWithRouter(
+              "Execute this plan step by step.",
+              session,
+              ctx.router!,
+              layout,
+              { addMessage: (role: string, content: string) => {
+                layout.messages.addMessage({ role: role as "system" | "error", content, timestamp: new Date() });
+                layout.tui.requestRender();
+              }},
+            );
+          }, 0);
+        }
+        return true;
+      }
+
+      if (event.type === "char" && (event.char === "n" || event.char === "N" || event.char === "e" || event.char === "E")) {
+        dismiss();
+        return true;
+      }
+
+      if (event.type === "escape") {
+        dismiss();
+        return true;
+      }
+
+      return true;
+    },
+  };
+  layout.tui.pushKeyHandler(handler);
+}
+
 function replaySessionHistory(session: Session | null, layout: AppLayout): void {
   if (!session) return;
   const history = session.buildContextMessages();
@@ -1259,6 +1452,10 @@ function replaySessionHistory(session: Session | null, layout: AppLayout): void 
       timestamp: new Date(msg.timestamp),
     });
   }
+
+  // Scroll to bottom and paint so history is visible immediately
+  layout.tui.scrollToBottom();
+  layout.tui.requestRender();
 }
 
 async function showSessionPicker(
@@ -1414,6 +1611,7 @@ async function initSessionRouter(
     toolOutputHandler: { cleanup: () => Promise<void> } | null;
     configState: ConfigState | null;
     modeSystem: ModeSystem | null;
+    onQueueDrain: (() => void) | null;
   },
   opts: LaunchOptions | undefined,
   layout: AppLayout,
@@ -1719,29 +1917,24 @@ async function initSessionRouter(
     // ErrorPresenter not available
   }
 
-  // Session selection: 0 → new, 1 → auto-resume, 2+ → picker
-  const cwd = process.cwd();
-  const listResult = await ctx.sessionMgr.listByWorkspace(cwd);
-  const workspaceSessions = listResult.isOk() ? listResult.value : [];
-
-  if (workspaceSessions.length === 0) {
-    const createResult = await ctx.sessionMgr.create(cwd);
+  // Always start fresh — user resumes via /sessions when needed
+  {
+    const createResult = await ctx.sessionMgr.create(process.cwd());
     ctx.chatSession = createResult.isOk() ? createResult.value : null;
-  } else if (workspaceSessions.length === 1) {
-    const resumeResult = await ctx.sessionMgr.resume(workspaceSessions[0]!.id);
-    ctx.chatSession = resumeResult.isOk() ? resumeResult.value : null;
-  } else {
-    ctx.chatSession = await showSessionPicker(workspaceSessions, ctx.sessionMgr, layout);
   }
-
-  // Replay history into TUI
-  replaySessionHistory(ctx.chatSession, layout);
 
   // Wire events
   ctx.cleanupRouter = wireRouterEvents(ctx.router, layout, (agentId, content) => {
     if (ctx.chatSession) {
       ctx.chatSession.addMessage({ role: "assistant", content, agentId });
     }
+  }, () => {
+    // Plan-ready callback: show execute confirmation when agent finishes in plan mode
+    if (ctx.modeSystem?.getMode() !== "plan-only") return;
+    showPlanConfirmation(ctx, layout);
+  }, () => {
+    // Queue drain callback: process next queued prompt
+    ctx.onQueueDrain?.();
   });
   ctx.cleanupSession = wireSessionEvents(ctx.sessionMgr, layout);
 

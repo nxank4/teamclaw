@@ -83,7 +83,7 @@ export class SessionPickerView extends InteractiveView {
   protected override getPanelFooter(): string {
     if (this.confirmingDelete) {
       return renderConfirmPrompt({
-        message: "Delete this session permanently?",
+        message: "Delete?",
         confirmLabel: "Enter",
         cancelLabel: "Esc",
         dangerLevel: "danger",

@@ -21,6 +21,8 @@ export interface ChatMessage {
   timestamp?: Date;
   collapsible?: boolean;
   collapsed?: boolean;
+  /** Queued message not yet processed — rendered dimmed. */
+  pending?: boolean;
 }
 
 /** Lines above which a message is considered collapsible. */
@@ -63,12 +65,28 @@ export class MessagesComponent implements Component {
       this.lastRenderWidth = width;
     }
 
+    // Determine where to insert live tool call views:
+    // Before the last message (the streaming response), not after all messages.
+    const hasLiveTools = this.toolCallOrder.length > 0;
+    const toolInsertBefore = hasLiveTools ? this.messages.length - 1 : -1;
+
     for (let i = 0; i < this.messages.length; i++) {
       const msg = this.messages[i]!;
 
       // Dimmed divider between consecutive system messages
       if (i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system") {
         allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
+      }
+
+      // Insert live tool call views before the last (streaming) message
+      if (i === toolInsertBefore) {
+        for (const id of this.toolCallOrder) {
+          const view = this.activeToolCalls.get(id);
+          if (view) {
+            allLines.push(...view.render(bubblePct > 0 ? maxBubbleWidth : width));
+          }
+        }
+        allLines.push("");
       }
 
       this.messageBoundaries.push(allLines.length);
@@ -91,18 +109,6 @@ export class MessagesComponent implements Component {
       allLines.push(""); // spacing
     }
 
-    // Render active tool calls after messages (not cached — they animate)
-    if (this.toolCallOrder.length > 0) {
-      for (const id of this.toolCallOrder) {
-        const view = this.activeToolCalls.get(id);
-        if (view) {
-          const toolLines = view.render(bubblePct > 0 ? maxBubbleWidth : width);
-          allLines.push(...toolLines);
-        }
-      }
-      allLines.push("");
-    }
-
     return allLines;
   }
 
@@ -115,13 +121,19 @@ export class MessagesComponent implements Component {
         const contentWidth = wrapped.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
         const boxWidth = contentWidth + 4;
         const leftPad = " ".repeat(Math.max(0, width - boxWidth));
+        const dim = msg.pending ? ctp.overlay0 : ctp.surface1;
+        const textFn = msg.pending ? ctp.overlay0 : ctp.text;
         const lines: string[] = [];
-        lines.push(leftPad + ctp.surface1("┌" + "─".repeat(boxWidth - 2) + "┐"));
+        if (msg.pending) {
+          lines.push(leftPad + dim("⏳ ") + dim("┌" + "─".repeat(Math.max(0, boxWidth - 4)) + "┐"));
+        } else {
+          lines.push(leftPad + dim("┌" + "─".repeat(boxWidth - 2) + "┐"));
+        }
         for (const line of wrapped) {
           const padRight = contentWidth - visibleWidth(line);
-          lines.push(leftPad + ctp.surface1("│") + " " + ctp.text(line) + " ".repeat(padRight) + " " + ctp.surface1("│"));
+          lines.push(leftPad + dim("│") + " " + textFn(line) + " ".repeat(padRight) + " " + dim("│"));
         }
-        lines.push(leftPad + ctp.surface1("└" + "─".repeat(boxWidth - 2) + "┘"));
+        lines.push(leftPad + dim("└" + "─".repeat(boxWidth - 2) + "┘"));
         return lines;
       }
       case "assistant":
@@ -318,6 +330,21 @@ export class MessagesComponent implements Component {
     }
 
     this.clearToolCalls();
+  }
+
+  /** Remove all pending (queued) messages. */
+  removePendingMessages(): void {
+    this.messages = this.messages.filter(m => !m.pending);
+    this.renderCache.clear();
+  }
+
+  /** Mark the first pending message as active (no longer dimmed). */
+  markNextPendingAsActive(): void {
+    const idx = this.messages.findIndex(m => m.pending);
+    if (idx !== -1) {
+      this.messages[idx]!.pending = false;
+      this.renderCache.delete(idx);
+    }
   }
 
   clear(): void {

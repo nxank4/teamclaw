@@ -27,7 +27,7 @@ export function createCompactCommand(deps: CompactCommandDeps): SlashCommand {
 
       if (!forceEmergency && snapshot.level === "normal") {
         const lines = [
-          ...panelSection("Context Usage"),
+          "",
           `  Tokens:  ~${snapshot.estimatedTokens.toLocaleString()} / ${snapshot.maxTokens.toLocaleString()}`,
           `  Usage:   ${snapshot.utilizationPercent}%`,
           `  Level:   ${snapshot.level}`,
@@ -47,6 +47,7 @@ export function createCompactCommand(deps: CompactCommandDeps): SlashCommand {
         callLLM: deps.callLLM,
         keepLastExchanges: level === "emergency" ? 5 : 10,
         emergencyKeepLast: 5,
+        force: forceEmergency,
       });
 
       const afterSnapshot = deps.contextTracker.snapshot(messages);
