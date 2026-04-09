@@ -669,44 +669,34 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       ctx.chatSession.addMessage({ role: "user", content: next.text });
     }
 
+    const queueMsgCtx = {
+      addMessage: (role: string, content: string) => {
+        layout.messages.addMessage({
+          role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
+          content,
+          timestamp: new Date(),
+        });
+        if (ctx.chatSession && role !== "error") {
+          ctx.chatSession.addMessage({
+            role: role as "user" | "assistant" | "system" | "tool",
+            content,
+            metadata: role === "system" ? { transient: true } : undefined,
+          });
+        }
+        layout.tui.requestRender();
+      },
+      clearMessages: () => { layout.messages.clear(); ctx.chatSession?.clearMessages(); },
+      requestRender: () => layout.tui.requestRender(),
+      exit: () => { layout.tui.stop(); },
+      tui: layout.tui,
+    };
+
     agentBusy = true;
     try {
       if (ctx.router && ctx.chatSession) {
-        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, {
-          addMessage: (role: string, content: string) => {
-            layout.messages.addMessage({
-              role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
-              content,
-              timestamp: new Date(),
-            });
-            if (ctx.chatSession && role !== "error") {
-              ctx.chatSession.addMessage({
-                role: role as "user" | "assistant" | "system" | "tool",
-                content,
-                metadata: role === "system" ? { transient: true } : undefined,
-              });
-            }
-            layout.tui.requestRender();
-          },
-          clearMessages: () => { layout.messages.clear(); ctx.chatSession?.clearMessages(); },
-          requestRender: () => layout.tui.requestRender(),
-          exit: () => { layout.tui.stop(); },
-          tui: layout.tui,
-        });
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx);
       } else {
-        await handleChatFallback(next.fullPrompt, layout, {
-          addMessage: (role: string, content: string) => {
-            layout.messages.addMessage({
-              role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
-              content,
-              timestamp: new Date(),
-            });
-            layout.tui.requestRender();
-          },
-          requestRender: () => layout.tui.requestRender(),
-          exit: () => { layout.tui.stop(); },
-          tui: layout.tui,
-        });
+        await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
       }
     } finally {
       agentBusy = false;
