@@ -131,7 +131,7 @@ export class SprintRunner extends EventEmitter {
       planResponse = await profileMeasure("sprint_planning", goal.slice(0, 40), () =>
         this.runAgent("planner", {
           prompt: PLANNER_PROMPT(goal, options?.maxTasks ?? 10),
-          signal: this.abortController.signal,
+          signal: this.abortController!.signal,
         }),
       );
     } catch (err) {
@@ -179,7 +179,7 @@ export class SprintRunner extends EventEmitter {
         const result = await profileMeasure("sprint_task", `task_${i + 1}_${agentName}`, () =>
           this.runAgent(agentName, {
             prompt: TASK_PROMPT(task, this.state),
-            signal: this.abortController.signal,
+            signal: this.abortController!.signal,
           }),
         );
         task.result = result;
