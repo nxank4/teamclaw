@@ -7,8 +7,14 @@ import type { KeyEvent } from "../../tui/core/input.js";
 import type { TUI } from "../../tui/core/tui.js";
 import { InteractiveView } from "./base-view.js";
 import { getProviderRegistry } from "../../providers/provider-registry.js";
+import {
+  getActiveProviderName,
+  getActiveModel,
+  getActiveProvider,
+  setActiveProvider,
+  setActiveModel,
+} from "../../core/provider-config.js";
 import { getActiveProviderState } from "../../providers/active-state.js";
-import { readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js";
 
 interface SettingField {
   key: string;
@@ -302,31 +308,23 @@ export class SettingsView extends InteractiveView {
 
   private async loadValues(): Promise<void> {
     try {
-      // Provider/model from ActiveProviderState (runtime truth)
-      const active = getActiveProviderState();
-      const globalCfg = readGlobalConfig();
+      // Provider/model from unified provider-config (single source of truth)
+      const providerName = getActiveProviderName();
+      const model = getActiveModel();
+      if (providerName) this.values.set("provider", providerName);
+      if (model) this.values.set("model", model);
 
-      if (active.provider) {
-        this.values.set("provider", active.provider);
-        this.values.set("model", active.model);
-        if (active.connectionStatus === "connected") {
-          this.connectionStatus.set("provider", "ok");
-        }
-      } else if (globalCfg?.activeProvider) {
-        // Fallback: not yet connected but config exists
-        this.values.set("provider", globalCfg.activeProvider);
-        if (globalCfg.activeModel) this.values.set("model", globalCfg.activeModel);
+      // Connection status from ActiveProviderState
+      if (getActiveProviderState().connectionStatus === "connected") {
+        this.connectionStatus.set("provider", "ok");
       }
 
-      // API key from global config providers array
-      const activeProvider = this.values.get("provider");
-      if (globalCfg && activeProvider) {
-        const entry = globalCfg.providers?.find((p) => p.type === activeProvider);
-        if (entry?.apiKey) {
-          this.values.set("apikey", entry.apiKey);
-        } else if (entry?.hasCredential) {
-          this.values.set("apikey", "(stored in credential store)");
-        }
+      // API key from provider config entry
+      const entry = getActiveProvider();
+      if (entry?.apiKey) {
+        this.values.set("apikey", entry.apiKey);
+      } else if (entry?.hasCredential) {
+        this.values.set("apikey", "(stored in credential store)");
       }
 
       // Project-scoped fields from project config
@@ -357,25 +355,20 @@ export class SettingsView extends InteractiveView {
   private async saveField(key: string, value: string): Promise<void> {
     try {
       if (key === "provider") {
-        // Persist activeProvider to global config
-        const cfg = readGlobalConfig();
-        if (cfg) writeGlobalConfig({ ...cfg, activeProvider: value });
+        // Write through unified provider-config (syncs globalConfig + ActiveProviderState)
+        setActiveProvider(value);
         this.values.set(key, value);
 
         // Reset model to default for the new provider
         const defaultModel = DEFAULT_MODELS[value] ?? "";
         this.values.set("model", defaultModel);
         if (defaultModel) {
-          const cfg2 = readGlobalConfig();
-          if (cfg2) writeGlobalConfig({ ...cfg2, activeModel: defaultModel });
-          getActiveProviderState().setModel(defaultModel);
+          setActiveModel(defaultModel);
         }
       } else if (key === "model") {
-        // Persist activeModel to global config + runtime state
-        const cfg = readGlobalConfig();
-        if (cfg) writeGlobalConfig({ ...cfg, activeModel: value });
+        // Write through unified provider-config
+        setActiveModel(value);
         this.values.set(key, value);
-        getActiveProviderState().setModel(value);
       } else if (key === "apikey") {
         // Write to providers[] entry in global config via registry
         const provider = this.values.get("provider");
