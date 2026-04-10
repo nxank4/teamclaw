@@ -2,6 +2,7 @@
  * /hotkeys command — display current keyboard shortcuts.
  */
 import type { SlashCommand } from "../../tui/index.js";
+import { getInputShortcutsForDisplay } from "../../tui/keybindings/input-shortcuts.js";
 
 const CATEGORY_NAMES: Record<string, string> = {
   editor: "Editor",
@@ -39,6 +40,15 @@ export function createHotkeysCommand(): SlashCommand {
         }
         lines.push("");
       }
+
+      // Text editing shortcuts (shared across all input fields)
+      const inputShortcuts = getInputShortcutsForDisplay();
+      lines.push("  **Text Editing** _(all input fields)_");
+      for (const s of inputShortcuts) {
+        lines.push(`    ${s.keys.padEnd(28)} ${s.description}`);
+      }
+      lines.push("");
+
       lines.push(`  Preset: ${ctx.tui.keybindings.presetName}`);
       lines.push("  Config: ~/.openpawl/keybindings.json");
 

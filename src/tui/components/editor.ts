@@ -9,6 +9,7 @@ import { visibleWidth, charWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
 import { TextWrapper, type WrappedLine } from "../text/text-wrapper.js";
 import { defaultTheme, ctp } from "../themes/default.js";
+import { wordBoundaryLeft, wordBoundaryRight } from "../keybindings/input-shortcuts.js";
 
 export interface AutocompleteProvider {
   getSuggestions(input: string, cursorPos: number): AutocompleteSuggestion[];
@@ -272,7 +273,7 @@ export class EditorComponent implements Component {
       if (event.direction === "left") {
         if (event.ctrl) {
           // Ctrl+Left: jump to start of previous word
-          this.cursorCol = jumpWordLeft(this.lines[this.cursorRow] ?? "", this.cursorCol);
+          this.cursorCol = wordBoundaryLeft(this.lines[this.cursorRow] ?? "", this.cursorCol);
         } else {
           if (this.cursorCol > 0) this.cursorCol--;
         }
@@ -281,7 +282,7 @@ export class EditorComponent implements Component {
       if (event.direction === "right") {
         if (event.ctrl) {
           // Ctrl+Right: jump to start of next word
-          this.cursorCol = jumpWordRight(this.lines[this.cursorRow] ?? "", this.cursorCol);
+          this.cursorCol = wordBoundaryRight(this.lines[this.cursorRow] ?? "", this.cursorCol);
         } else {
           if (this.cursorCol < (this.lines[this.cursorRow]?.length ?? 0)) this.cursorCol++;
         }
@@ -385,7 +386,7 @@ export class EditorComponent implements Component {
     // Ctrl+W — delete previous word
     if (event.type === "char" && event.ctrl && event.char === "w") {
       const line = this.lines[this.cursorRow] ?? "";
-      const newCol = jumpWordLeft(line, this.cursorCol);
+      const newCol = wordBoundaryLeft(line, this.cursorCol);
       this.lines[this.cursorRow] = line.slice(0, newCol) + line.slice(this.cursorCol);
       this.cursorCol = newCol;
       this.onChange?.(this.getText());
@@ -808,22 +809,5 @@ export class EditorComponent implements Component {
   }
 }
 
-// ── Word navigation helpers ──────────────────────────────
-
-/** Jump cursor to start of previous word. */
-function jumpWordLeft(text: string, cursor: number): number {
-  if (cursor === 0) return 0;
-  let i = cursor - 1;
-  while (i > 0 && text[i - 1] === " ") i--;
-  while (i > 0 && text[i - 1] !== " ") i--;
-  return i;
-}
-
-/** Jump cursor to start of next word. */
-function jumpWordRight(text: string, cursor: number): number {
-  if (cursor >= text.length) return text.length;
-  let i = cursor;
-  while (i < text.length && text[i] !== " ") i++;
-  while (i < text.length && text[i] === " ") i++;
-  return i;
-}
+// Word navigation helpers are imported from ../keybindings/input-shortcuts.js
+// (wordBoundaryLeft, wordBoundaryRight)
