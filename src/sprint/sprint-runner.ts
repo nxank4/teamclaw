@@ -8,6 +8,7 @@ import type { AgentRegistry } from "../router/agent-registry.js";
 import type { SprintTask, SprintState, SprintResult, SprintOptions, SprintEventMap } from "./types.js";
 import { parseTasks } from "./task-parser.js";
 import { validatePlan, reorderSetupFirst } from "./plan-validator.js";
+import { profileStart, profileMeasure } from "../telemetry/profiler.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 
 const PLANNER_PROMPT = (goal: string, maxTasks: number) =>
@@ -33,7 +34,11 @@ const PLANNER_PROMPT = (goal: string, maxTasks: number) =>
   `3. MVP SCOPE: Build the MINIMUM viable version. Do NOT add:\n` +
   `   - Payment (Stripe, PayPal), email (SendGrid, Nodemailer), OAuth/social login, Docker, CI/CD, monitoring — unless explicitly requested\n` +
   `4. NO ASSUMED LIBRARIES: Only use ORMs/frameworks (Prisma, TypeORM, Mongoose) if the user mentioned them. Prefer built-in approaches.\n` +
-  `5. SPECIFICITY: Each task must name the exact file path, what it should contain, and the technology to use.\n\n` +
+  `5. SPECIFICITY: Each task must name the exact file path, what it should contain, and the technology to use.\n` +
+  `6. TECH CONSTRAINTS: Every task description MUST repeat the specific technologies from the goal (database, framework, language, libraries). ` +
+  `Example: "Implement auth routes using PostgreSQL for user storage, bcrypt for passwords, Zod for validation" — NOT just "Implement auth routes".\n` +
+  `7. WORKER-READY: Each task must include enough detail for a coder to implement without re-reading the full plan: ` +
+  `key function/export names, expected input/output, and which other tasks it depends on.\n\n` +
   `Output as a JSON array:\n` +
   `[{"description": "...", "dependsOn": []}, {"description": "...", "dependsOn": [1]}]\n\n` +
   `Goal: ${goal}`;
@@ -44,7 +49,7 @@ const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
     .map((t) => `- ${t.description}: ${t.result!.slice(0, 200)}`)
     .join("\n");
   const prior = context ? `\n\nCompleted so far:\n${context}` : "";
-  return `${task.description}${prior}\n\nWorking directory: ${process.cwd()}`;
+  return `Goal: ${state.goal}\n\nYour task: ${task.description}${prior}\n\nWorking directory: ${process.cwd()}`;
 };
 
 /**
@@ -123,10 +128,12 @@ export class SprintRunner extends EventEmitter {
     this.emitTyped("sprint:planning", undefined);
     let planResponse: string;
     try {
-      planResponse = await this.runAgent("planner", {
-        prompt: PLANNER_PROMPT(goal, options?.maxTasks ?? 10),
-        signal: this.abortController.signal,
-      });
+      planResponse = await profileMeasure("sprint_planning", goal.slice(0, 40), () =>
+        this.runAgent("planner", {
+          prompt: PLANNER_PROMPT(goal, options?.maxTasks ?? 10),
+          signal: this.abortController.signal,
+        }),
+      );
     } catch (err) {
       this.state.phase = "stopped";
       const error = err instanceof Error ? err : new Error(String(err));
@@ -169,10 +176,12 @@ export class SprintRunner extends EventEmitter {
       this.emitTyped("sprint:task:start", { task, agentName });
 
       try {
-        const result = await this.runAgent(agentName, {
-          prompt: TASK_PROMPT(task, this.state),
-          signal: this.abortController.signal,
-        });
+        const result = await profileMeasure("sprint_task", `task_${i + 1}_${agentName}`, () =>
+          this.runAgent(agentName, {
+            prompt: TASK_PROMPT(task, this.state),
+            signal: this.abortController.signal,
+          }),
+        );
         task.result = result;
 
         // Validate: if task implies writing but agent never wrote, mark incomplete

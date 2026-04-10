@@ -1,11 +1,10 @@
 /**
  * ToolPermissionView — inline confirm/reject prompt for tool execution.
- * Uses renderConfirmBox for consistent bordered layout.
+ * Renders flush-left with icon prefix, no borders.
  */
 
 import { ctp } from "../themes/default.js";
 import { bold } from "../core/ansi.js";
-import { renderConfirmBox } from "./confirm-box.js";
 import type { KeyEvent } from "../core/input.js";
 
 export type RiskLevel = "safe" | "moderate" | "dangerous" | "destructive";
@@ -36,44 +35,28 @@ export class ToolPermissionView {
 
   render(_width: number): string[] {
     const { icon, color } = riskIcon(this.risk);
-    const title = `${color(icon)} ${bold(this.toolDisplayName)}`;
+    const lines: string[] = [];
 
     if (this.confirmed === true) {
-      return renderConfirmBox({
-        title,
-        contentLines: [ctp.green("\u2713 Approved")],
-        buttons: "",
-        borderColor: ctp.surface1,
-        titleColor: (s: string) => s,
-      }).split("\n");
+      lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}  ${ctp.green("\u2713 Approved")}`);
+      return lines;
     }
     if (this.confirmed === false) {
-      return renderConfirmBox({
-        title,
-        contentLines: [ctp.red("\u2717 Denied")],
-        buttons: "",
-        borderColor: ctp.surface1,
-        titleColor: (s: string) => s,
-      }).split("\n");
+      lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}  ${ctp.red("\u2717 Denied")}`);
+      return lines;
     }
 
-    const contentLines: string[] = [];
+    lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}`);
     if (this.description) {
-      contentLines.push(ctp.overlay0(this.description));
+      lines.push(`    ${ctp.overlay0(this.description)}`);
     }
 
     const y = ctp.green(`[${bold("Y")}]es`);
     const n = ctp.red(`[${bold("N")}]o`);
-    const a = this.risk === "destructive" ? `    ${ctp.yellow(`[${bold("!")}]Always`)}` : "";
-    const buttons = `${y}    ${n}${a}`;
+    const a = this.risk === "destructive" ? `  ${ctp.yellow(`[${bold("!")}]Always`)}` : "";
+    lines.push(`    ${y}  ${n}${a}`);
 
-    return renderConfirmBox({
-      title,
-      contentLines,
-      buttons,
-      borderColor: ctp.surface1,
-      titleColor: (s: string) => s,
-    }).split("\n");
+    return lines;
   }
 
   handleKey(event: KeyEvent): boolean {

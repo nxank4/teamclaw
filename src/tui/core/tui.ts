@@ -7,6 +7,14 @@
  * 2. Split-region: one scrollable component + fixed-bottom components
  *    The scrollable region fills remaining rows; fixed components stay at bottom.
  */
+// Auto-scroll speed tiers for selection drag (lines per tick, by distance from edge)
+const AUTO_SCROLL_TIERS: ReadonlyArray<{ maxDistance: number; linesPerTick: number }> = [
+  { maxDistance: 2, linesPerTick: 1 },
+  { maxDistance: 5, linesPerTick: 3 },
+  { maxDistance: 10, linesPerTick: 6 },
+  { maxDistance: Infinity, linesPerTick: 10 },
+];
+
 import { Container, type Component } from "./component.js";
 import { DiffRenderer } from "./renderer.js";
 import { InputParser, type KeyEvent } from "./input.js";
@@ -15,6 +23,7 @@ import { hideCursor, showCursor, cursorTo } from "./ansi.js";
 import { SelectionManager } from "./selection.js";
 import { KeybindingManager, type KeyContext } from "../keyboard/keybindings.js";
 import { DEV } from "../../dev/index.js";
+import { PERF } from "../perf-monitor.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
 import { CopyManager, cleanCopyText } from "../text/copy-manager.js";
@@ -32,6 +41,11 @@ export class TUI {
   private renderPending = false;
   private running = false;
 
+  // Dirty region tracking — enables input-only fast path
+  private dirtyChat = true;
+  private dirtyFixed = true;
+  private cachedScrollableLines: string[] = []; // reused when only fixed is dirty
+
   // Resize debounce
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -40,6 +54,7 @@ export class TUI {
   private fixedBottomComponents: Component[] = [];
   private scrollOffset = 0; // 0 = at bottom, positive = scrolled up
   private autoScroll = true;
+  private cachedFixedHeight = 0; // cached from last renderSplitRegion
 
   // Text selection + copy
   private selectionManager = new SelectionManager();
@@ -59,6 +74,7 @@ export class TUI {
   private mouseDownPos: { row: number; col: number } | null = null;
   private isDragging = false;
   private autoScrollTimer: ReturnType<typeof setInterval> | null = null;
+  private autoScrollSpeed = 1; // lines per tick, updated by mouse drag distance
 
   // Key handler stack — interactive views push handlers that take priority
   private keyHandlerStack: { handleKey: (event: KeyEvent) => boolean }[] = [];
@@ -126,6 +142,7 @@ export class TUI {
     if (!this.running) return;
     this.running = false;
     DEV.destroy();
+    this.stopAutoScroll();
     if (this.resizeTimer) { clearTimeout(this.resizeTimer); this.resizeTimer = null; }
     this.terminal.write(showCursor);
     this.terminal.stop();
@@ -150,6 +167,8 @@ export class TUI {
     this.terminal.write("\x1b[H");
     // Invalidate renderer cache so next render is a full redraw
     this.renderer.reset();
+    // Clear cached scrollable lines (width changed)
+    this.cachedScrollableLines = [];
     // Full re-render at new dimensions
     this.requestRender();
   }
@@ -333,6 +352,21 @@ export class TUI {
   // ── Render ──────────────────────────────────────────────
 
   requestRender(): void {
+    this.dirtyChat = true;
+    this.dirtyFixed = true;
+    if (this.renderPending || !this.running) return;
+    this.renderPending = true;
+    process.nextTick(() => {
+      this.renderPending = false;
+      if (!this.running) return;
+      this.doRender();
+    });
+  }
+
+  /** Request a render of only the fixed bottom region (input, status bar).
+   *  Skips the scrollable messages area for much faster input response. */
+  requestFixedRender(): void {
+    this.dirtyFixed = true;
     if (this.renderPending || !this.running) return;
     this.renderPending = true;
     process.nextTick(() => {
@@ -353,6 +387,7 @@ export class TUI {
   }
 
   private doRender(): void {
+    PERF.beginRender();
     DEV.beginFrame();
 
     // Recompute responsive layout each frame
@@ -365,12 +400,14 @@ export class TUI {
       this.renderer.render(this.terminal, ["", " ".repeat(pad) + msg, ""]);
       this.terminal.write(hideCursor);
       DEV.endFrame();
+      PERF.endRender();
       return;
     }
 
     if (this.overlayComponent) {
       this.renderOverlay();
       DEV.endFrame();
+      PERF.endRender();
       return;
     }
 
@@ -380,6 +417,7 @@ export class TUI {
       this.renderLegacy();
     }
     DEV.endFrame();
+    PERF.endRender();
   }
 
   /** Split-region render: scrollable content + fixed bottom. */
@@ -387,26 +425,83 @@ export class TUI {
     const width = this.terminal.columns;
     const totalRows = this.terminal.rows;
 
-    // 1. Render fixed bottom → measure height
+    // 1. Render fixed bottom → measure height (cache per-component heights)
     const fixedLines: string[] = [];
+    const fixedCompHeights = new Map<Component, number>();
     let focusOffsetInFixed = -1;
     for (const comp of this.fixedBottomComponents) {
       if (comp.hidden) continue;
       if (comp === this.focusedComponent) {
         focusOffsetInFixed = fixedLines.length;
       }
-      fixedLines.push(...comp.render(width));
+      const rendered = comp.render(width);
+      fixedCompHeights.set(comp, rendered.length);
+      fixedLines.push(...rendered);
     }
     const fixedHeight = fixedLines.length;
 
     // 2. Scrollable area gets remaining rows
+    this.cachedFixedHeight = fixedHeight;
     const scrollableHeight = Math.max(0, totalRows - fixedHeight);
 
-    // 3. Render scrollable content (returns ALL lines)
-    //    If an interactive view is active, append it after messages
+    // ── Fast path: input-only render ────────────────────────────────
+    // When only fixed region is dirty, reuse cached scrollable lines
+    // and skip the entire messages rendering pipeline.
+    // Fall through to full render if fixed height changed (editor grew/shrank).
+    if (!this.dirtyChat && this.cachedScrollableLines.length > 0
+        && this.cachedScrollableLines.length === scrollableHeight) {
+      this.dirtyFixed = false;
+      const screenLines = [...this.cachedScrollableLines.slice(0, scrollableHeight), ...fixedLines];
+      // Ensure screen fills terminal
+      while (screenLines.length < totalRows) screenLines.push("");
+      if (screenLines.length > totalRows) screenLines.length = totalRows;
+
+      // Recompute editor position from cached heights
+      let editorOff = 0;
+      for (const comp of this.fixedBottomComponents) {
+        if (comp.hidden) continue;
+        const h = fixedCompHeights.get(comp) ?? 0;
+        if (comp === this.focusedComponent) {
+          this.editorRowStart = scrollableHeight + editorOff + 1;
+          this.editorRowEnd = scrollableHeight + editorOff + h;
+        }
+        editorOff += h;
+      }
+
+      const highlighted = this.applySelectionHighlight(screenLines);
+      this.lastScreenLines = screenLines;
+      this.renderer.render(this.terminal, highlighted);
+
+      // Position cursor
+      const pos = this.focusedComponent?.getCursorPosition?.();
+      if (pos && focusOffsetInFixed >= 0) {
+        const row = scrollableHeight + focusOffsetInFixed + pos.row;
+        if (row >= 1 && row <= totalRows) {
+          this.terminal.write(cursorTo(row, pos.col));
+          this.terminal.write(showCursor);
+          return;
+        }
+      }
+      this.terminal.write(hideCursor);
+      return;
+    }
+
+    // ── Full render path ────────────────────────────────────────────
+    this.dirtyChat = false;
+    this.dirtyFixed = false;
+
+    // 3. Render scrollable content (virtual scrolling — only visible messages)
+    //    Pass viewport info so the messages component can skip off-screen messages
+    const scrollComp = this.scrollableComponent as Component & {
+      setViewport?: (h: number, off: number) => void;
+    };
+    if (scrollComp?.setViewport) {
+      scrollComp.setViewport(scrollableHeight, this.scrollOffset);
+    }
     const messageLines = this.scrollableComponent?.hidden
       ? []
       : this.scrollableComponent!.render(width);
+
     const allContentLines = this.interactiveLines
       ? [...messageLines, ...this.interactiveLines]
       : messageLines;
@@ -422,6 +517,17 @@ export class TUI {
     const visibleEnd = totalContent - this.scrollOffset;
     const visibleStart = Math.max(0, visibleEnd - scrollableHeight);
 
+    // Perf stats: collect message counts for the overlay
+    if (PERF.enabled && this.scrollableComponent) {
+      const comp = this.scrollableComponent as Component & {
+        getMessageCount?: () => number;
+        getVisibleMessageCount?: (start: number, end: number) => number;
+      };
+      const msgCount = comp.getMessageCount?.() ?? 0;
+      const visibleMsgCount = comp.getVisibleMessageCount?.(visibleStart, visibleEnd) ?? 0;
+      PERF.setMessageStats(msgCount, visibleMsgCount, messageLines.length);
+    }
+
     // Store full content lines for selection text extraction
     this.lastFullContentLines = allContentLines;
     const visibleContentLines = allContentLines.slice(visibleStart, visibleEnd);
@@ -434,10 +540,10 @@ export class TUI {
     }
     paddedContent.push(...visibleContentLines);
 
+    // Cache the scrollable region for input-only fast path
+    this.cachedScrollableLines = paddedContent.slice();
+
     // Set selection scroll offset AFTER calculating padding.
-    // Screen row 1 is the first padded row. The first content row is at screen row (padCount + 1).
-    // screenToContent(row) = row + scrollOffset, so for row = padCount + 1 we need
-    // contentRow = visibleStart + 1 (1-based), meaning scrollOffset = visibleStart - padCount.
     this.selectionManager.setScrollOffset(visibleStart - padCount);
 
     // 5b. Track where interactive content starts on screen (1-based row)
@@ -452,10 +558,11 @@ export class TUI {
     this.contentRowEnd = this.interactiveStartRow > 0
       ? this.interactiveStartRow - 1
       : scrollableHeight;
-    // Calculate editor position within fixed area
+    // Calculate editor position within fixed area (reuse cached heights from step 1)
     let editorOff = 0;
     for (const comp of this.fixedBottomComponents) {
-      const h = comp.render(width).length;
+      if (comp.hidden) continue;
+      const h = fixedCompHeights.get(comp) ?? 0;
       if (comp === this.focusedComponent) {
         this.editorRowStart = scrollableHeight + editorOff + 1;
         this.editorRowEnd = scrollableHeight + editorOff + h;
@@ -537,27 +644,45 @@ export class TUI {
   // ── Input ───────────────────────────────────────────────
 
   private handleEvent(event: KeyEvent): void {
+    PERF.markInputStart();
+
     // Mouse events — separate path
     if (event.type === "mouse_click" || event.type === "mouse_drag" || event.type === "mouse_release") {
       this.handleMouse(event);
+      PERF.markInputEnd();
       return;
     }
 
     if (event.type === "scroll_up" || event.type === "scroll_down") {
-      // If scroll is in the editor region, scroll editor content instead
-      const scrollRow = (event as { row?: number }).row ?? 0;
+      PERF.markScrollStart();
+      const scrollRow = event.row;
+
+      // Status bar — no-op
+      if (scrollRow >= this.statusBarRow) {
+        PERF.markScrollEnd();
+        PERF.markInputEnd();
+        return;
+      }
+
+      // Editor region — scroll input viewport
       if (scrollRow >= this.editorRowStart && scrollRow <= this.editorRowEnd) {
         const editor = this.focusedComponent as Component & { scrollInput?: (delta: number) => boolean };
         const delta = event.type === "scroll_up" ? -3 : 3;
         if (editor?.scrollInput?.(delta)) {
-          this.requestRender();
+          this.requestFixedRender(); // only input dirty
+          PERF.markScrollEnd();
+          PERF.markInputEnd();
           return;
         }
       }
+
+      // Chat area — scroll messages
       if (this.scrollableComponent) {
         if (event.type === "scroll_up") this.scrollUp(3);
         else this.scrollDown(3);
       }
+      PERF.markScrollEnd();
+      PERF.markInputEnd();
       return;
     }
 
@@ -585,15 +710,22 @@ export class TUI {
     // Route to focused component (editor handles its own keybindings)
     const target = this.overlayComponent ?? this.focusedComponent;
     if (target?.onKey?.(event)) {
-      this.requestRender();
+      // Editor input only needs a fixed-region repaint (skip chat messages)
+      if (target === this.focusedComponent && !this.overlayComponent) {
+        this.requestFixedRender();
+      } else {
+        this.requestRender();
+      }
       return;
     }
 
     // Tab to cycle focus
     if (event.type === "tab" && !this.overlayComponent) {
       this.cycleFocus("shift" in event ? event.shift : false);
+      PERF.markInputEnd();
       return;
     }
+    PERF.markInputEnd();
   }
 
   /** Handle app-level actions that the TUI manages directly. Returns true if consumed. */
@@ -871,10 +1003,16 @@ export class TUI {
         const row = Math.min(event.row, this.contentRowEnd);
         this.selectionManager.updateSelection(row, event.col);
 
-        // Auto-scroll when dragging near edges
-        if (event.row <= 1) {
+        // Auto-scroll when dragging past edges, speed based on distance
+        const topEdge = 1;
+        const bottomEdge = this.terminal.rows - this.getFixedHeight();
+        if (event.row <= topEdge) {
+          const distance = topEdge - event.row + 1;
+          this.autoScrollSpeed = AUTO_SCROLL_TIERS.find(t => distance <= t.maxDistance)!.linesPerTick;
           this.startAutoScroll("up");
-        } else if (event.row >= this.terminal.rows - this.getFixedHeight()) {
+        } else if (event.row >= bottomEdge) {
+          const distance = event.row - bottomEdge + 1;
+          this.autoScrollSpeed = AUTO_SCROLL_TIERS.find(t => distance <= t.maxDistance)!.linesPerTick;
           this.startAutoScroll("down");
         } else {
           this.stopAutoScroll();
@@ -906,8 +1044,9 @@ export class TUI {
   private startAutoScroll(direction: "up" | "down"): void {
     if (this.autoScrollTimer) return;
     this.autoScrollTimer = setInterval(() => {
-      if (direction === "up") this.scrollUp(2);
-      else this.scrollDown(2);
+      const speed = this.autoScrollSpeed;
+      if (direction === "up") this.scrollUp(speed);
+      else this.scrollDown(speed);
       this.requestRender();
     }, 80);
   }
@@ -920,6 +1059,8 @@ export class TUI {
   }
 
   private getFixedHeight(): number {
+    // Use cached value from last render (avoids re-rendering fixed components)
+    if (this.cachedFixedHeight > 0) return this.cachedFixedHeight;
     if (this.fixedBottomComponents.length === 0) return 0;
     const width = this.terminal.columns;
     let h = 0;

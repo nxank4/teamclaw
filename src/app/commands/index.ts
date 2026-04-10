@@ -17,6 +17,7 @@ import { createDebateCommand } from "./debate.js";
 import { createResearchCommand } from "./research.js";
 import { createDevCommand } from "./dev.js";
 import { createWorkspaceCommand } from "./workspace.js";
+import { createThemeCommand } from "./theme.js";
 export { createPlanCommand, type PlanCommandDeps } from "./plan.js";
 
 export function registerAllCommands(
@@ -34,6 +35,7 @@ export function registerAllCommands(
   registry.register(createResearchCommand());
   registry.register(createDevCommand());
   registry.register(createWorkspaceCommand());
+  registry.register(createThemeCommand());
   // /plan and /execute registered later in app/index.ts after modeSystem is created
   if (compactDeps) {
     registry.register(createCompactCommand(compactDeps));

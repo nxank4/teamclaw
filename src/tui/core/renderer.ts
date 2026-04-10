@@ -10,6 +10,7 @@
  */
 import type { Terminal } from "./terminal.js";
 import { syncStart, syncEnd, clearLine, cursorTo } from "./ansi.js";
+import { PERF } from "../perf-monitor.js";
 
 export interface FrameStats {
   changedLines: number;
@@ -59,10 +60,15 @@ export class DiffRenderer {
 
     this.lastFrameStats = { changedLines: changedCount, totalLines: newLines.length, skipped: changedCount === 0 };
 
-    if (changedCount === 0) return; // Nothing changed
+    if (changedCount === 0) {
+      PERF.setAnsiLength(0);
+      return; // Nothing changed
+    }
 
     // Single batched write wrapped in synchronized output
-    terminal.write(syncStart + buf.join("") + syncEnd);
+    const output = syncStart + buf.join("") + syncEnd;
+    PERF.setAnsiLength(output.length);
+    terminal.write(output);
     this.prevLines = newLines.slice();
     this.prevWidth = width;
   }
@@ -81,7 +87,9 @@ export class DiffRenderer {
     }
 
     buf.push(syncEnd);
-    terminal.write(buf.join(""));
+    const fullOutput = buf.join("");
+    PERF.setAnsiLength(fullOutput.length);
+    terminal.write(fullOutput);
 
     this.prevLines = lines.slice();
     this.prevWidth = width;

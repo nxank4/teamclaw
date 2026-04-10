@@ -27,6 +27,7 @@ export interface ThemePalette {
   // Chat
   userMessage: string;
   agentResponse: string;
+  agentResponseBg: string;
   systemMessage: string;
   // Code
   codeInline: string;
@@ -44,6 +45,7 @@ export interface ThemePalette {
   toolCompleted: string;
   toolFailed: string;
   toolBorder: string;
+  toolApprovalBg: string;
   // UI
   link: string;
   panelBorder: string;

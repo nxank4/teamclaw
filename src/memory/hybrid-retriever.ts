@@ -7,6 +7,7 @@
  */
 
 import type { HebbianMemory, MemoryResult, MemoryNode } from "./hebbian/index.js";
+import { profileStart } from "../telemetry/profiler.js";
 
 /**
  * A candidate from the upstream LanceDB search.
@@ -51,9 +52,11 @@ export class HybridRetriever {
    * @param topK - Override for finalCount
    */
   rerank(candidates: LanceCandidate[], topK?: number): MemoryResult[] {
+    const finish = profileStart("memory_retrieval", `rerank_${candidates.length}`, { candidateCount: candidates.length });
     const limit = topK ?? this.options.finalCount;
 
     if (!this.options.enabled || candidates.length === 0) {
+      finish();
       return candidates.slice(0, limit).map(candidateToResult);
     }
 
@@ -81,7 +84,9 @@ export class HybridRetriever {
     }
 
     // Recall triggers spreading activation + Hebbian update + scoring
-    return this.hebbian.recall(seeds, similarityMap, limit);
+    const results = this.hebbian.recall(seeds, similarityMap, limit);
+    finish();
+    return results;
   }
 
   /**

@@ -15,8 +15,8 @@ export type KeyEvent =
   | { type: "end" }
   | { type: "pageup" }
   | { type: "pagedown" }
-  | { type: "scroll_up" }
-  | { type: "scroll_down" }
+  | { type: "scroll_up"; row: number; col: number }
+  | { type: "scroll_down"; row: number; col: number }
   | { type: "mouse_click"; button: "left" | "middle" | "right"; col: number; row: number }
   | { type: "mouse_drag"; col: number; row: number }
   | { type: "mouse_release"; col: number; row: number }
@@ -224,9 +224,9 @@ export class InputParser {
       const row = parseInt(parts[2] ?? "1", 10);
       const pressed = terminator === 0x4d; // M = press, m = release
 
-      // Scroll: button 64 = up, 65 = down
-      if (button === 64) { this.onEvent({ type: "scroll_up" }); return i + 1; }
-      if (button === 65) { this.onEvent({ type: "scroll_down" }); return i + 1; }
+      // Scroll: button 64 = up, 65 = down (include position for region targeting)
+      if (button === 64) { this.onEvent({ type: "scroll_up", row, col }); return i + 1; }
+      if (button === 65) { this.onEvent({ type: "scroll_down", row, col }); return i + 1; }
 
       // Release
       if (!pressed) { this.onEvent({ type: "mouse_release", col, row }); return i + 1; }
