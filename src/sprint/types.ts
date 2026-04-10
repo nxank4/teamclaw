@@ -38,11 +38,15 @@ export interface SprintResult {
 export interface SprintOptions {
   /** Max tasks the planner should generate. Default: 10. */
   maxTasks?: number;
+  /** Max concurrent tasks when running in parallel. Default: 3. */
+  maxConcurrency?: number;
 }
 
 export interface SprintEventMap {
   "sprint:start": { goal: string };
   "sprint:plan": { tasks: SprintTask[] };
+  "sprint:round:start": { round: number; tasks: SprintTask[] };
+  "sprint:round:complete": { round: number; duration: number };
   "sprint:task:start": { task: SprintTask; agentName: string };
   "sprint:task:complete": { task: SprintTask };
   "sprint:agent:token": { agentName: string; token: string };

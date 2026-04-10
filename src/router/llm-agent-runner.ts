@@ -85,7 +85,7 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
 
       if (hasTools) {
         const toolList = toolDefs.map((t) => `- ${t.name}: ${t.description}`).join("\n");
-        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands — do it yourself.`;
+        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands — do it yourself.\nWhen you need multiple independent operations (reading files, listing directories, writing files that don't depend on each other), request them all in a single response.`;
       }
 
       try {
