@@ -47,7 +47,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
         const toolList = nativeTools
           .map((t) => `- ${t.function.name}: ${t.function.description}`)
           .join("\n");
-        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands.`;
+        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands.\nWhen you need multiple independent operations (reading files, listing directories, writing files that don't depend on each other), request them all in a single response.`;
       }
 
       const response = await callLLMMultiTurn({
