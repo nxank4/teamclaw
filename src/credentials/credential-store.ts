@@ -18,6 +18,9 @@ const ENV_KEY_MAP: Record<string, string> = {
   GOOGLE_API_KEY: "gemini",
   XAI_API_KEY: "grok",
   MISTRAL_API_KEY: "mistral",
+  OPENCODE_GO_API_KEY: "opencode-go",
+  OPENCODE_ZEN_API_KEY: "opencode-zen",
+  OPENCODE_API_KEY: "opencode-go",
 };
 
 const PROVIDER_ENV_MAP: Record<string, string> = {};

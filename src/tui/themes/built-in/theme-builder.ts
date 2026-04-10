@@ -86,6 +86,8 @@ export function buildTheme(
 
     userBubble: fgBg(p.userMessage, p.codeBlockBorder),
     agentName: (s) => bold(fg(p.agentResponse)(s)),
+    agentResponseBg: bg(p.agentResponseBg),
+    toolApprovalBg: bg(p.toolApprovalBg),
 
     statusBarBg: bg(p.statusBarBg),
     statusMode: fg(p.statusBarAccent),

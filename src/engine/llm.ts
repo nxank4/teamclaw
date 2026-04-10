@@ -11,6 +11,7 @@ import { getGlobalProviderManager } from "../providers/provider-factory.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 import { compressContext, estimateTokens } from "../context/compressor.js";
 import type { ChatMessage, NativeToolDefinition } from "../providers/stream-types.js";
+import { profileStart, profileMeasure, isProfilingEnabled } from "../telemetry/profiler.js";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -57,6 +58,8 @@ export interface LLMMultiTurnOptions extends LLMCallOptions {
   beforeTurn?: (messages: Message[], turn: number) => Promise<void>;
 }
 
+const NO_TOOLS_INSTRUCTION = "\n\nYou have no tools available. Do not emit tool calls, function calls, or XML tool blocks. Write all output as plain text or code blocks.";
+
 // ── Single-turn call ───────────────────────────────────
 
 /**
@@ -70,16 +73,23 @@ export async function callLLM(
   const mgr = await getGlobalProviderManager();
   const model = options?.model ?? resolveModelForAgent("agent");
 
+  // callLLM never has tools — always inject no-tools instruction
+  const effectiveSystemPrompt = (options?.systemPrompt ?? "") + NO_TOOLS_INSTRUCTION;
+
   const chunks: string[] = [];
   let usage = { input: 0, output: 0 };
+
+  const finishTotal = profileStart("llm_call_total", "callLLM");
+  let finishTTFC: (() => void) | null = isProfilingEnabled() ? profileStart("llm_call_ttfc", "callLLM") : null;
 
   for await (const chunk of mgr.stream(prompt, {
     model: model || undefined,
     temperature: options?.temperature,
-    systemPrompt: options?.systemPrompt,
+    systemPrompt: effectiveSystemPrompt,
     signal: options?.signal,
   })) {
     if (chunk.content) {
+      if (finishTTFC) { finishTTFC(); finishTTFC = null; }
       chunks.push(chunk.content);
       options?.onChunk?.(chunk.content);
     }
@@ -90,6 +100,7 @@ export async function callLLM(
       };
     }
   }
+  finishTotal();
 
   return {
     text: chunks.join(""),
@@ -148,6 +159,12 @@ export async function callLLMWithMessages(
     toolCallId: m.toolCallId,
   }));
 
+  // When no tools are available, tell the LLM not to hallucinate tool calls
+  const hasAnyTools = (options?.tools?.length ?? 0) > 0 || (options?.nativeTools?.length ?? 0) > 0;
+  const effectiveSystemPrompt = !hasAnyTools
+    ? (options?.systemPrompt ?? "") + NO_TOOLS_INSTRUCTION
+    : options?.systemPrompt;
+
   // Stream with native messages + tools
   const nativeToolCount = options?.nativeTools?.length ?? 0;
   if (nativeToolCount > 0) {
@@ -166,15 +183,19 @@ export async function callLLMWithMessages(
   let usage = { input: 0, output: 0 };
   let nativeToolCalls: Array<{ id: string; name: string; arguments: string }> | undefined;
 
+  const finishTotal = profileStart("llm_call_total", "callLLMWithMessages", { messageCount: chatMessages.length });
+  let finishTTFC: (() => void) | null = isProfilingEnabled() ? profileStart("llm_call_ttfc", "callLLMWithMessages") : null;
+
   for await (const chunk of mgr.stream("", {
     model: model || undefined,
     temperature: options?.temperature,
-    systemPrompt: options?.systemPrompt,
+    systemPrompt: effectiveSystemPrompt,
     signal: options?.signal,
     messages: chatMessages,
     tools: options?.nativeTools,
   })) {
     if (chunk.content) {
+      if (finishTTFC) { finishTTFC(); finishTTFC = null; }
       chunks.push(chunk.content);
       options?.onChunk?.(chunk.content);
     }
@@ -188,6 +209,7 @@ export async function callLLMWithMessages(
       };
     }
   }
+  finishTotal();
 
   const text = chunks.join("");
 
@@ -199,7 +221,7 @@ export async function callLLMWithMessages(
       name: tc.name,
       input: JSON.parse(tc.arguments || "{}"),
     }));
-  } else if (text) {
+  } else if (text && hasAnyTools) {
     toolCalls = parseToolCalls(text);
   }
 
@@ -283,7 +305,7 @@ export async function callLLMMultiTurn(opts: {
     for (const tc of response.toolCalls) {
       opts.onToolCall?.(tc.name, tc.input);
 
-      const result = await opts.handleTool(tc.name, tc.input);
+      const result = await profileMeasure("tool_execution", tc.name, () => opts.handleTool(tc.name, tc.input), toolMeta(tc.name, tc.input));
       opts.onToolResult?.(tc.name, result);
 
       messages.push({
@@ -300,6 +322,17 @@ export async function callLLMMultiTurn(opts: {
     toolCalls: allToolCalls,
     usage: totalUsage,
   };
+}
+
+const REDACT_RE = /password|token|secret|key/i;
+
+/** Build profiler metadata for tool calls, redacting sensitive shell commands. */
+function toolMeta(name: string, input: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (name !== "shell_exec") return undefined;
+  const raw = typeof input.command === "string" ? input.command : "";
+  if (!raw) return undefined;
+  const cmd = REDACT_RE.test(raw) ? "[REDACTED]" : raw.length > 200 ? raw.slice(0, 200) + "..." : raw;
+  return { cmd };
 }
 
 // ── Internal helpers ───────────────────────────────────

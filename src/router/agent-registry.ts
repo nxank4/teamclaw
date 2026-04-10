@@ -76,7 +76,7 @@ const BUILT_IN_AGENTS: AgentDefinition[] = [
     capabilities: ["test_write", "test_run", "code_debug"],
     defaultTools: ["file_read", "file_list", "file_write", "shell_exec"],
     modelTier: "fast",
-    systemPrompt: "Write and run tests. Read the source first to understand what to test. Show test output, not test philosophy.",
+    systemPrompt: "Write test code. Read the source first to understand what to test. Show test code, not test philosophy.",
     canCollaborate: true,
     maxConcurrent: 3,
     triggerPatterns: [

@@ -23,6 +23,8 @@ export interface ChatMessage {
   collapsed?: boolean;
   /** Queued message not yet processed — rendered dimmed. */
   pending?: boolean;
+  /** Visual tag for special rendering (e.g., tool approval background tint). */
+  tag?: "tool-approval";
 }
 
 /** Lines above which a message is considered collapsible. */
@@ -35,6 +37,44 @@ const COLLAPSE_PREVIEW = 3;
 type MessageSegment =
   | { type: "tool"; line: string }
   | { type: "text"; lines: string[] };
+
+// ── Background tinting helpers ──────────────────────────────────────────────
+
+/** Extract the opening ANSI background escape from a StyleFn. */
+function extractBgCode(bgFn: (s: string) => string): string {
+  const sample = bgFn("X");
+  const idx = sample.indexOf("X");
+  return sample.slice(0, idx);
+}
+
+/** Apply a background tint to all lines, padding to full width. */
+function applyBlockBackground(
+  lines: string[],
+  bgFn: (s: string) => string,
+  width: number,
+  leftPad: number = 1,
+): string[] {
+  const bgCode = extractBgCode(bgFn);
+  return lines.map(line => {
+    const vis = visibleWidth(line);
+    const rightPad = Math.max(0, width - vis - leftPad);
+    // Re-inject bg code after any background reset so nested code blocks
+    // don't leave gaps in the tint
+    const patched = line.replace(/\x1b\[(49|0)m/g, `\x1b[$1m${bgCode}`);
+    return `${bgCode}${" ".repeat(leftPad)}${patched}${" ".repeat(rightPad)}\x1b[49m`;
+  });
+}
+
+/** Render a single ToolCallView as a tree branch line. */
+function renderToolInTree(
+  view: ToolCallView, lines: string[], branch: string, vert: string, width: number,
+): void {
+  const rendered = view.render(width);
+  for (let r = 0; r < rendered.length; r++) {
+    const prefix = r === 0 ? " " + branch + " " : " " + vert + "  ";
+    lines.push(prefix + rendered[r]!.trimStart());
+  }
+}
 
 /** Check if a line is a baked tool summary (starts with ✓, ✗, ⏳, or ○). */
 function isToolLine(line: string): boolean {
@@ -84,36 +124,155 @@ export class MessagesComponent implements Component {
   private renderCache = new Map<number, { lines: string[]; hash: number; width: number; collapsed: boolean }>();
   private lastRenderWidth = 0;
 
+  // Height cache — stores rendered line count per message for virtual scrolling
+  private heightCache = new Map<number, { height: number; hash: number; width: number; collapsed: boolean }>();
+
+  // Viewport info set by TUI before render
+  private viewportHeight = 0;
+  private viewportScrollOffset = 0;
+
+  /** Total line count across all messages (from height cache). */
+  private totalLines = 0;
+
   constructor(id: string) {
     this.id = id;
   }
 
+  /** Called by TUI before render() to inform the component about the visible viewport. */
+  setViewport(scrollableHeight: number, scrollOffset: number): void {
+    this.viewportHeight = scrollableHeight;
+    this.viewportScrollOffset = scrollOffset;
+  }
+
+  /** Get total line count (from height cache, without rendering all messages). */
+  getTotalLines(): number {
+    return this.totalLines;
+  }
+
   render(width: number): string[] {
-    const allLines: string[] = [];
     const bubblePct = this.layoutProvider?.().messageBubblePercent ?? 0.70;
     const maxBubbleWidth = Math.min(Math.floor(width * bubblePct), width - 8);
-    this.messageBoundaries = [];
 
     // Width change invalidates all caches
     if (width !== this.lastRenderWidth) {
       this.renderCache.clear();
+      this.heightCache.clear();
       this.lastRenderWidth = width;
     }
 
     const hasLiveTools = this.toolCallOrder.length > 0;
+    const msgCount = this.messages.length;
 
-    for (let i = 0; i < this.messages.length; i++) {
+    // ── Pass 1: Build height map + message boundaries ──────────────
+    // For each message, get its rendered height from cache or compute it.
+    // This is cheap: cache hits return a number, cache misses render + cache.
+    this.messageBoundaries = [];
+    const heights: number[] = new Array(msgCount);
+    let cumulativeHeight = 0;
+
+    for (let i = 0; i < msgCount; i++) {
+      const msg = this.messages[i]!;
+      const hash = this.contentHash(msg.content);
+
+      // Separator between consecutive system messages
+      const hasSeparator = i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system";
+      const separatorHeight = hasSeparator ? 1 : 0;
+
+      this.messageBoundaries.push(cumulativeHeight);
+
+      const isLastMsg = i === msgCount - 1;
+      const isAgent = msg.role === "agent" || msg.role === "assistant";
+      const isLiveToolMsg = isLastMsg && isAgent && hasLiveTools;
+      const isStreaming = isLastMsg && this.renderCache.get(i) === undefined &&
+        (msg.role === "agent" || msg.role === "assistant");
+
+      // Always recompute height for live tool messages and streaming messages
+      if (isLiveToolMsg || isStreaming) {
+        // Will be rendered in pass 2, height unknown until then — use estimate or render now
+        const rendered = isLiveToolMsg
+          ? this.renderAgentWithLiveTools(msg, width, maxBubbleWidth)
+          : this.renderAndCache(i, msg, width, maxBubbleWidth);
+        const h = separatorHeight + rendered.length + 1; // +1 for spacing blank line
+        heights[i] = h;
+        cumulativeHeight += h;
+        continue;
+      }
+
+      // Check height cache
+      const cachedHeight = this.heightCache.get(i);
+      if (cachedHeight && cachedHeight.hash === hash && cachedHeight.width === width && cachedHeight.collapsed === !!msg.collapsed) {
+        const h = separatorHeight + cachedHeight.height + 1;
+        heights[i] = h;
+        cumulativeHeight += h;
+        continue;
+      }
+
+      // Height cache miss — render to get height, store in both caches
+      const rendered = this.renderAndCache(i, msg, width, maxBubbleWidth);
+      const h = separatorHeight + rendered.length + 1;
+      this.heightCache.set(i, { height: rendered.length, hash, width, collapsed: !!msg.collapsed });
+      heights[i] = h;
+      cumulativeHeight += h;
+    }
+
+    this.totalLines = cumulativeHeight;
+
+    // ── Pass 2: Determine visible range and render only those ──────
+    const viewH = this.viewportHeight;
+    const scrollOff = this.viewportScrollOffset;
+
+    // If no viewport info, fall back to rendering everything (legacy path)
+    if (viewH <= 0) {
+      return this.renderAll(width, maxBubbleWidth, hasLiveTools);
+    }
+
+    // visibleEnd is the line at the bottom of the viewport
+    // scrollOffset=0 → bottom, so visibleEnd = totalLines
+    const visibleEnd = cumulativeHeight - scrollOff;
+    const visibleStart = Math.max(0, visibleEnd - viewH);
+
+    // Find message range that overlaps [visibleStart, visibleEnd)
+    // Walk messageBoundaries to find first visible and last visible message
+    let firstVisible = msgCount; // start past end
+    let lastVisible = -1;
+    for (let i = 0; i < msgCount; i++) {
+      const msgStart = this.messageBoundaries[i]!;
+      const msgEnd = msgStart + heights[i]!;
+      if (msgEnd > visibleStart && msgStart < visibleEnd) {
+        if (i < firstVisible) firstVisible = i;
+        lastVisible = i;
+      }
+    }
+
+    // Overscan: 1 message buffer above and below
+    firstVisible = Math.max(0, firstVisible - 1);
+    lastVisible = Math.min(msgCount - 1, lastVisible + 1);
+
+    if (firstVisible > lastVisible) {
+      // No visible messages
+      return [];
+    }
+
+    // ── Pass 3: Render visible messages into output lines ──────────
+    // Build the full line array but with empty-line placeholders for off-screen messages
+    const allLines: string[] = [];
+
+    // Lines before the visible range → empty placeholders
+    const linesBeforeVisible = this.messageBoundaries[firstVisible]!;
+    for (let i = 0; i < linesBeforeVisible; i++) {
+      allLines.push("");
+    }
+
+    // Render visible messages
+    for (let i = firstVisible; i <= lastVisible; i++) {
       const msg = this.messages[i]!;
 
-      // Dimmed divider between consecutive system messages
+      // Separator between consecutive system messages
       if (i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system") {
         allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
       }
 
-      this.messageBoundaries.push(allLines.length);
-
-      // Last agent message with live tool calls: render badge + tools + content as unified tree
-      const isLastMsg = i === this.messages.length - 1;
+      const isLastMsg = i === msgCount - 1;
       const isAgent = msg.role === "agent" || msg.role === "assistant";
       if (isLastMsg && isAgent && hasLiveTools) {
         const outputLines = this.renderAgentWithLiveTools(msg, width, maxBubbleWidth);
@@ -122,7 +281,7 @@ export class MessagesComponent implements Component {
         continue;
       }
 
-      // Check render cache
+      // Use render cache (populated in pass 1)
       const hash = this.contentHash(msg.content);
       const cached = this.renderCache.get(i);
       if (cached && cached.hash === hash && cached.width === width && cached.collapsed === !!msg.collapsed) {
@@ -131,15 +290,72 @@ export class MessagesComponent implements Component {
         continue;
       }
 
-      // Cache miss — render and store
-      const msgLines = this.renderMessage(msg, width, maxBubbleWidth);
-      const outputLines: string[] = [];
-      this.pushMaybeCollapsed(outputLines, msgLines, msg, width);
-      this.renderCache.set(i, { lines: outputLines, hash, width, collapsed: !!msg.collapsed });
-      allLines.push(...outputLines);
-      allLines.push(""); // spacing
+      // Render and cache
+      const rendered = this.renderAndCache(i, msg, width, maxBubbleWidth);
+      allLines.push(...rendered);
+      allLines.push("");
     }
 
+    // Lines after the visible range → empty placeholders
+    const linesAfterVisible = cumulativeHeight - allLines.length;
+    for (let i = 0; i < linesAfterVisible; i++) {
+      allLines.push("");
+    }
+
+    // Evict render cache entries far from viewport to bound memory
+    // Keep viewport + 50 message buffer, evict the rest.
+    // Height cache is kept (small integers, O(N) is negligible).
+    const CACHE_BUFFER = 50;
+    const evictBefore = firstVisible - CACHE_BUFFER;
+    const evictAfter = lastVisible + CACHE_BUFFER;
+    if (this.renderCache.size > evictAfter - evictBefore + 20) {
+      for (const key of this.renderCache.keys()) {
+        if (key < evictBefore || key > evictAfter) {
+          this.renderCache.delete(key);
+        }
+      }
+    }
+
+    return allLines;
+  }
+
+  /** Render a message and store in renderCache. Returns the output lines. */
+  private renderAndCache(index: number, msg: ChatMessage, width: number, maxBubbleWidth: number): string[] {
+    const msgLines = this.renderMessage(msg, width, maxBubbleWidth);
+    const outputLines: string[] = [];
+    this.pushMaybeCollapsed(outputLines, msgLines, msg, width);
+    const hash = this.contentHash(msg.content);
+    this.renderCache.set(index, { lines: outputLines, hash, width, collapsed: !!msg.collapsed });
+    return outputLines;
+  }
+
+  /** Legacy render-all path (when viewport info not available). */
+  private renderAll(width: number, maxBubbleWidth: number, hasLiveTools: boolean): string[] {
+    const allLines: string[] = [];
+    for (let i = 0; i < this.messages.length; i++) {
+      const msg = this.messages[i]!;
+      if (i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system") {
+        allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
+      }
+      this.messageBoundaries[i] = allLines.length;
+      const isLastMsg = i === this.messages.length - 1;
+      const isAgent = msg.role === "agent" || msg.role === "assistant";
+      if (isLastMsg && isAgent && hasLiveTools) {
+        allLines.push(...this.renderAgentWithLiveTools(msg, width, maxBubbleWidth));
+        allLines.push("");
+        continue;
+      }
+      const cached = this.renderCache.get(i);
+      const hash = this.contentHash(msg.content);
+      if (cached && cached.hash === hash && cached.width === width && cached.collapsed === !!msg.collapsed) {
+        allLines.push(...cached.lines);
+        allLines.push("");
+        continue;
+      }
+      const rendered = this.renderAndCache(i, msg, width, maxBubbleWidth);
+      allLines.push(...rendered);
+      allLines.push("");
+    }
     return allLines;
   }
 
@@ -147,83 +363,112 @@ export class MessagesComponent implements Component {
   private renderMessage(msg: ChatMessage, width: number, maxBubbleWidth: number): string[] {
     switch (msg.role) {
       case "user": {
-        const userMaxWidth = Math.min(Math.floor(width * 0.5), maxBubbleWidth);
-        const wrapped = wrapText(msg.content || "", userMaxWidth - 4);
-        const contentWidth = wrapped.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
-        const boxWidth = contentWidth + 4;
-        const leftPad = " ".repeat(Math.max(0, width - boxWidth));
-        const dim = msg.pending ? ctp.overlay0 : ctp.surface1;
+        // Width: full terminal minus bg padding (1 left) and prefix ("> " = 2) and margin (1 right)
+        const wrapWidth = Math.max(20, width - 4);
+        const wrapped = wrapText(msg.content || "", wrapWidth);
+        const accentFn = msg.pending ? ctp.overlay0 : defaultTheme.primary;
         const textFn = msg.pending ? ctp.overlay0 : ctp.text;
-        const lines: string[] = [];
-        if (msg.pending) {
-          lines.push(leftPad + dim("⏳ ") + dim("┌" + "─".repeat(Math.max(0, boxWidth - 4)) + "┐"));
-        } else {
-          lines.push(leftPad + dim("┌" + "─".repeat(boxWidth - 2) + "┐"));
-        }
-        for (const line of wrapped) {
-          const padRight = contentWidth - visibleWidth(line);
-          lines.push(leftPad + dim("│") + " " + textFn(line) + " ".repeat(padRight) + " " + dim("│"));
-        }
-        lines.push(leftPad + dim("└" + "─".repeat(boxWidth - 2) + "┘"));
-        return lines;
+        const rawLines = wrapped.map((line, i) => {
+          const prefix = i === 0 ? accentFn("> ") : "  ";
+          return prefix + textFn(line);
+        });
+        return applyBlockBackground(rawLines, defaultTheme.agentResponseBg, width);
       }
       case "assistant":
       case "agent": {
-        const nameLabel = msg.agentName ?? (msg.role.charAt(0).toUpperCase() + msg.role.slice(1));
-        const lines: string[] = [];
-        lines.push("  " + agentBadge(nameLabel));
+        const nameLabel = msg.agentName ?? "OpenPawl";
+        const badgeLines: string[] = [];
 
+        const contentLines: string[] = [];
         const segments = parseMessageSegments((msg.content || "").replace(/^\n+/, ""));
         const hasTools = segments.some(s => s.type === "tool");
+        const contentWidth = width - 2; // 1 left pad + 1 right margin inside bg block
+
+        // Badge with optional tool count for baked messages with collapsed tools
+        const toolSegCount = segments.filter(s => s.type === "tool").length;
+        // Check for "... N more tools completed" line to compute actual total
+        const collapsedMatch = (msg.content || "").match(/\.\.\.\s+(\d+)\s+more tools completed/);
+        const totalToolCount = collapsedMatch
+          ? toolSegCount + parseInt(collapsedMatch[1]!, 10)
+          : toolSegCount;
+        if (totalToolCount > 3) {
+          badgeLines.push("  " + agentBadge(nameLabel) + ctp.overlay0(` (used ${totalToolCount} tools)`));
+        } else {
+          badgeLines.push("  " + agentBadge(nameLabel));
+        }
 
         if (!hasTools) {
-          // No tools — badge + blank + indented response
-          lines.push("");
           for (const seg of segments) {
             if (seg.type === "text") {
-              const md = renderMarkdown(seg.lines.join("\n"), maxBubbleWidth - 4);
-              for (const ml of md) lines.push("    " + ml);
+              const md = renderMarkdown(seg.lines.join("\n"), contentWidth - 4);
+              for (const ml of md) contentLines.push("   " + ml);
             }
           }
-          return lines;
-        }
+        } else {
+          // Tree rendering: tool lines with connectors, text blocks indented
+          const BRANCH = ctp.overlay0("├─");
+          const LAST   = ctp.overlay0("└─");
+          const VERT   = ctp.overlay0("│");
 
-        // Tree rendering: tool lines with connectors, text blocks indented
-        const BRANCH = ctp.overlay0("├─");
-        const LAST   = ctp.overlay0("└─");
-        const VERT   = ctp.overlay0("│");
-
-        for (let si = 0; si < segments.length; si++) {
-          const seg = segments[si]!;
-
-          if (seg.type === "tool") {
-            const isLastTool = !segments.slice(si + 1).some(s => s.type === "tool");
-            const isFinalSeg = si === segments.length - 1;
-            const connector = (isLastTool && isFinalSeg) ? LAST : BRANCH;
-            lines.push("  " + connector + " " + seg.line);
-            continue;
+          // Count tool segments for collapse logic
+          const toolSegs: Array<{ type: "tool"; line: string }> = [];
+          const textSegs: Array<{ seg: { type: "text"; lines: string[] }; index: number }> = [];
+          for (let si = 0; si < segments.length; si++) {
+            const s = segments[si]!;
+            if (s.type === "tool") toolSegs.push(s);
+            else textSegs.push({ seg: s, index: si });
           }
 
-          // Text segment
-          const trimmed = seg.lines.join("\n").replace(/^\n+/, "").replace(/\n+$/, "");
-          if (!trimmed) continue;
+          const COLLAPSE_THRESHOLD = 3;
+          const shouldCollapse = toolSegs.length > COLLAPSE_THRESHOLD;
 
-          const isFinal = si === segments.length - 1;
-          if (isFinal) {
-            // Final response: vert line separator, then indented text
-            lines.push("  " + VERT);
-            const md = renderMarkdown(trimmed, maxBubbleWidth - 4);
-            for (const ml of md) lines.push("    " + ml);
+          // Render tool lines (collapsed or full)
+          if (shouldCollapse) {
+            const showFirst = 2;
+            // First 2 tools
+            for (let t = 0; t < Math.min(showFirst, toolSegs.length); t++) {
+              contentLines.push(" " + BRANCH + " " + toolSegs[t]!.line);
+            }
+            // Collapsed summary
+            const hiddenCount = toolSegs.length - showFirst - (toolSegs.length > showFirst ? 1 : 0);
+            if (hiddenCount > 0) {
+              contentLines.push(" " + BRANCH + "  " + ctp.overlay0(`... ${hiddenCount} more tools completed`));
+            }
+            // Last tool
+            if (toolSegs.length > showFirst) {
+              contentLines.push(" " + BRANCH + " " + toolSegs[toolSegs.length - 1]!.line);
+            }
           } else {
-            // Intermediate text: continuation lines with vert prefix
-            lines.push("  " + VERT);
-            const md = renderMarkdown(trimmed, maxBubbleWidth - 6);
-            for (const ml of md) lines.push("  " + VERT + " " + ml);
-            lines.push("  " + VERT);
+            for (let si = 0; si < segments.length; si++) {
+              const seg = segments[si]!;
+              if (seg.type !== "tool") continue;
+              const isLastTool = !segments.slice(si + 1).some(s => s.type === "tool");
+              const isFinalSeg = si === segments.length - 1;
+              const connector = (isLastTool && isFinalSeg) ? LAST : BRANCH;
+              contentLines.push(" " + connector + " " + seg.line);
+            }
+          }
+
+          // Render text segments
+          for (const { seg, index: si } of textSegs) {
+            const trimmed = seg.lines.join("\n").replace(/^\n+/, "").replace(/\n+$/, "");
+            if (!trimmed) continue;
+
+            const isFinal = si === segments.length - 1;
+            if (isFinal) {
+              contentLines.push(" " + VERT);
+              const md = renderMarkdown(trimmed, contentWidth - 4);
+              for (const ml of md) contentLines.push("   " + ml);
+            } else {
+              contentLines.push(" " + VERT);
+              const md = renderMarkdown(trimmed, contentWidth - 5);
+              for (const ml of md) contentLines.push(" " + VERT + " " + ml);
+              contentLines.push(" " + VERT);
+            }
           }
         }
 
-        return lines;
+        return [...badgeLines, ...contentLines];
       }
       case "error": {
         const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
@@ -241,13 +486,20 @@ export class MessagesComponent implements Component {
       }
       case "system": {
         const content = msg.content || "";
+        let sysLines: string[];
         if (content.includes("\x1b[")) {
           // Already styled (e.g., panel output, welcome screen) — pass through as-is
-          return content.split("\n").map((line) => "  " + line);
+          sysLines = content.split("\n").map((line) => "  " + line);
+        } else {
+          const colorFn = detectSystemColor(content);
+          const mdLines = renderMarkdown(content, maxBubbleWidth - 2);
+          sysLines = mdLines.map((line) => "  " + colorFn(line));
         }
-        const colorFn = detectSystemColor(content);
-        const mdLines = renderMarkdown(content, maxBubbleWidth - 2);
-        return mdLines.map((line) => "  " + colorFn(line));
+        // Tool approval prompts get a subtle warm background tint
+        if (msg.tag === "tool-approval") {
+          return applyBlockBackground(sysLines, defaultTheme.toolApprovalBg, width);
+        }
+        return sysLines;
       }
       default: {
         const hasAnsi = (msg.content || "").includes("\x1b[");
@@ -259,36 +511,74 @@ export class MessagesComponent implements Component {
   }
 
   /** Render the last agent message with live tool call views embedded in tree structure. */
-  private renderAgentWithLiveTools(msg: ChatMessage, _width: number, maxBubbleWidth: number): string[] {
-    const nameLabel = msg.agentName ?? (msg.role.charAt(0).toUpperCase() + msg.role.slice(1));
-    const lines: string[] = [];
+  private renderAgentWithLiveTools(msg: ChatMessage, width: number, maxBubbleWidth: number): string[] {
+    const nameLabel = msg.agentName ?? "OpenPawl";
+    const badgeLines: string[] = [];
     const BRANCH = ctp.overlay0("├─");
     const VERT   = ctp.overlay0("│");
 
-    // Badge (root of tree)
-    lines.push("  " + agentBadge(nameLabel));
+    // Badge (root of tree) — outside background block
+    badgeLines.push("  " + agentBadge(nameLabel));
 
-    // Live tool call views with tree connectors
+    const contentLines: string[] = [];
+
+    // Partition tool calls into completed and running
+    const completed: ToolCallView[] = [];
+    const running: ToolCallView[] = [];
     for (const tid of this.toolCallOrder) {
       const view = this.activeToolCalls.get(tid);
-      if (view) {
-        const rendered = view.render(maxBubbleWidth);
-        for (let r = 0; r < rendered.length; r++) {
-          const prefix = r === 0 ? "  " + BRANCH + " " : "  " + VERT + "  ";
-          lines.push(prefix + rendered[r]!.trimStart());
-        }
+      if (!view) continue;
+      if (view.status === "completed" || view.status === "failed") {
+        completed.push(view);
+      } else {
+        running.push(view);
+      }
+    }
+
+    const totalTools = completed.length + running.length;
+    const COLLAPSE_THRESHOLD = 3;
+
+    if (totalTools <= COLLAPSE_THRESHOLD) {
+      // Render all normally
+      for (const tid of this.toolCallOrder) {
+        const view = this.activeToolCalls.get(tid);
+        if (view) renderToolInTree(view, contentLines, BRANCH, VERT, maxBubbleWidth);
+      }
+    } else {
+      // Collapsed rendering: first 2, summary, last completed, then running
+      const showFirst = 2;
+
+      for (let i = 0; i < Math.min(showFirst, completed.length); i++) {
+        renderToolInTree(completed[i]!, contentLines, BRANCH, VERT, maxBubbleWidth);
+      }
+
+      const hiddenCount = completed.length - showFirst - (completed.length > showFirst ? 1 : 0);
+      if (hiddenCount > 0) {
+        contentLines.push(" " + BRANCH + "  " + ctp.overlay0(`... ${hiddenCount} more tools completed`));
+      }
+
+      if (completed.length > showFirst) {
+        renderToolInTree(completed[completed.length - 1]!, contentLines, BRANCH, VERT, maxBubbleWidth);
+      }
+
+      for (const view of running) {
+        renderToolInTree(view, contentLines, BRANCH, VERT, maxBubbleWidth);
       }
     }
 
     // Content (thinking text or streaming response) — inside tree
     const content = (msg.content || "").replace(/^\n+/, "");
     if (content) {
-      lines.push("  " + VERT);
+      contentLines.push(" " + VERT);
       const md = renderMarkdown(content, maxBubbleWidth - 4);
-      for (const ml of md) lines.push("    " + ml);
+      for (const ml of md) contentLines.push("   " + ml);
+    } else if (running.length === 0 && totalTools > 0) {
+      // Agent is thinking (no content yet, no tools running, but had tools)
+      contentLines.push(" " + VERT);
+      contentLines.push("   " + ctp.overlay0("thinking..."));
     }
 
-    return lines;
+    return [...badgeLines, ...contentLines];
   }
 
   /** Fast content hash for cache invalidation. */
@@ -318,6 +608,19 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /** Remove the last message matching a given tag. Returns true if found. */
+  removeLastByTag(tag: string): boolean {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i]!.tag === tag) {
+        this.messages.splice(i, 1);
+        this.renderCache.clear();
+        this.heightCache.clear();
+        return true;
+      }
+    }
+    return false;
+  }
+
   addMessage(msg: ChatMessage): void {
     // Auto-collapse previous long tool messages (not assistant/agent text)
     for (let i = 0; i < this.messages.length; i++) {
@@ -328,7 +631,8 @@ export class MessagesComponent implements Component {
         prev.collapsed === undefined
       ) {
         prev.collapsed = true;
-        this.renderCache.delete(i); // collapse state changed
+        this.renderCache.delete(i);
+        this.heightCache.delete(i);
       }
     }
     this.messages.push(msg);
@@ -337,16 +641,20 @@ export class MessagesComponent implements Component {
   /** Replace the last message's content entirely (for thinking indicator). */
   replaceLast(content: string): void {
     if (this.messages.length > 0) {
-      this.messages[this.messages.length - 1]!.content = content;
-      this.renderCache.delete(this.messages.length - 1);
+      const idx = this.messages.length - 1;
+      this.messages[idx]!.content = content;
+      this.renderCache.delete(idx);
+      this.heightCache.delete(idx);
     }
   }
 
   /** Replace the last message entirely (e.g., swap thinking for agent message). */
   replaceLastWith(msg: ChatMessage): void {
     if (this.messages.length > 0) {
-      this.messages[this.messages.length - 1] = msg;
-      this.renderCache.delete(this.messages.length - 1);
+      const idx = this.messages.length - 1;
+      this.messages[idx] = msg;
+      this.renderCache.delete(idx);
+      this.heightCache.delete(idx);
     } else {
       this.messages.push(msg);
     }
@@ -364,9 +672,10 @@ export class MessagesComponent implements Component {
     if (this.messages.length === 0) {
       this.messages.push({ role: "assistant", content: chunk });
     } else {
-      const last = this.messages[this.messages.length - 1]!;
-      last.content += chunk;
-      this.renderCache.delete(this.messages.length - 1);
+      const idx = this.messages.length - 1;
+      this.messages[idx]!.content += chunk;
+      this.renderCache.delete(idx);
+      this.heightCache.delete(idx);
     }
   }
 
@@ -432,14 +741,28 @@ export class MessagesComponent implements Component {
     }
 
     if (summaryLines.length > 0) {
-      // Insert as a system message before the last agent message
-      const toolSummary = summaryLines.join("\n");
+      // Build compact baked content (collapse if > 3 tools)
+      let toolSummary: string;
+      if (summaryLines.length > 3) {
+        const showFirst = 2;
+        const hiddenCount = summaryLines.length - showFirst - 1;
+        const parts = [
+          ...summaryLines.slice(0, showFirst),
+          ctp.overlay0(`... ${hiddenCount} more tools completed`),
+          summaryLines[summaryLines.length - 1]!,
+        ];
+        toolSummary = parts.join("\n");
+      } else {
+        toolSummary = summaryLines.join("\n");
+      }
+
       // Find the last agent/assistant message and prepend tool info
       for (let i = this.messages.length - 1; i >= 0; i--) {
         const msg = this.messages[i]!;
         if (msg.role === "agent" || msg.role === "assistant") {
           msg.content = toolSummary + "\n\n" + (msg.content || "");
           this.renderCache.delete(i);
+          this.heightCache.delete(i);
           break;
         }
       }
@@ -452,6 +775,7 @@ export class MessagesComponent implements Component {
   removePendingMessages(): void {
     this.messages = this.messages.filter(m => !m.pending);
     this.renderCache.clear();
+    this.heightCache.clear();
   }
 
   /** Mark the first pending message as active (no longer dimmed). */
@@ -460,12 +784,14 @@ export class MessagesComponent implements Component {
     if (idx !== -1) {
       this.messages[idx]!.pending = false;
       this.renderCache.delete(idx);
+      this.heightCache.delete(idx);
     }
   }
 
   clear(): void {
     this.messages = [];
     this.renderCache.clear();
+    this.heightCache.clear();
     this.activeToolCalls.clear();
     this.toolCallOrder = [];
   }
@@ -505,6 +831,7 @@ export class MessagesComponent implements Component {
     if (!msg || !msg.collapsible) return false;
     msg.collapsed = !msg.collapsed;
     this.renderCache.delete(index);
+    this.heightCache.delete(index);
     return true;
   }
 
@@ -514,6 +841,7 @@ export class MessagesComponent implements Component {
       if (this.messages[i]!.collapsible) {
         this.messages[i]!.collapsed = true;
         this.renderCache.delete(i);
+        this.heightCache.delete(i);
       }
     }
   }
@@ -540,6 +868,15 @@ export class MessagesComponent implements Component {
       if (this.messageBoundaries[i]! <= lineIndex) return i;
     }
     return 0;
+  }
+
+  /** Count messages whose start boundary falls within a visible line range. */
+  getVisibleMessageCount(visibleStart: number, visibleEnd: number): number {
+    let count = 0;
+    for (const boundary of this.messageBoundaries) {
+      if (boundary >= visibleStart && boundary < visibleEnd) count++;
+    }
+    return count;
   }
 }
 

@@ -68,10 +68,9 @@ export function renderMarkdown(md: string, width: number): string[] {
       continue;
     }
 
-    // Horizontal rule — just extra spacing (headings provide enough structure)
+    // Horizontal rule — single blank line (headings provide enough structure)
     if (/^[-*_]{3,}\s*$/.test(line.trim())) {
       ensureBlankLine(result);
-      result.push("");
       continue;
     }
 
@@ -144,9 +143,9 @@ export function renderMarkdown(md: string, width: number): string[] {
       // Fall through to process current line normally
     }
 
-    // Empty line
+    // Empty line — collapse consecutive blanks to a single blank
     if (line.trim() === "") {
-      result.push("");
+      ensureBlankLine(result);
       continue;
     }
 

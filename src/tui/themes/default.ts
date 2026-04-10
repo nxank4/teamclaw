@@ -92,6 +92,10 @@ const catppuccinMochaTheme: Theme = {
   userBubble: (s) => `\x1b[38;2;205;214;244;48;2;49;50;68m${s}\x1b[0m`,
   // Agent name: bold + subtext1
   agentName: (s) => bold(ctp.subtext1(s)),
+  // Background tint for user messages — barely visible, close to base (#1e1e2e)
+  agentResponseBg: bgRgb(0x1f, 0x1f, 0x2b),
+  // Tool approval background — faint warm purple tint
+  toolApprovalBg: bgRgb(0x26, 0x22, 0x30),
 
   // Status bar — mantle background
   statusBarBg: bgMantle,

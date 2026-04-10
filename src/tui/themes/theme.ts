@@ -54,6 +54,8 @@ export interface Theme {
   // Chat bubble styles
   userBubble: StyleFn;
   agentName: StyleFn;
+  agentResponseBg: StyleFn;
+  toolApprovalBg: StyleFn;
 
   // Status bar
   statusBarBg: StyleFn;

@@ -5,7 +5,58 @@
  * Wires the existing TUI framework (src/tui/) to:
  *   - SessionManager (src/session/) for persistent session state
  *   - PromptRouter (src/router/) for intent classification + agent dispatch
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * STARTUP PERFORMANCE (2026-04-10)
+ * Enable instrumentation: OPENPAWL_DEBUG_STARTUP=1 openpawl
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Tiered provider validation:
+ *   Tier 1 (startup): Instant config check — sync file read, 0.1ms, no network
+ *   Tier 2 (background): Provider healthCheck() ping — 100ms after first paint
+ *   Tier 3 (implicit): Real validation on first LLM call — errors surface in chat
+ *
+ * Time-to-prompt: ~16ms (down from ~4500ms before tiered approach).
+ * Connection state machine drives status bar: no_key → ready → connecting → connected
+ *
+ * Remaining bottlenecks (not yet addressed):
+ * - Eager module graph import: ~300-570ms in cli.ts (bun module resolution)
+ * - Proxy re-exec: ~500ms when HTTP_PROXY is set (spawnSync re-launch)
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
  */
+
+// ── Startup timing instrumentation ──────────────────────────────────────────
+// Enable with: OPENPAWL_DEBUG_STARTUP=1 openpawl
+// Prints timing table to stderr. Remove this block when done profiling.
+const DEBUG_STARTUP = !!process.env.OPENPAWL_DEBUG_STARTUP;
+const _startupT0 = performance.now();
+const _startupMarks: { label: string; ts: number }[] = [];
+function _mark(label: string): void {
+  if (!DEBUG_STARTUP) return;
+  _startupMarks.push({ label, ts: performance.now() });
+}
+function _printStartupTimings(): void {
+  if (!DEBUG_STARTUP || _startupMarks.length === 0) return;
+  process.stderr.write("\n┌─────────────────────────────────────────────────────────────────┐\n");
+  process.stderr.write("│  STARTUP TIMING REPORT                                          │\n");
+  process.stderr.write("├──────────┬──────────┬──────────────────────────────────────────┤\n");
+  process.stderr.write("│ delta ms │ total ms │ checkpoint                               │\n");
+  process.stderr.write("├──────────┼──────────┼──────────────────────────────────────────┤\n");
+  let prev = _startupT0;
+  for (const m of _startupMarks) {
+    const delta = (m.ts - prev).toFixed(1).padStart(8);
+    const total = (m.ts - _startupT0).toFixed(1).padStart(8);
+    const label = m.label.padEnd(40);
+    process.stderr.write(`│ ${delta} │ ${total} │ ${label}│\n`);
+    prev = m.ts;
+  }
+  const uptimeMs = (process.uptime() * 1000).toFixed(1);
+  process.stderr.write("├──────────┴──────────┴──────────────────────────────────────────┤\n");
+  process.stderr.write(`│  process.uptime: ${uptimeMs}ms`.padEnd(66) + "│\n");
+  process.stderr.write("└─────────────────────────────────────────────────────────────────┘\n\n");
+}
+_mark("app/index.ts module loaded (eager imports)");
 
 import { VERSION } from "../version.js";
 import { createLayout } from "./layout.js";
@@ -19,14 +70,14 @@ import { registerAllCommands } from "./commands/index.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
 import { resolveFileRef } from "./file-ref.js";
 import { executeShell } from "./shell.js";
-import { type ConfigState, detectConfig, showConfigWarning } from "./config-check.js";
+import { type ConfigState, checkConfigInstant, detectConfig, pingProvider, showConfigWarning } from "./config-check.js";
+import { setConnectionState, getConnectionState, onConnectionChange, getStatusDisplay, type ConnectionStatus } from "../core/connection-state.js";
 import { setLoggerMuted, logger, isDebugMode } from "../core/logger.js";
 import { defaultTheme, ctp } from "../tui/themes/default.js";
 import { bold } from "../tui/core/ansi.js";
 import { visibleWidth } from "../tui/utils/text-width.js";
 import { separator } from "../tui/primitives/separator.js";
 import { findClosest } from "../utils/fuzzy.js";
-import { renderConfirmBox } from "../tui/components/confirm-box.js";
 import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
@@ -130,7 +181,7 @@ function permissionButtons(): string {
   return `${y}    ${n}    ${a}`;
 }
 
-/** Format the tool permission prompt using a renderPanel confirm box. */
+/** Format the tool permission prompt as flush-left text with risk icon. */
 function formatToolPermissionPrompt(toolName: string, input: unknown, riskLevel: string): string {
   const risk = riskIndicator(riskLevel);
   const inputObj = typeof input === "object" && input !== null
@@ -140,14 +191,14 @@ function formatToolPermissionPrompt(toolName: string, input: unknown, riskLevel:
   const primaryKey = TOOL_PRIMARY_ARG[toolName];
   const primaryValue = primaryKey && inputObj ? String(inputObj[primaryKey] ?? "") : "";
 
-  // Build content lines
-  const contentLines: string[] = [];
+  const lines: string[] = [];
+  lines.push(`${risk.color(risk.icon)} ${bold(toolName)}`);
 
   if (primaryValue) {
     const display = primaryValue.length > 120
       ? primaryValue.slice(0, 117) + "..."
       : primaryValue;
-    contentLines.push(ctp.text(display));
+    lines.push(`  ${ctp.text(display)}`);
   }
 
   // Show remaining args (excluding primary and metadata like timeout)
@@ -162,37 +213,20 @@ function formatToolPermissionPrompt(toolName: string, input: unknown, riskLevel:
         const short = val.length > 60 ? val.slice(0, 57) + "..." : val;
         return `${k}: ${short}`;
       }).join("  ");
-      contentLines.push(ctp.overlay0(extraStr));
+      lines.push(`  ${ctp.overlay0(extraStr)}`);
     }
   } else if (!primaryValue && input !== undefined) {
-    contentLines.push(ctp.overlay0(String(input).slice(0, 120)));
+    lines.push(`  ${ctp.overlay0(String(input).slice(0, 120))}`);
   }
 
-  // Title: risk icon + tool name (rendered in top border by renderPanel)
-  const title = `${risk.color(risk.icon)} ${bold(toolName)}`;
-
-  return renderConfirmBox({
-    title,
-    contentLines,
-    buttons: permissionButtons(),
-    borderColor: ctp.surface1,
-    titleColor: (s: string) => s,
-    maxWidth: Math.min(80, (process.stdout.columns ?? 90) - 10),
-  });
+  lines.push(`  ${permissionButtons()}`);
+  return lines.join("\n");
 }
 
 /** Format a resolved permission prompt (after user presses Y/N/!). */
 function formatToolPermissionResolved(toolName: string, riskLevel: string, result: string, resultColor: (s: string) => string): string {
   const risk = riskIndicator(riskLevel);
-  const title = `${risk.color(risk.icon)} ${bold(toolName)}`;
-  return renderConfirmBox({
-    title,
-    contentLines: [resultColor(result)],
-    buttons: "",
-    borderColor: ctp.surface1,
-    titleColor: (s: string) => s,
-    maxWidth: Math.min(80, (process.stdout.columns ?? 90) - 10),
-  });
+  return `${risk.color(risk.icon)} ${bold(toolName)}  ${resultColor(result)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +545,16 @@ async function handleChatFallback(
     const opError = translateError(err);
     setLastError(opError);
 
+    // Tier 3: update connection state on LLM call failure (force — real error)
+    const connState = getConnectionState();
+    if (opError.code === "AUTH_FAILED") {
+      setConnectionState({ ...connState, status: "auth_failed" }, { force: true });
+    } else if (opError.code === "NETWORK_ERROR") {
+      setConnectionState({ ...connState, status: "offline" }, { force: true });
+    } else if (opError.code !== "RATE_LIMITED" && opError.code !== "CONTEXT_LENGTH_EXCEEDED") {
+      setConnectionState({ ...connState, status: "error" }, { force: true });
+    }
+
     const lines: string[] = [`\u2717 ${opError.userMessage}`];
     if (opError.quickFixes.length > 0) {
       lines.push("");
@@ -548,10 +592,12 @@ export interface LaunchOptions {
  * Blocks until the user exits (Ctrl+C, /quit, Ctrl+D).
  */
 export async function launchTUI(opts?: LaunchOptions): Promise<void> {
+  _mark("launchTUI() entered");
   // Suppress logger during TUI — all messages go through layout
   setLoggerMuted(true);
 
   const layout = createLayout(opts?.terminal);
+  _mark("layout created (TUI components)");
   const registry = new CommandRegistry();
 
   // ── Shared mutable refs for async-initialized session/router ────────
@@ -577,6 +623,20 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // Register app commands (/status, /settings, /model, /mode, /cost, etc.)
   registerAllCommands(registry);
+  _mark("commands registered");
+
+  // Load saved theme from config
+  {
+    const { readGlobalConfig } = await import("../core/global-config.js");
+    const { getThemeEngine } = await import("../tui/themes/theme-engine.js");
+    _mark("theme engine imported");
+    const cfg = readGlobalConfig();
+    _mark("global config read (file I/O)");
+    if (cfg?.uiTheme) {
+      getThemeEngine().switchTheme(cfg.uiTheme);
+    }
+    _mark("theme applied");
+  }
   if (isDebugMode()) {
     logger.debug(`registry has ${registry.getAll().map((c: { name: string }) => c.name).join(", ")}`);
   }
@@ -743,13 +803,22 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         }
 
         // Guard: don't attempt LLM calls when no provider is configured
-        if (!ctx.configState?.hasProvider) {
-          msgCtx.addMessage("system", "\u26a0 No provider configured. Run /setup to set up your AI provider.");
-          break;
-        }
-        if (!ctx.configState.isConnected && !ctx.router) {
-          msgCtx.addMessage("system", "\u26a0 Provider not connected. Check your API key with /settings.");
-          break;
+        {
+          const connState = getConnectionState();
+          if (connState.status === "no_key") {
+            if (!ctx.configState?.hasProvider) {
+              msgCtx.addMessage("system", "\u26a0 No provider configured. Run /setup to set up your AI provider.");
+            } else {
+              msgCtx.addMessage("system", "\u26a0 No API key found. Run /settings to configure your provider.");
+            }
+            break;
+          }
+          if (connState.status === "auth_failed" && !ctx.router) {
+            msgCtx.addMessage("system", "\u26a0 API key invalid. Run /settings to update your credentials.");
+            break;
+          }
+          // "ready", "connecting", "connected", "offline" — all allow sending
+          // The fallback handler or router will surface real errors from the LLM call
         }
 
         // Route through PromptRouter if available, else fallback
@@ -908,12 +977,13 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   };
 
   // Re-render welcome banner on terminal resize (recomputes centering)
-  process.stdout.on("resize", () => {
+  const welcomeResizeHandler = () => {
     if (welcomeMessageActive && layout.messages.getMessageCount() === 1) {
       layout.messages.replaceLast(buildWelcomeContent());
       layout.tui.requestRender();
     }
-  });
+  };
+  process.stdout.on("resize", welcomeResizeHandler);
 
   // Status bar segments: provider | connection | mode | state | cost
   layout.statusBar.setSegments([
@@ -926,6 +996,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.statusBar.setRightText(ctp.overlay0("/help"));
 
   // ── Workspace config overlay ──────────────────────────────────────
+  _mark("workspace detection start");
   {
     const { isWorkspaceInitialized, readWorkspaceConfig, getWorkspaceInfo } = await import("../core/workspace.js");
     if (isWorkspaceInitialized()) {
@@ -939,24 +1010,52 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     }
   }
 
-  const configState = await detectConfig();
-  ctx.configState = configState;
-  if (configState.hasProvider) {
-    layout.statusBar.updateSegment(0, configState.providerName, ctp.subtext1);
-    if (configState.isConnected) {
-      layout.statusBar.updateSegment(1, "\u25cf connected", ctp.green);
+  _mark("workspace detection done");
 
-      // Set ActiveProviderState — single source of truth for all UI
-      const { getActiveProviderState } = await import("../providers/active-state.js");
-      const activeState = getActiveProviderState();
-      const { getConfigValue } = await import("../core/configManager.js");
-      const modelResult = getConfigValue("model", { raw: true });
-      activeState.setActive(configState.providerName, modelResult.value ?? "auto", { autoDetected: true });
-    } else {
-      layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
-    }
+  // ── Tier 1: Instant config check (no network, no async) ──────────
+  _mark("tier1 config check start");
+  const instantConfig = checkConfigInstant();
+  _mark("tier1 config check done");
+
+  // Set initial connection state and status bar
+  if (instantConfig.hasProvider && instantConfig.hasKey) {
+    setConnectionState({ status: "ready", providerName: instantConfig.providerName });
+  } else if (instantConfig.hasProvider && !instantConfig.hasKey) {
+    setConnectionState({ status: "no_key", providerName: instantConfig.providerName });
+  } else {
+    setConnectionState({ status: "no_key", providerName: "" });
   }
+
+  // Wire connection state changes to status bar
+  const colorMap = {
+    green: ctp.green,
+    red: ctp.red,
+    yellow: ctp.yellow,
+    blue: ctp.sapphire,
+    dim: ctp.overlay0,
+  };
+  const updateStatusFromConnection = (state: { status: ConnectionStatus; providerName: string }) => {
+    const display = getStatusDisplay(state.status);
+    if (state.providerName) {
+      layout.statusBar.updateSegment(0, state.providerName, ctp.subtext1);
+    }
+    layout.statusBar.updateSegment(1, display.text, colorMap[display.colorKey]);
+    layout.tui.requestRender();
+  };
+  onConnectionChange(updateStatusFromConnection);
+  // Apply initial state to status bar
+  updateStatusFromConnection(getConnectionState());
+
+  // Set minimal configState for guards (will be fully populated by tier 2)
+  ctx.configState = {
+    hasProvider: instantConfig.hasProvider,
+    providerName: instantConfig.providerName,
+    isConnected: false,
+    error: instantConfig.hasProvider && !instantConfig.hasKey ? "No API key" : null,
+  };
+
   // ── Provider registry: background refresh + status bar sync ──────────
+  let initialHealthCheckDone = false;
   {
     const { getProviderRegistry } = await import("../providers/provider-registry.js");
     const providerRegistry = getProviderRegistry();
@@ -964,26 +1063,31 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     // Non-blocking background discovery (populates model lists, checks health)
     providerRegistry.refreshAll().catch(() => {});
 
-    // When registry state changes (provider save, refresh, wizard), re-sync status bar
+    // When registry state changes (provider save, refresh, wizard), re-sync status bar.
+    // Skip re-check if already connected — avoids stale background checks
+    // overwriting a good state. Only re-verify when NOT already connected
+    // (e.g., after user changes provider in settings).
     providerRegistry.on("models:refreshed", async () => {
+      if (!initialHealthCheckDone) return;
+      const current = getConnectionState();
+      if (current.status === "connected") return;
       try {
         const { resetGlobalProviderManager } = await import("../providers/provider-factory.js");
         resetGlobalProviderManager();
-        const newState = await detectConfig();
-        ctx.configState = newState;
-        if (newState.hasProvider) {
-          layout.statusBar.updateSegment(0, newState.providerName, ctp.subtext1);
-          layout.statusBar.updateSegment(1,
-            newState.isConnected ? "\u25cf connected" : "\u25cb disconnected",
-            newState.isConnected ? ctp.green : ctp.red,
-          );
-        }
-        layout.tui.requestRender();
-      } catch { /* swallow — status bar stays as-is */ }
+        const { status, error } = await pingProvider(5000);
+        const providerName = current.providerName || instantConfig.providerName;
+        setConnectionState({ status, providerName });
+        ctx.configState = {
+          hasProvider: true,
+          providerName,
+          isConnected: status === "connected",
+          error: error ?? null,
+        };
+      } catch { /* swallow */ }
     });
   }
 
-  if (!configState.hasProvider) {
+  if (!instantConfig.hasProvider) {
     // Hide chat UI during first-run setup — only wizard + status bar visible
     layout.editor.hidden = true;
     layout.divider.hidden = true;
@@ -1001,22 +1105,22 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       const { resetGlobalProviderManager } = await import("../providers/provider-factory.js");
       resetGlobalProviderManager();
 
+      setConnectionState({ status: "connecting", providerName: "" });
       const newState = await detectConfig();
       ctx.configState = newState;
       if (newState.hasProvider) {
-        layout.statusBar.updateSegment(0, newState.providerName, ctp.subtext1);
-        if (newState.isConnected) {
-          layout.statusBar.updateSegment(1, "\u25cf connected", ctp.green);
+        const status: ConnectionStatus = newState.isConnected ? "connected" : "offline";
+        setConnectionState({ status, providerName: newState.providerName });
 
+        if (newState.isConnected) {
           const { getActiveProviderState } = await import("../providers/active-state.js");
           const activeState = getActiveProviderState();
           const { getConfigValue } = await import("../core/configManager.js");
           const modelResult = getConfigValue("model", { raw: true });
           activeState.setActive(newState.providerName, modelResult.value ?? "auto", { autoDetected: true });
-        } else {
-          layout.statusBar.updateSegment(1, "\u25cb disconnected", ctp.red);
         }
       }
+      initialHealthCheckDone = true;
 
       // Refresh provider registry so model lists and state sync
       const { getProviderRegistry } = await import("../providers/provider-registry.js");
@@ -1030,7 +1134,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     wizard.activate();
   } else {
     addWelcomeMessage();
-    if (configState.error) showConfigWarning(configState, layout);
+    // Config warnings shown after deferred health check completes (see below)
   }
 
   // ── Mode system ─────────────────────────────────────────────────
@@ -1274,42 +1378,6 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     },
   });
 
-  // /theme command — switch themes via ThemeEngine
-  registry.register({
-    name: "theme",
-    aliases: ["t"],
-    description: "Switch or list color themes",
-    args: "[theme-name]",
-    async execute(args, msgCtx) {
-      const { getThemeEngine } = await import("../tui/themes/theme-engine.js");
-      const engine = getThemeEngine();
-
-      if (!args.trim() || args.trim() === "list") {
-        const themes = engine.listThemes();
-        const current = engine.getCurrentId();
-        const lines = ["\u2726 Themes", ""];
-        for (const t of themes) {
-          const marker = t.id === current ? ctp.green(" \u2190 current") : "";
-          const variant = t.variant === "light" ? ctp.overlay0(" (light)") : "";
-          lines.push(`  ${t.id}${variant}${marker}`);
-        }
-        lines.push("", "  /theme <name> to switch");
-        msgCtx.addMessage("system", lines.join("\n"));
-        return;
-      }
-
-      const ok = engine.switchTheme(args.trim());
-      if (ok) {
-        msgCtx.addMessage("system", `\u2713 Switched to ${args.trim()}`);
-        // Force full re-render with new theme
-        msgCtx.tui?.requestRender();
-      } else {
-        const available = engine.listThemes().map((t) => t.id).join(", ");
-        msgCtx.addMessage("error", `Unknown theme: ${args.trim()}\nAvailable: ${available}`);
-      }
-    },
-  });
-
   // /copy command — copy last response to clipboard
   registry.register({
     name: "copy",
@@ -1420,6 +1488,21 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     // Recovery module not available — continue without crash handler
   }
 
+  // Safety net: if process exits without going through cleanup, restore terminal
+  let terminalRestored = false;
+  process.on("exit", () => {
+    if (terminalRestored) return;
+    terminalRestored = true;
+    try {
+      process.stdout.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l"); // mouse off
+      process.stdout.write("\x1b[?25h");   // cursor on
+      process.stdout.write("\x1b[?2004l"); // bracketed paste off
+      process.stdout.write("\x1b[0m");     // reset attrs
+      process.stdout.write("\x1b[?1049l"); // exit alt screen
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    } catch { /* best effort */ }
+  });
+
   let shuttingDown = false;
   const cleanup = async () => {
     if (shuttingDown) {
@@ -1429,7 +1512,10 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     shuttingDown = true;
 
     // IMMEDIATELY restore terminal — don't wait for async cleanup
+    if (flashTimer) clearTimeout(flashTimer);
+    process.stdout.off("resize", welcomeResizeHandler);
     layout.tui.stop();
+    terminalRestored = true;
     setLoggerMuted(false);
 
     // Force exit after 2s no matter what
@@ -1452,6 +1538,19 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       ]);
     } catch { /* ignore */ }
 
+    // Write profiling report if enabled
+    try {
+      const { isProfilingEnabled, generateReport } = await import("../telemetry/profiler.js");
+      if (isProfilingEnabled()) {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const { homedir } = await import("node:os");
+        const dir = join(homedir(), ".openpawl");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "profile-report.md"), generateReport());
+      }
+    } catch { /* best effort */ }
+
     clearTimeout(forceExit);
     // Ensure stdin doesn't keep process alive
     try {
@@ -1464,7 +1563,69 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.tui.onExit = () => void cleanup();
 
   // Start the TUI
+  _mark("tui.start() — first paint");
   layout.tui.start();
+  _mark("TUI running, prompt visible");
+  _printStartupTimings();
+
+  // ── Tier 2: Background health ping (after first paint) ──────────────
+  if (instantConfig.hasProvider && instantConfig.hasKey) {
+    // Animated spinner while connecting
+    const spinFrames = defaultTheme.symbols.spinner;
+    let spinIdx = 0;
+    let spinnerRunning = true;
+    const connectSpinner = setInterval(() => {
+      if (!spinnerRunning) return;
+      spinIdx = (spinIdx + 1) % spinFrames.length;
+      setConnectionState({ status: "connecting", providerName: instantConfig.providerName });
+    }, 100);
+
+    // Delay slightly to let TUI render first frame
+    setTimeout(() => {
+      _mark("tier2 health ping start");
+      pingProvider(5000).then(({ status, error }) => {
+        clearInterval(connectSpinner);
+        spinnerRunning = false;
+        initialHealthCheckDone = true;
+        _mark("tier2 health ping done");
+
+        setConnectionState({ status, providerName: instantConfig.providerName });
+
+        // Update configState for guards
+        ctx.configState = {
+          hasProvider: true,
+          providerName: instantConfig.providerName,
+          isConnected: status === "connected",
+          error: error ?? null,
+        };
+
+        if (status === "connected") {
+          // Set ActiveProviderState
+          import("../providers/active-state.js").then(({ getActiveProviderState }) => {
+            import("../core/configManager.js").then(({ getConfigValue }) => {
+              const activeState = getActiveProviderState();
+              const modelResult = getConfigValue("model", { raw: true });
+              activeState.setActive(instantConfig.providerName, modelResult.value ?? "auto", { autoDetected: true });
+            });
+          });
+        } else if (status === "auth_failed") {
+          showConfigWarning({
+            hasProvider: true,
+            providerName: instantConfig.providerName,
+            isConnected: false,
+            error: error ?? "API key invalid",
+          }, layout);
+        }
+      }).catch(() => {
+        clearInterval(connectSpinner);
+        spinnerRunning = false;
+        initialHealthCheckDone = true;
+        setConnectionState({ status: "error", providerName: instantConfig.providerName });
+      });
+    }, 100);
+  } else {
+    initialHealthCheckDone = true;
+  }
 
   // ── Initialize SessionManager + PromptRouter in background ──────────
   // This happens after tui.start() so the TUI is responsive immediately.
@@ -1767,14 +1928,17 @@ async function initSessionRouter(
   layout: AppLayout,
   registry: CommandRegistry,
 ): Promise<void> {
+  _mark("[bg] initSessionRouter start");
   const { createSessionManager } = await import("../session/index.js");
   const { PromptRouter: RouterClass } = await import("../router/index.js");
   const { createLLMAgentRunner } = await import("../router/llm-agent-runner.js");
+  _mark("[bg] session/router/runner imports done");
 
   ctx.sessionMgr = createSessionManager({
     sessionsDir: opts?.sessionsDir,
   });
   await ctx.sessionMgr.initialize();
+  _mark("[bg] session manager initialized");
 
   // Create LLM-backed agent runner with token streaming and tool support.
   const tokenEmitter = { emit: (_agentId: string, _token: string) => {} };
@@ -1785,6 +1949,7 @@ async function initSessionRouter(
   let toolExecutor: import("../tools/executor.js").ToolExecutor | null = null;
 
   try {
+    _mark("[bg] tool registry import start");
     const { ToolRegistry } = await import("../tools/registry.js");
     const { ToolExecutor } = await import("../tools/executor.js");
     const { PermissionResolver } = await import("../tools/permissions.js");
@@ -1805,6 +1970,7 @@ async function initSessionRouter(
         role: "system",
         content: prompt,
         timestamp: new Date(),
+        tag: "tool-approval",
       });
       layout.tui.requestRender();
 
@@ -1833,6 +1999,8 @@ async function initSessionRouter(
 
     // Wire ToolExecutor lifecycle events to status bar
     toolExecutor.on("tool:start", (_id: string, toolName: string) => {
+      // Remove resolved approval message — live tool view now shows spinner
+      layout.messages.removeLastByTag("tool-approval");
       layout.statusBar.updateSegment(3, `${toolName}...`, ctp.teal);
       layout.tui.requestRender();
     });
@@ -1946,8 +2114,10 @@ async function initSessionRouter(
     },
   });
 
+  _mark("[bg] tool registry + executor ready");
   ctx.router = new RouterClass({}, ctx.sessionMgr, null, agentRunner);
   await ctx.router.initialize();
+  _mark("[bg] router initialized");
 
   // Load workspace-local agents (.openpawl/agents/) if workspace exists
   {
@@ -2021,6 +2191,7 @@ async function initSessionRouter(
     const createResult = await ctx.sessionMgr.create(process.cwd());
     ctx.chatSession = createResult.isOk() ? createResult.value : null;
   }
+  _mark("[bg] session created");
 
   // Wire events
   ctx.cleanupRouter = wireRouterEvents(ctx.router, layout, (agentId, content) => {
@@ -2060,6 +2231,8 @@ async function initSessionRouter(
   layout.editor.setAutocompleteProvider(
     createAutocompleteProvider(registry, process.cwd(), ctx.router),
   );
+  _mark("[bg] initSessionRouter complete");
+  _printStartupTimings(); // second print with bg marks included
 }
 
 // ---------------------------------------------------------------------------

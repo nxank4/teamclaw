@@ -9,6 +9,7 @@
 import { EventEmitter } from "node:events";
 import { Result, ok, err } from "neverthrow";
 import { buildIdentityPrefix } from "./agent-registry.js";
+import { profileStart } from "../telemetry/profiler.js";
 import type {
   RouteDecision,
   DispatchResult,
@@ -79,6 +80,7 @@ export class Dispatcher extends EventEmitter {
     this.currentSessionHistory = sessionHistory ?? [];
     this.emit("dispatch:start", sessionId, decision);
 
+    const finishPipeline = profileStart("total_pipeline", `dispatch_${decision.strategy}`, { agents: decision.agents });
     const controller = new AbortController();
     this.abortControllers.set(sessionId, controller);
 
@@ -105,9 +107,11 @@ export class Dispatcher extends EventEmitter {
           return err({ type: "dispatch_failed", agentId: "unknown", cause: `Unknown strategy: ${decision.strategy}` });
       }
 
+      finishPipeline();
       this.emit("dispatch:done", sessionId, result);
       return ok(result);
     } catch (e) {
+      finishPipeline();
       const error: RouterError = {
         type: "dispatch_failed",
         agentId: "unknown",

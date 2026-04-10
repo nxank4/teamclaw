@@ -10,6 +10,7 @@ import path from "node:path";
 import os from "node:os";
 import { logger } from "../core/logger.js";
 import { isCancel, confirm } from "@clack/prompts";
+import { VERSION } from "../version.js";
 
 const GITHUB_REPO = "nxank4/openpawl";
 const GITHUB_API_RELEASES = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
@@ -18,9 +19,7 @@ const GITHUB_RAW_PKG = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/pa
 type InstallMethod = "npm" | "source" | "local-dev" | "binary" | "unknown";
 
 function getCurrentVersion(): string {
-    const require = createRequire(import.meta.url);
-    const { version } = require("../../package.json") as { version: string };
-    return version;
+    return VERSION;
 }
 
 async function fetchLatestVersion(): Promise<{ version: string; tag: string; downloadUrl?: string } | null> {

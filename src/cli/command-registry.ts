@@ -2,8 +2,8 @@
  * CLI command registry — single source of truth for all commands.
  * Generates help text, validates commands, and powers fuzzy matching.
  */
-import { createRequire } from "node:module";
 import pc from "picocolors";
+import { VERSION } from "../version.js";
 
 export type CommandCategory =
   | "getting-started"
@@ -275,8 +275,7 @@ export function getAllCommandNames(): string[] {
 // ─── Help Generation ───────────────────────────────────────────────────────
 
 export function generateHelp(): string {
-  const require = createRequire(import.meta.url);
-  const { version } = require("../../package.json") as { version: string };
+  const version = VERSION;
 
   const section = (s: string) => pc.bold(pc.yellow(s));
   const cmd = (c: string) => pc.green(c);

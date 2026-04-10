@@ -16,6 +16,16 @@ function printHelp(): void {
     console.log(generateHelp());
 }
 
+// ── Startup timing (set OPENPAWL_DEBUG_STARTUP=1 to enable) ─────────────
+const DEBUG_STARTUP = !!process.env.OPENPAWL_DEBUG_STARTUP;
+const _t0 = performance.now();
+function _mark(label: string): void {
+  if (!DEBUG_STARTUP) return;
+  const elapsed = (performance.now() - _t0).toFixed(1);
+  process.stderr.write(`[startup] ${elapsed.padStart(8)}ms  ${label}\n`);
+}
+_mark("cli.ts first execution");
+
 async function main(): Promise<void> {
     // ── Proxy auto-detection ──────────────────────────────────────────────
     // Node's fetch (undici) ignores HTTP_PROXY/HTTPS_PROXY. On Node >= 22.8,
@@ -23,6 +33,7 @@ async function main(): Promise<void> {
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY
       || process.env.https_proxy || process.env.http_proxy;
 
+    _mark("proxy env check");
     if (proxyUrl && !process.execArgv.includes("--use-env-proxy")) {
       const [major] = process.versions.node.split(".").map(Number) as [number];
       if (major >= 22) {
@@ -62,7 +73,9 @@ async function main(): Promise<void> {
         }
 
         // TUI handles first-run setup via SetupWizardView when no config exists
+        _mark("before import app/index.js");
         const { launchTUI } = await import("./app/index.js");
+        _mark("after import app/index.js");
         await launchTUI();
         return;
     }

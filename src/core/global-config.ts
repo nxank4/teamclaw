@@ -139,6 +139,7 @@ export interface OpenPawlGlobalConfig {
       permission?: string;
     }>;
   };
+  uiTheme?: string;
   hebbian?: {
     enabled?: boolean;
     activationDecay?: number;
@@ -419,6 +420,7 @@ export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): Ope
     ...(work ? { work } : {}),
     ...(streaming ? { streaming } : {}),
     ...(providers && providers.length > 0 ? { providers } : {}),
+    ...(typeof input.uiTheme === "string" && input.uiTheme.trim() ? { uiTheme: input.uiTheme.trim() } : {}),
   };
 }
 
