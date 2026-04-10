@@ -7,6 +7,8 @@ import type { KeyEvent } from "../../tui/core/input.js";
 import type { TUI } from "../../tui/core/tui.js";
 import { InteractiveView } from "./base-view.js";
 import { getProviderRegistry } from "../../providers/provider-registry.js";
+import { getActiveProviderState } from "../../providers/active-state.js";
+import { readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js";
 
 interface SettingField {
   key: string;
@@ -300,24 +302,42 @@ export class SettingsView extends InteractiveView {
 
   private async loadValues(): Promise<void> {
     try {
-      const { getConfigValue } = await import("../../core/configManager.js");
-      for (const field of FIELDS) {
-        const result = getConfigValue(field.key, { raw: true });
-        this.values.set(field.key, result.value ?? "");
-      }
-
-      // Override provider and model from ActiveProviderState (runtime truth)
-      const { getActiveProviderState } = await import("../../providers/active-state.js");
+      // Provider/model from ActiveProviderState (runtime truth)
       const active = getActiveProviderState();
-      if (active.isConfigured()) {
+      const globalCfg = readGlobalConfig();
+
+      if (active.provider) {
         this.values.set("provider", active.provider);
         this.values.set("model", active.model);
-        this.connectionStatus.set("provider", "ok");
+        if (active.connectionStatus === "connected") {
+          this.connectionStatus.set("provider", "ok");
+        }
+      } else if (globalCfg?.activeProvider) {
+        // Fallback: not yet connected but config exists
+        this.values.set("provider", globalCfg.activeProvider);
+        if (globalCfg.activeModel) this.values.set("model", globalCfg.activeModel);
+      }
+
+      // API key from global config providers array
+      const activeProvider = this.values.get("provider");
+      if (globalCfg && activeProvider) {
+        const entry = globalCfg.providers?.find((p) => p.type === activeProvider);
+        if (entry?.apiKey) {
+          this.values.set("apikey", entry.apiKey);
+        } else if (entry?.hasCredential) {
+          this.values.set("apikey", "(stored in credential store)");
+        }
+      }
+
+      // Project-scoped fields from project config
+      const { getConfigValue } = await import("../../core/configManager.js");
+      for (const key of ["mode", "maxCycles", "temperature"]) {
+        const result = getConfigValue(key, { raw: true });
+        this.values.set(key, result.value ?? "");
       }
     } catch {
       // Config unavailable
     }
-    // Re-render now that async values are loaded
     this.render();
   }
 
@@ -336,31 +356,42 @@ export class SettingsView extends InteractiveView {
 
   private async saveField(key: string, value: string): Promise<void> {
     try {
-      const { setConfigValue } = await import("../../core/configManager.js");
-      const result = setConfigValue(key, value);
-      if ("error" in result) return;
-      this.values.set(key, value);
+      if (key === "provider") {
+        // Persist activeProvider to global config
+        const cfg = readGlobalConfig();
+        if (cfg) writeGlobalConfig({ ...cfg, activeProvider: value });
+        this.values.set(key, value);
 
-      // Reset model when provider changes — old model is invalid for new provider
-      if (key === "provider" && value) {
+        // Reset model to default for the new provider
         const defaultModel = DEFAULT_MODELS[value] ?? "";
         this.values.set("model", defaultModel);
         if (defaultModel) {
-          const modelResult = setConfigValue("model", defaultModel);
-          if ("error" in modelResult) {
-            this.values.set("model", "");
-          }
+          const cfg2 = readGlobalConfig();
+          if (cfg2) writeGlobalConfig({ ...cfg2, activeModel: defaultModel });
+          getActiveProviderState().setModel(defaultModel);
         }
+      } else if (key === "model") {
+        // Persist activeModel to global config + runtime state
+        const cfg = readGlobalConfig();
+        if (cfg) writeGlobalConfig({ ...cfg, activeModel: value });
+        this.values.set(key, value);
+        getActiveProviderState().setModel(value);
+      } else if (key === "apikey") {
+        // Write to providers[] entry in global config via registry
+        const provider = this.values.get("provider");
+        if (provider) {
+          getProviderRegistry().setConfig(provider, { apiKey: value });
+        }
+        this.values.set(key, value);
+      } else {
+        // Project-scoped fields: mode, maxCycles, temperature
+        const { setConfigValue } = await import("../../core/configManager.js");
+        const result = setConfigValue(key, value);
+        if ("error" in result) return;
+        this.values.set(key, value);
       }
 
-      // Update ActiveProviderState when model changes
-      if (key === "model" && value) {
-        try {
-          const { getActiveProviderState } = await import("../../providers/active-state.js");
-          getActiveProviderState().setModel(value);
-        } catch { /* */ }
-      }
-
+      // Health check after provider or apikey changes
       if (key === "provider" || key === "apikey") {
         this.connectionStatus.set(key, "...");
         this.render();
@@ -377,9 +408,7 @@ export class SettingsView extends InteractiveView {
         } catch {
           this.connectionStatus.set(key, "fail");
         }
-        // Sync registry so model picker and status bar update
         getProviderRegistry().refreshModels(this.values.get("provider") ?? "").catch(() => {});
-
         this.render();
       }
     } catch {
