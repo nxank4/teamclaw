@@ -3,6 +3,7 @@
  */
 import { defaultTheme, ctp } from "../themes/default.js";
 import { bold } from "../core/ansi.js";
+import { ICONS } from "../constants/icons.js";
 
 // ─── Agent colors ───────────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ export function getAgentColor(agentId: string): (s: string) => string {
 
 export function agentBadge(agentName: string): string {
   const color = getAgentColor(agentName);
-  return color("\u25c6") + " " + bold(color(agentName));
+  return color(ICONS.diamond) + " " + bold(color(agentName));
 }
 
 // ─── Status badges ──────────────────────────────────────────────────────────
@@ -43,15 +44,7 @@ export function statusBadge(status: "success" | "error" | "warning" | "info" | "
 
 // ─── Mode badges ────────────────────────────────────────────────────────────
 
-const MODE_ICONS: Record<string, string> = {
-  default:       "\u25c6",
-  "auto-accept": "\u26a1",
-  "plan-only":   "\u25a3",
-  "review-only": "\u25ce",
-};
-
-export function modeBadge(mode: string, shortName: string, color: (s: string) => string): string {
-  const icon = MODE_ICONS[mode] ?? "\u25c6";
+export function modeBadge(icon: string, shortName: string, color: (s: string) => string): string {
   return color(icon + " " + shortName);
 }
 

@@ -5,6 +5,7 @@
 import type { KeyEvent } from "../core/input.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { defaultTheme } from "../themes/default.js";
+import { ICONS } from "../constants/icons.js";
 import { displayKey, detectPlatform } from "./platform-detect.js";
 import type { LeaderBinding } from "./leader-key.js";
 
@@ -118,9 +119,9 @@ export function buildHelpSections(leaderBindings: LeaderBinding[], leaderCombo: 
   return [
     {
       title: "Mode",
-      icon: "◆",
+      icon: ICONS.diamond,
       entries: [
-        { key: "shift+tab", description: "Cycle mode (DEF → AUTO → PLAN → REVIEW)" },
+        { key: "shift+tab", description: `Cycle mode (default ${ICONS.arrow} auto ${ICONS.arrow} plan ${ICONS.arrow} review)` },
         { key: "/mode <name>", description: "Set specific mode" },
       ],
     },

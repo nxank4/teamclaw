@@ -5,6 +5,8 @@ import type { Component } from "../core/component.js";
 import type { KeyEvent } from "../core/input.js";
 import { truncate } from "../utils/truncate.js";
 import { defaultTheme } from "../themes/default.js";
+import { renderScrollAbove, renderScrollBelow } from "../utils/scroll-indicators.js";
+import { handleVerticalNav } from "../core/navigation.js";
 
 export interface SelectItem {
   label: string;
@@ -55,22 +57,19 @@ export class SelectListComponent implements Component {
 
     // Scroll indicators
     if (start > 0) {
-      lines.unshift(defaultTheme.dim("  ↑ " + start + " more"));
+      lines.unshift(renderScrollAbove(start));
     }
     if (end < this.filteredItems.length) {
-      lines.push(defaultTheme.dim("  ↓ " + (this.filteredItems.length - end) + " more"));
+      lines.push(renderScrollBelow(this.filteredItems.length - end));
     }
 
     return lines;
   }
 
   onKey(event: KeyEvent): boolean {
-    if (event.type === "arrow" && event.direction === "up") {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-      return true;
-    }
-    if (event.type === "arrow" && event.direction === "down") {
-      this.selectedIndex = Math.min(this.filteredItems.length - 1, this.selectedIndex + 1);
+    const nav = handleVerticalNav(event, this.selectedIndex, this.filteredItems.length);
+    if (nav.handled) {
+      this.selectedIndex = nav.index;
       return true;
     }
     if (event.type === "enter") {

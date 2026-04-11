@@ -162,42 +162,15 @@ export class SprintRunner extends EventEmitter {
     this.state.phase = "executing";
     this.emitTyped("sprint:plan", { tasks: this.state.tasks });
 
-    // Phase 2: Sequential execution
-    for (let i = 0; i < this.state.tasks.length; i++) {
-      await this.checkPaused();
-      if (this.abortController.signal.aborted) break;
+    // Phase 2: Dependency-aware execution (parallel when possible)
+    const maxConcurrency = options?.maxConcurrency ?? 3;
+    const tasks = this.state.tasks;
+    const useParallel = tasks.length >= 3 && tasks.some((t) => t.dependsOn && t.dependsOn.length > 0);
 
-      const task = this.state.tasks[i]!;
-      this.state.currentTaskIndex = i;
-      const agentName = this.assignAgent(task);
-      task.assignedAgent = agentName;
-      task.status = "in_progress";
-      task.toolsCalled = [];
-      this.emitTyped("sprint:task:start", { task, agentName });
-
-      try {
-        const result = await profileMeasure("sprint_task", `task_${i + 1}_${agentName}`, () =>
-          this.runAgent(agentName, {
-            prompt: TASK_PROMPT(task, this.state),
-            signal: this.abortController!.signal,
-          }),
-        );
-        task.result = result;
-
-        // Validate: if task implies writing but agent never wrote, mark incomplete
-        if (this.taskExpectsWrite(task) && !this.taskDidWrite(task)) {
-          task.status = "incomplete";
-          task.error = "Task expects file creation/modification but agent only performed read operations";
-        } else {
-          task.status = "completed";
-          this.state.completedTasks++;
-        }
-      } catch (err) {
-        task.status = "failed";
-        task.error = err instanceof Error ? err.message : String(err);
-        this.state.failedTasks++;
-      }
-      this.emitTyped("sprint:task:complete", { task });
+    if (useParallel) {
+      await this.executeParallel(tasks, maxConcurrency);
+    } else {
+      await this.executeSequential(tasks);
     }
 
     // Phase 3: Done
@@ -234,6 +207,114 @@ export class SprintRunner extends EventEmitter {
 
   getState(): SprintState {
     return { ...this.state };
+  }
+
+  // ── Sequential execution (fallback / small plans) ───────────────────
+
+  private async executeSequential(tasks: SprintTask[]): Promise<void> {
+    for (let i = 0; i < tasks.length; i++) {
+      await this.checkPaused();
+      if (this.abortController!.signal.aborted) break;
+      await this.executeTask(tasks[i]!, i);
+    }
+  }
+
+  // ── Parallel execution (dependency-aware rounds) ───────────────────
+
+  private async executeParallel(tasks: SprintTask[], maxConcurrency: number): Promise<void> {
+    // Build completed set (1-based indices)
+    const completed = new Set<number>();
+    const failed = new Set<number>();
+    let round = 0;
+
+    while (completed.size + failed.size < tasks.length) {
+      await this.checkPaused();
+      if (this.abortController!.signal.aborted) break;
+
+      // Find tasks whose dependencies are all completed
+      const ready: number[] = [];
+      for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i]!;
+        if (task.status !== "pending") continue;
+        const deps = task.dependsOn ?? [];
+        // Skip if any dependency failed
+        if (deps.some((d) => failed.has(d))) {
+          task.status = "failed";
+          task.error = "Skipped: dependency failed";
+          this.state.failedTasks++;
+          this.emitTyped("sprint:task:complete", { task });
+          continue;
+        }
+        // Check all dependencies completed
+        if (deps.every((d) => completed.has(d))) {
+          ready.push(i);
+        }
+      }
+
+      if (ready.length === 0) {
+        // Deadlock or all done
+        break;
+      }
+
+      round++;
+      // Limit concurrency
+      const batch = ready.slice(0, maxConcurrency);
+      const batchTasks = batch.map((i) => tasks[i]!);
+      this.emitTyped("sprint:round:start", { round, tasks: batchTasks });
+      const roundStart = Date.now();
+
+      // Execute batch in parallel
+      await Promise.all(
+        batch.map((i) => this.executeTask(tasks[i]!, i)),
+      );
+
+      // Update completed/failed sets
+      for (const i of batch) {
+        const task = tasks[i]!;
+        const taskNum = i + 1; // 1-based
+        if (task.status === "completed") {
+          completed.add(taskNum);
+        } else {
+          failed.add(taskNum);
+        }
+      }
+
+      this.emitTyped("sprint:round:complete", { round, duration: Date.now() - roundStart });
+    }
+  }
+
+  // ── Single task execution ──────────────────────────────────────────
+
+  private async executeTask(task: SprintTask, index: number): Promise<void> {
+    this.state.currentTaskIndex = index;
+    const agentName = this.assignAgent(task);
+    task.assignedAgent = agentName;
+    task.status = "in_progress";
+    task.toolsCalled = [];
+    this.emitTyped("sprint:task:start", { task, agentName });
+
+    try {
+      const result = await profileMeasure("sprint_task", `task_${index + 1}_${agentName}`, () =>
+        this.runAgent(agentName, {
+          prompt: TASK_PROMPT(task, this.state),
+          signal: this.abortController!.signal,
+        }),
+      );
+      task.result = result;
+
+      if (this.taskExpectsWrite(task) && !this.taskDidWrite(task)) {
+        task.status = "incomplete";
+        task.error = "Task expects file creation/modification but agent only performed read operations";
+      } else {
+        task.status = "completed";
+        this.state.completedTasks++;
+      }
+    } catch (err) {
+      task.status = "failed";
+      task.error = err instanceof Error ? err.message : String(err);
+      this.state.failedTasks++;
+    }
+    this.emitTyped("sprint:task:complete", { task });
   }
 
   /** Override in subclass or mock for testing. */

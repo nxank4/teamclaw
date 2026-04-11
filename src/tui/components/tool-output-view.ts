@@ -4,6 +4,8 @@
 
 import { defaultTheme } from "../themes/default.js";
 import { wrapText } from "../utils/wrap.js";
+import { ICONS } from "../constants/icons.js";
+import { renderMoreLines } from "../utils/scroll-indicators.js";
 
 export type OutputType = "text" | "diff" | "shell" | "code" | "json" | "none";
 
@@ -58,7 +60,7 @@ export class ToolOutputView {
       const tail = lines.slice(-5);
       lines = [
         ...head,
-        defaultTheme.dim(`... (${lines.length - 20} more lines)`),
+        renderMoreLines(lines.length - 20),
         ...tail,
       ];
     }
@@ -79,8 +81,8 @@ function renderDiff(output: string): string[] {
 function renderShell(output: string): string[] {
   return output.split("\n").map((line) => {
     // Test result coloring
-    if (/\bPASS\b|✓/.test(line)) return defaultTheme.success(line);
-    if (/\bFAIL\b|✗/.test(line)) return defaultTheme.error(line);
+    if (/\bPASS\b/.test(line) || line.includes(ICONS.success)) return defaultTheme.success(line);
+    if (/\bFAIL\b/.test(line) || line.includes(ICONS.error)) return defaultTheme.error(line);
     if (/\bWARN\b/i.test(line)) return defaultTheme.warning(line);
     if (/\bERR[!]?\b/i.test(line)) return defaultTheme.error(line);
     if (/error\s+TS\d+/.test(line)) return defaultTheme.error(line);

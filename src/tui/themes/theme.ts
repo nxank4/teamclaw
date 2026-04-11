@@ -12,7 +12,10 @@ export interface Theme {
   success: StyleFn;
   warning: StyleFn;
   error: StyleFn;
+  info: StyleFn;
+  accent: StyleFn;
   dim: StyleFn;
+  muted: StyleFn;
   bold: StyleFn;
   italic: StyleFn;
   underline: StyleFn;

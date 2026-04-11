@@ -26,6 +26,10 @@ export interface LayoutConfig {
   messageBubblePercent: number;
 }
 
+/** Minimum terminal dimensions — below this, show a "resize" overlay instead of the UI. */
+export const MIN_COLS = 60;
+export const MIN_ROWS = 15;
+
 const WIDTH_THRESHOLDS = { xs: 60, sm: 80, md: 120 } as const;
 const HEIGHT_THRESHOLDS = { short: 20, medium: 35 } as const;
 

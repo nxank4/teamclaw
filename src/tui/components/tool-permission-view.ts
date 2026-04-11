@@ -6,6 +6,7 @@
 import { ctp } from "../themes/default.js";
 import { bold } from "../core/ansi.js";
 import type { KeyEvent } from "../core/input.js";
+import { ICONS } from "../constants/icons.js";
 
 export type RiskLevel = "safe" | "moderate" | "dangerous" | "destructive";
 
@@ -13,11 +14,11 @@ function riskIcon(risk: RiskLevel): { icon: string; color: (s: string) => string
   switch (risk) {
     case "dangerous":
     case "destructive":
-      return { icon: "\u26a0", color: ctp.yellow };
+      return { icon: ICONS.warning, color: ctp.yellow };
     case "moderate":
       return { icon: "\u270e", color: ctp.blue };
     default:
-      return { icon: "\u2713", color: ctp.green };
+      return { icon: ICONS.success, color: ctp.green };
   }
 }
 
@@ -38,11 +39,11 @@ export class ToolPermissionView {
     const lines: string[] = [];
 
     if (this.confirmed === true) {
-      lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}  ${ctp.green("\u2713 Approved")}`);
+      lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}  ${ctp.green(`${ICONS.success} Approved`)}`);
       return lines;
     }
     if (this.confirmed === false) {
-      lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}  ${ctp.red("\u2717 Denied")}`);
+      lines.push(`  ${color(icon)} ${bold(this.toolDisplayName)}  ${ctp.red(`${ICONS.error} Denied`)}`);
       return lines;
     }
 

@@ -4,6 +4,8 @@
  */
 
 import { defaultTheme, ctp } from "../themes/default.js";
+import { ICONS } from "../constants/icons.js";
+import { renderMoreLines } from "../utils/scroll-indicators.js";
 
 export interface ToolCallViewState {
   executionId: string;
@@ -57,7 +59,7 @@ export class ToolCallView {
     // Expand indicator
     const canExpand = !!fullOutput && fullOutput.split("\n").length > 1;
     const expandHint = canExpand
-      ? (expanded ? "  ▾" : "  ▸")
+      ? (expanded ? `  ${ICONS.expand}` : `  ${ICONS.cursor}`)
       : "";
 
     // Main line: "  ⠋ Reading README.md...  (0.2s)"
@@ -83,7 +85,7 @@ export class ToolCallView {
         for (const line of outputLines.slice(0, 15)) {
           lines.push(`  ${defaultTheme.dim("│")} ${line}`);
         }
-        lines.push(`  ${defaultTheme.dim("│")} ${defaultTheme.dim(`... (${outputLines.length - 20} more lines)`)}`);
+        lines.push(`  ${defaultTheme.dim("│")} ${renderMoreLines(outputLines.length - 20)}`);
         for (const line of outputLines.slice(-5)) {
           lines.push(`  ${defaultTheme.dim("│")} ${line}`);
         }
@@ -166,6 +168,7 @@ export class ToolCallView {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return defaultTheme.dim(`(${ms}ms)`);
-  return defaultTheme.dim(`(${(ms / 1000).toFixed(1)}s)`);
+  // Tool calls show decimal seconds for precision
+  const label = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+  return defaultTheme.dim(`(${label})`);
 }

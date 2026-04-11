@@ -102,8 +102,17 @@ export async function callLLM(
   }
   finishTotal();
 
+  const text = chunks.join("");
+  // Estimate tokens if provider didn't return usage (e.g. ollama streaming)
+  if (usage.input === 0 && usage.output === 0 && text.length > 0) {
+    usage = {
+      input: Math.ceil((prompt.length + (effectiveSystemPrompt?.length ?? 0)) / 4),
+      output: Math.ceil(text.length / 4),
+    };
+  }
+
   return {
-    text: chunks.join(""),
+    text,
     toolCalls: [],
     usage,
   };
@@ -213,6 +222,16 @@ export async function callLLMWithMessages(
 
   const text = chunks.join("");
 
+  // Estimate tokens if provider didn't return usage (e.g. ollama streaming)
+  if (usage.input === 0 && usage.output === 0 && (text.length > 0 || chatMessages.length > 0)) {
+    let inputChars = (effectiveSystemPrompt?.length ?? 0);
+    for (const m of chatMessages) inputChars += (m.content?.length ?? 0);
+    usage = {
+      input: Math.ceil(inputChars / 4),
+      output: Math.ceil(text.length / 4),
+    };
+  }
+
   // Prefer native tool calls from provider, fallback to text parsing
   let toolCalls: ToolCall[] = [];
   if (nativeToolCalls?.length) {
@@ -271,7 +290,15 @@ export async function callLLMMultiTurn(opts: {
       await opts.beforeTurn(messages, turn);
     }
 
-    const response = await callLLMWithMessages(messages, {
+    // Built-in compression: when no external beforeTurn hook is managing context,
+    // compress old tool results if estimated tokens exceed threshold.
+    // Uses a shallow copy — original messages array stays intact for tool loop state.
+    let messagesForLLM = messages;
+    if (!opts.beforeTurn && turn > 0 && estimateTokenCount(messages) > COMPRESS_TOKEN_THRESHOLD) {
+      messagesForLLM = compressToolResults(messages, COMPRESS_KEEP_LAST);
+    }
+
+    const response = await callLLMWithMessages(messagesForLLM, {
       model: opts.model,
       systemPrompt: opts.systemPrompt,
       tools: opts.tools,
@@ -301,18 +328,31 @@ export async function callLLMMultiTurn(opts: {
     });
     allToolCalls.push(...response.toolCalls);
 
-    // Run each tool call
-    for (const tc of response.toolCalls) {
+    // Execute tool calls — run in parallel when multiple are returned
+    // in a single LLM response (the model decided they're independent)
+    const toolCalls = response.toolCalls;
+    if (toolCalls.length === 1) {
+      // Single tool call — run directly
+      const tc = toolCalls[0]!;
       opts.onToolCall?.(tc.name, tc.input);
-
       const result = await profileMeasure("tool_execution", tc.name, () => opts.handleTool(tc.name, tc.input), toolMeta(tc.name, tc.input));
       opts.onToolResult?.(tc.name, result);
+      messages.push({ role: "tool", content: result, toolCallId: tc.id });
+    } else {
+      // Multiple tool calls — execute in parallel, preserve order in messages
+      for (const tc of toolCalls) opts.onToolCall?.(tc.name, tc.input);
 
-      messages.push({
-        role: "tool",
-        content: result,
-        toolCallId: tc.id,
-      });
+      const results = await Promise.all(
+        toolCalls.map((tc) =>
+          profileMeasure("tool_execution", tc.name, () => opts.handleTool(tc.name, tc.input), toolMeta(tc.name, tc.input)),
+        ),
+      );
+
+      for (let i = 0; i < toolCalls.length; i++) {
+        const tc = toolCalls[i]!;
+        opts.onToolResult?.(tc.name, results[i]!);
+        messages.push({ role: "tool", content: results[i]!, toolCallId: tc.id });
+      }
     }
   }
 
@@ -323,6 +363,53 @@ export async function callLLMMultiTurn(opts: {
     usage: totalUsage,
   };
 }
+
+// ── Multi-turn context compression ───────────────────────
+
+/** Default token threshold before compressing old tool results. */
+const COMPRESS_TOKEN_THRESHOLD = 30_000;
+/** Number of recent messages to keep uncompressed. */
+const COMPRESS_KEEP_LAST = 6;
+
+/** Rough token estimate: ~4 chars per token. */
+function estimateTokenCount(messages: Message[]): number {
+  let chars = 0;
+  for (const m of messages) chars += m.content.length;
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Rule-based compression of old tool results. Returns a new array where
+ * tool messages older than the last `keepLast` have their content summarized.
+ * The original messages array is NOT mutated.
+ */
+function compressToolResults(messages: Message[], keepLast: number): Message[] {
+  const cutoff = messages.length - keepLast;
+  if (cutoff <= 0) return messages;
+
+  return messages.map((msg, i) => {
+    if (i >= cutoff) return msg;
+    if (msg.role !== "tool") return msg;
+    if (msg.content.length <= 200) return msg;
+
+    return { ...msg, content: summarizeToolResult(msg.content) };
+  });
+}
+
+/** Compress a tool result to head + tail with omission note. */
+function summarizeToolResult(content: string): string {
+  const lines = content.split("\n");
+  if (lines.length <= 8) {
+    // Few lines but long — truncate by chars
+    if (content.length <= 500) return content;
+    return content.slice(0, 300) + `\n[...${content.length - 300} chars omitted...]`;
+  }
+  const head = lines.slice(0, 3).join("\n");
+  const tail = lines.slice(-2).join("\n");
+  return `${head}\n[...${lines.length - 5} lines omitted...]\n${tail}`;
+}
+
+// ── Helpers ───────────────────────────────────────────────
 
 const REDACT_RE = /password|token|secret|key/i;
 
