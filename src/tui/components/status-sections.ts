@@ -5,7 +5,9 @@
 
 import { defaultTheme } from "../themes/default.js";
 import type { StatusBarState } from "./status-data.js";
-import { formatTokens } from "./status-data.js";
+import { formatTokensWithUnit } from "./status-data.js";
+import { statusDot } from "./status-indicator.js";
+import { ICONS } from "../constants/icons.js";
 
 export interface StatusSection {
   content: string;
@@ -32,7 +34,7 @@ export function renderModelSection(state: StatusBarState): StatusSection {
 export function renderTokenSection(state: StatusBarState): StatusSection {
   const total = state.totalInputTokens + state.totalOutputTokens;
   if (total === 0) return { content: "", minWidth: 0, priority: 2 };
-  const display = formatTokens(total);
+  const display = formatTokensWithUnit(total);
   return {
     content: defaultTheme.dim(display),
     minWidth: 8,
@@ -63,10 +65,10 @@ export function renderSessionSection(state: StatusBarState): StatusSection {
   let content: string;
   switch (state.sessionStatus) {
     case "active":
-      content = defaultTheme.success("●") + " session";
+      content = statusDot("active") + " session";
       break;
     case "idle":
-      content = defaultTheme.dim("○") + " idle";
+      content = statusDot("unconfigured") + " idle";
       break;
     case "streaming": {
       const elapsed = Math.floor(state.streamingDuration / 1000);
@@ -74,7 +76,7 @@ export function renderSessionSection(state: StatusBarState): StatusSection {
       break;
     }
     case "recovering":
-      content = defaultTheme.warning("⚠") + " recovering";
+      content = defaultTheme.warning(ICONS.warning) + " recovering";
       break;
   }
   return { content, minWidth: 8, priority: 5 };

@@ -7,6 +7,7 @@ import type { LayoutConfig } from "../layout/responsive.js";
 import { wrapText } from "../utils/wrap.js";
 import { visibleWidth, stripAnsi } from "../utils/text-width.js";
 import { defaultTheme, ctp } from "../themes/default.js";
+import { ICONS } from "../constants/icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { CopyManager } from "../text/copy-manager.js";
 import { ToolCallView } from "./tool-call-view.js";
@@ -473,14 +474,14 @@ export class MessagesComponent implements Component {
       case "error": {
         const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
         return wrapped.map((line, i) => {
-          const prefix = i === 0 ? "✗ " : "  ";
+          const prefix = i === 0 ? `${ICONS.error} ` : "  ";
           return "  " + defaultTheme.error(prefix + line);
         });
       }
       case "tool": {
         const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
         return wrapped.map((line, i) => {
-          const prefix = i === 0 ? ctp.teal("⚙ ") : "  ";
+          const prefix = i === 0 ? ctp.teal(`${ICONS.gear} `) : "  ";
           return "  " + prefix + ctp.overlay1(line);
         });
       }
@@ -602,7 +603,7 @@ export class MessagesComponent implements Component {
       const preview = msgLines.slice(0, COLLAPSE_PREVIEW);
       allLines.push(...preview);
       const hidden = msgLines.length - COLLAPSE_PREVIEW;
-      allLines.push("  " + ctp.overlay0(`  ▸ ${hidden} more lines — Ctrl+E to expand`));
+      allLines.push("  " + ctp.overlay0(`  ${ICONS.cursor} ${hidden} more lines — Ctrl+E to expand`));
     } else {
       allLines.push(...msgLines);
     }

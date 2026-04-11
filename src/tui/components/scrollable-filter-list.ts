@@ -7,6 +7,7 @@
  * slicing, scroll indicators, and the filter bar.
  */
 import { defaultTheme } from "../themes/default.js";
+import { renderScrollAbove, renderScrollBelow } from "../utils/scroll-indicators.js";
 
 /** Configuration for a ScrollableFilterList instance. */
 export interface ScrollableFilterListConfig<T> {
@@ -122,7 +123,7 @@ export class ScrollableFilterList<T> {
 
     // Scroll indicator: above
     if (aboveCount > 0) {
-      lines.push(t.dim(`    \u25b2 ${aboveCount} more`));
+      lines.push(renderScrollAbove(aboveCount, "    "));
     }
 
     // Render visible items
@@ -140,7 +141,7 @@ export class ScrollableFilterList<T> {
 
     // Scroll indicator: below
     if (belowCount > 0) {
-      lines.push(t.dim(`    \u25bc ${belowCount} more`));
+      lines.push(renderScrollBelow(belowCount, "    "));
     }
 
     return lines;

@@ -23,7 +23,7 @@ describe("badge", () => {
   });
 
   test("modeBadge includes icon and name", () => {
-    const badge = strip(modeBadge("auto-accept", "AUTO", (s) => s));
+    const badge = strip(modeBadge("\u26a1", "AUTO", (s) => s));
     expect(badge).toContain("\u26a1");
     expect(badge).toContain("AUTO");
   });

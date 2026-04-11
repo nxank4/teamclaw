@@ -59,8 +59,12 @@ export class StatusBarComponent implements Component {
   private renderSegments(width: number): string {
     const separator = " \u2502 ";
     const bp = this.layoutProvider?.().breakpoint;
-    // On xs, show only first 2 segments (provider + status)
-    const segments = bp === "xs" ? this.segments!.slice(0, 2) : this.segments!;
+    // Narrow terminals: drop non-essential segments
+    // xs (<60): show provider + connection only
+    // sm (60-80): show provider + connection only (drop mode, state, tokens)
+    const segments = (bp === "xs" || bp === "sm")
+      ? this.segments!.slice(0, 2)
+      : this.segments!;
     const right = this.rightText ? this.rightText + " " : "";
     const rightWidth = visibleWidth(right);
 
@@ -101,11 +105,11 @@ export class StatusBarComponent implements Component {
     this.segments = segments;
   }
 
-  /** Update a single segment by index. */
-  updateSegment(index: number, text: string, color?: (s: string) => string): void {
+  /** Update a single segment by index. Pass null to clear segment color (use pre-colored text). */
+  updateSegment(index: number, text: string, color?: ((s: string) => string) | null): void {
     if (this.segments && this.segments[index]) {
       this.segments[index]!.text = text;
-      if (color) this.segments[index]!.color = color;
+      if (color !== undefined) this.segments[index]!.color = color ?? undefined;
     }
   }
 

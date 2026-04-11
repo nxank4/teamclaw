@@ -5,6 +5,7 @@
  */
 import { rgb, bgRgb, bold, italic, underline } from "../core/ansi.js";
 import type { Theme } from "./theme.js";
+import { ICONS } from "../constants/icons.js";
 
 // ── Catppuccin Mocha palette ─────────────────────────────────────
 const ctp = {
@@ -47,7 +48,10 @@ const catppuccinMochaTheme: Theme = {
   success: ctp.green,
   warning: ctp.yellow,
   error: ctp.red,
+  info: ctp.sapphire,
+  accent: ctp.teal,
   dim: ctp.overlay0,
+  muted: ctp.overlay1,
   bold,
   italic,
   underline,
@@ -70,10 +74,10 @@ const catppuccinMochaTheme: Theme = {
   // UI symbols
   symbols: {
     spinner: ["◒", "◐", "◓", "◑"],
-    success: "✓",
-    error: "✗",
-    warning: "⚠",
-    arrow: "→",
+    success: ICONS.success,
+    error: ICONS.error,
+    warning: ICONS.warning,
+    arrow: ICONS.arrow,
     bullet: "●",
     pending: "○",
     selected: "❯",

@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { formatTokens } from "../../utils/formatters.js";
 
 export interface StatusBarState {
   sessionId: string | null;
@@ -109,7 +110,7 @@ export class StatusDataStore extends EventEmitter {
     this.state.totalInputTokens = input;
     this.state.totalOutputTokens = output;
     const total = input + output;
-    this.state.tokenDisplay = total > 0 ? formatTokens(total) : "";
+    this.state.tokenDisplay = total > 0 ? formatTokensWithUnit(total) : "";
     this.notifyChange();
   }
 
@@ -234,9 +235,8 @@ function formatModelDisplay(model: string, provider: string): string {
   return provider ? `${short} via ${provider}` : short;
 }
 
-export function formatTokens(count: number): string {
-  if (count < 1000) return `${count} tok`;
-  if (count < 10_000) return `${(count / 1000).toFixed(1)}k tok`;
-  if (count < 1_000_000) return `${Math.round(count / 1000)}k tok`;
-  return `${(count / 1_000_000).toFixed(1)}M tok`;
+// Re-export formatTokens (with " tok" suffix for status bar display)
+export function formatTokensWithUnit(count: number): string {
+  return formatTokens(count) + " tok";
 }
+export { formatTokens };

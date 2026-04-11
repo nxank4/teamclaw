@@ -27,7 +27,7 @@ import { PERF } from "../perf-monitor.js";
 import type { ActionId } from "../keyboard/actions.js";
 import type { PresetName } from "../keyboard/keymap-presets.js";
 import { CopyManager, cleanCopyText } from "../text/copy-manager.js";
-import { computeLayout, DEFAULT_LAYOUT, type LayoutConfig } from "../layout/responsive.js";
+import { computeLayout, DEFAULT_LAYOUT, MIN_COLS, MIN_ROWS, type LayoutConfig } from "../layout/responsive.js";
 
 export class TUI {
   readonly keybindings: KeybindingManager;
@@ -157,7 +157,7 @@ export class TUI {
       this.resizeTimer = null;
       if (!this.running) return;
       this.performResize();
-    }, 100);
+    }, 50);
   }
 
   private performResize(): void {
@@ -393,12 +393,9 @@ export class TUI {
     // Recompute responsive layout each frame
     this.layout = computeLayout(this.terminal.columns, this.terminal.rows);
 
-    // Minimum terminal size guard
-    if (this.terminal.columns < 40 || this.terminal.rows < 10) {
-      const msg = "Terminal too small. Resize to at least 40\u00d710.";
-      const pad = Math.max(0, Math.floor((this.terminal.columns - msg.length) / 2));
-      this.renderer.render(this.terminal, ["", " ".repeat(pad) + msg, ""]);
-      this.terminal.write(hideCursor);
+    // Minimum terminal size guard — show centered resize message
+    if (this.terminal.columns < MIN_COLS || this.terminal.rows < MIN_ROWS) {
+      this.renderTooSmallMessage();
       DEV.endFrame();
       PERF.endRender();
       return;
@@ -626,6 +623,34 @@ export class TUI {
         return;
       }
     }
+    this.terminal.write(hideCursor);
+  }
+
+  /** Render a centered "terminal too small" message replacing the entire screen. */
+  private renderTooSmallMessage(): void {
+    const cols = this.terminal.columns;
+    const rows = this.terminal.rows;
+    const dim = (s: string): string => `\x1b[2m${s}\x1b[22m`;
+
+    const line1 = "Terminal too small";
+    const line2 = `Min: ${MIN_COLS}\u00d7${MIN_ROWS} \u00b7 Current: ${cols}\u00d7${rows}`;
+    const line3 = "\u2194 Resize to continue";
+
+    const centerPad = (s: string) => {
+      const pad = Math.max(0, Math.floor((cols - s.length) / 2));
+      return " ".repeat(pad) + s;
+    };
+
+    const lines: string[] = [];
+    const midRow = Math.floor(rows / 2);
+    for (let i = 0; i < rows; i++) {
+      if (i === midRow - 1) lines.push(dim(centerPad(line1)));
+      else if (i === midRow) lines.push(dim(centerPad(line2)));
+      else if (i === midRow + 1) lines.push(dim(centerPad(line3)));
+      else lines.push("");
+    }
+
+    this.renderer.render(this.terminal, lines);
     this.terminal.write(hideCursor);
   }
 

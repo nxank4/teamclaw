@@ -6,6 +6,8 @@
 import type { KeyEvent } from "../core/input.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { defaultTheme } from "../themes/default.js";
+import { ICONS } from "../constants/icons.js";
+import { handleVerticalNav } from "../core/navigation.js";
 
 export interface PaletteItem {
   id: string;
@@ -64,14 +66,13 @@ export class CommandPalette {
       return true;
     }
 
-    if (event.type === "arrow" && event.direction === "up") {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-      return true;
-    }
-    if (event.type === "arrow" && event.direction === "down") {
+    {
       const items = this.getFilteredItems();
-      this.selectedIndex = Math.min(items.length - 1, this.selectedIndex + 1);
-      return true;
+      const nav = handleVerticalNav(event, this.selectedIndex, items.length);
+      if (nav.handled) {
+        this.selectedIndex = nav.index;
+        return true;
+      }
     }
 
     if (event.type === "enter") {
@@ -178,7 +179,7 @@ export class CommandPalette {
         lines.push(pad + defaultTheme.dim("│") + catLine + " ".repeat(Math.max(0, innerWidth + 2 - visibleWidth(catLine))) + defaultTheme.dim("│"));
       }
 
-      const prefix = isSelected ? defaultTheme.primary("  ▸ ") : "    ";
+      const prefix = isSelected ? defaultTheme.primary(`  ${ICONS.cursor} `) : "    ";
       const label = isSelected ? defaultTheme.bold(item.label) : item.label;
       const desc = item.description ? "  " + defaultTheme.dim(item.description) : "";
       const kb = item.keybinding ? defaultTheme.dim(item.keybinding) : "";
@@ -198,7 +199,7 @@ export class CommandPalette {
 
     // Footer
     lines.push(pad + defaultTheme.dim("│") + " ".repeat(innerWidth + 2) + defaultTheme.dim("│"));
-    const hint = "↑↓ navigate  Enter select  Esc close";
+    const hint = `${ICONS.arrowUp}${ICONS.arrowDown} navigate  Enter select  Esc close`;
     lines.push(pad + defaultTheme.dim("│ ") + defaultTheme.dim(hint) + " ".repeat(Math.max(0, innerWidth + 1 - visibleWidth(hint))) + defaultTheme.dim("│"));
     lines.push(pad + defaultTheme.dim("└" + "─".repeat(innerWidth + 2) + "┘"));
 

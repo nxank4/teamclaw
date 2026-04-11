@@ -3,6 +3,7 @@
  */
 import { truncate } from "../utils/truncate.js";
 import { defaultTheme, ctp } from "../themes/default.js";
+import { renderScrollAbove, renderScrollBelow } from "../utils/scroll-indicators.js";
 
 export interface SelectableItem {
   id: string;
@@ -51,7 +52,7 @@ export function renderSelectableList(options: SelectableListOptions): string[] {
   const aboveCount = start;
   const belowCount = items.length - end;
   if (scrollIndicators && aboveCount > 0) {
-    lines.push(indentStr + defaultTheme.dim(`\u25b2 ${aboveCount} more`));
+    lines.push(renderScrollAbove(aboveCount, indentStr));
   }
 
   // Render visible items
@@ -91,7 +92,7 @@ export function renderSelectableList(options: SelectableListOptions): string[] {
 
   // Scroll indicator: below
   if (scrollIndicators && belowCount > 0) {
-    lines.push(indentStr + defaultTheme.dim(`\u25bc ${belowCount} more`));
+    lines.push(renderScrollBelow(belowCount, indentStr));
   }
 
   return lines;

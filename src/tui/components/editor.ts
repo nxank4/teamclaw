@@ -9,6 +9,8 @@ import { visibleWidth, charWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
 import { TextWrapper, type WrappedLine } from "../text/text-wrapper.js";
 import { defaultTheme, ctp } from "../themes/default.js";
+import { renderScrollAbove, renderScrollBelow } from "../utils/scroll-indicators.js";
+import { handleVerticalNav } from "../core/navigation.js";
 import { wordBoundaryLeft, wordBoundaryRight } from "../keybindings/input-shortcuts.js";
 
 export interface AutocompleteProvider {
@@ -83,7 +85,7 @@ export class EditorComponent implements Component {
       const visible = this.acSuggestions.slice(start, end);
 
       if (start > 0) {
-        result.push(defaultTheme.dim("  ↑ " + start + " more"));
+        result.push(renderScrollAbove(start));
       }
       for (let i = 0; i < visible.length; i++) {
         const item = visible[i]!;
@@ -97,7 +99,7 @@ export class EditorComponent implements Component {
         result.push(line);
       }
       if (end < this.acSuggestions.length) {
-        result.push(defaultTheme.dim("  ↓ " + (this.acSuggestions.length - end) + " more"));
+        result.push(renderScrollBelow(this.acSuggestions.length - end));
       }
     }
 
@@ -144,7 +146,7 @@ export class EditorComponent implements Component {
     // Scroll-down indicator
     if (hasBelow) {
       const belowCount = totalVisual - this.inputScrollOffset - visibleCount;
-      result.push(ctp.overlay0(`  ▼ ${belowCount} more`));
+      result.push(renderScrollBelow(belowCount));
     }
 
     return result;
@@ -153,12 +155,9 @@ export class EditorComponent implements Component {
   onKey(event: KeyEvent): boolean {
     // Autocomplete navigation (when popup is active)
     if (this.acActive) {
-      if (event.type === "arrow" && event.direction === "up") {
-        this.acSelectedIndex = Math.max(0, this.acSelectedIndex - 1);
-        return true;
-      }
-      if (event.type === "arrow" && event.direction === "down") {
-        this.acSelectedIndex = Math.min(this.acSuggestions.length - 1, this.acSelectedIndex + 1);
+      const nav = handleVerticalNav(event, this.acSelectedIndex, this.acSuggestions.length);
+      if (nav.handled) {
+        this.acSelectedIndex = nav.index;
         return true;
       }
       if (event.type === "enter") {

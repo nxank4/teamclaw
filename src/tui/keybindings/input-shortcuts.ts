@@ -6,6 +6,7 @@
  * behaves identically without duplicating logic.
  */
 import type { KeyEvent } from "../core/input.js";
+import { ICONS } from "../constants/icons.js";
 
 // ── Shortcut definitions ──────────────────────────────────────────────
 
@@ -24,10 +25,10 @@ export interface InputShortcut {
 
 export const INPUT_SHORTCUTS = {
   // ── Cursor movement ──
-  moveLeft:         { eventType: "arrow", char: "left",  label: "←",          description: "Move cursor left" },
-  moveRight:        { eventType: "arrow", char: "right", label: "→",          description: "Move cursor right" },
-  moveWordLeft:     { eventType: "arrow", char: "left",  ctrl: true, label: "Ctrl+←",    description: "Move to previous word" },
-  moveWordRight:    { eventType: "arrow", char: "right", ctrl: true, label: "Ctrl+→",    description: "Move to next word" },
+  moveLeft:         { eventType: "arrow", char: "left",  label: ICONS.arrowLeft,          description: "Move cursor left" },
+  moveRight:        { eventType: "arrow", char: "right", label: ICONS.arrow,          description: "Move cursor right" },
+  moveWordLeft:     { eventType: "arrow", char: "left",  ctrl: true, label: `Ctrl+${ICONS.arrowLeft}`,    description: "Move to previous word" },
+  moveWordRight:    { eventType: "arrow", char: "right", ctrl: true, label: `Ctrl+${ICONS.arrow}`,    description: "Move to next word" },
   moveLineStart:    { eventType: "home",                 label: "Home",       description: "Move to start of line" },
   moveLineEnd:      { eventType: "end",                  label: "End",        description: "Move to end of line" },
   moveToEnd:        { eventType: "char", char: "e", ctrl: true, label: "Ctrl+E", description: "Move to end of text" },
@@ -184,6 +185,6 @@ export function applyShortcut(
  */
 export function getInputShortcutsForDisplay(): Array<{ keys: string; description: string }> {
   return Object.values(INPUT_SHORTCUTS)
-    .filter((s) => s.label !== "←" && s.label !== "→" && s.label !== "Backspace" && s.label !== "Paste")
+    .filter((s) => s.label !== ICONS.arrowLeft && s.label !== ICONS.arrow && s.label !== "Backspace" && s.label !== "Paste")
     .map((s) => ({ keys: s.label, description: s.description }));
 }

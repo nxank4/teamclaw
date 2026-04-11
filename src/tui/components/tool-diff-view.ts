@@ -3,6 +3,7 @@
  */
 
 import { defaultTheme } from "../themes/default.js";
+import { renderMoreLines } from "../utils/scroll-indicators.js";
 
 export class ToolDiffView {
   static render(
@@ -21,7 +22,7 @@ export class ToolDiffView {
 
     for (const line of diffLines) {
       if (rendered >= maxLines) {
-        lines.push(prefix + defaultTheme.dim(`... (${diffLines.length - rendered} more lines)`));
+        lines.push(prefix + renderMoreLines(diffLines.length - rendered));
         break;
       }
 

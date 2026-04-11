@@ -7,6 +7,7 @@ import { ToolCallView } from "../components/tool-call-view.js";
 import { ToolGroupView } from "../components/tool-group-view.js";
 import { ToolPermissionView } from "../components/tool-permission-view.js";
 import type { RiskLevel } from "../components/tool-permission-view.js";
+import { ToolEvent } from "../../router/event-types.js";
 
 export interface ToolStreamEvent {
   type: string;
@@ -39,7 +40,7 @@ export class ToolEventHandler {
 
   handleEvent(event: ToolStreamEvent): void {
     switch (event.type) {
-      case "tool:start": {
+      case ToolEvent.Start: {
         const view = new ToolCallView({
           executionId: event.executionId!,
           toolName: event.toolName!,
@@ -67,7 +68,7 @@ export class ToolEventHandler {
         break;
       }
 
-      case "tool:progress": {
+      case "tool:progress" as string: {
         const view = this.activeTools.get(event.executionId!);
         if (view) {
           view.updateProgress(event.message ?? "");
@@ -76,7 +77,7 @@ export class ToolEventHandler {
         break;
       }
 
-      case "tool:done": {
+      case ToolEvent.Done: {
         const view = this.activeTools.get(event.executionId!);
         if (view) {
           view.complete({
@@ -90,7 +91,7 @@ export class ToolEventHandler {
         break;
       }
 
-      case "tool:confirmation_needed": {
+      case ToolEvent.ConfirmationNeeded: {
         const permView = new ToolPermissionView(
           event.executionId!,
           event.toolDisplayName ?? event.toolName ?? "Tool",
@@ -114,7 +115,7 @@ export class ToolEventHandler {
         break;
       }
 
-      case "tool:confirmed": {
+      case "tool:confirmed" as string: {
         const permView = this.pendingPermissions.get(event.executionId!);
         if (permView) {
           this.pendingPermissions.delete(event.executionId!);

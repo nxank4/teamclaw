@@ -3,6 +3,10 @@
  * Shift+Tab cycles modes: default → auto-accept → plan-only → review-only → default.
  */
 
+import { ICONS } from "../constants/icons.js";
+import { defaultTheme } from "../themes/default.js";
+import type { StyleFn } from "../themes/theme.js";
+
 export type OperatingMode = "default" | "auto-accept" | "plan-only" | "review-only";
 
 export interface ModeInfo {
@@ -11,14 +15,14 @@ export interface ModeInfo {
   shortName: string;
   description: string;
   icon: string;
-  color: string;
+  color: StyleFn;
 }
 
 const MODE_DEFS: ModeInfo[] = [
-  { mode: "default", displayName: "Default", shortName: "DEF", description: "Agents ask before modifying files", icon: "◆", color: "#888888" },
-  { mode: "auto-accept", displayName: "Auto-accept", shortName: "AUTO", description: "Agents modify files without asking", icon: "⚡", color: "#FFCC00" },
-  { mode: "plan-only", displayName: "Plan only", shortName: "PLAN", description: "Agents plan but don't execute tools", icon: "▣", color: "#5588FF" },
-  { mode: "review-only", displayName: "Review only", shortName: "REVIEW", description: "Agents read and analyze but don't modify", icon: "◎", color: "#666666" },
+  { mode: "default", displayName: "Default", shortName: "default", description: "Agents ask before modifying files", icon: ICONS.diamond, color: defaultTheme.dim },
+  { mode: "auto-accept", displayName: "Auto-accept", shortName: "auto", description: "Agents modify files without asking", icon: ICONS.bolt, color: defaultTheme.warning },
+  { mode: "plan-only", displayName: "Plan only", shortName: "plan", description: "Agents plan but don't execute tools", icon: ICONS.planMode, color: defaultTheme.info },
+  { mode: "review-only", displayName: "Review only", shortName: "review", description: "Agents read and analyze but don't modify", icon: ICONS.reviewMode, color: defaultTheme.muted },
 ];
 
 const CYCLE_ORDER: OperatingMode[] = ["default", "auto-accept", "plan-only", "review-only"];

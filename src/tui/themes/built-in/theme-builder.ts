@@ -4,6 +4,7 @@
 import type { Theme, StyleFn } from "../theme.js";
 import type { ThemePalette, ThemeDefinition } from "../theme-types.js";
 import { bold, italic, underline } from "../../core/ansi.js";
+import { ICONS } from "../../constants/icons.js";
 
 /** Convert hex "#RRGGBB" to RGB tuple. */
 export function hexToRgb(hex: string): [number, number, number] {
@@ -48,7 +49,10 @@ export function buildTheme(
     success: fg(p.success),
     warning: fg(p.warning),
     error: fg(p.error),
+    info: fg(p.info),
+    accent: fg(p.toolRunning),
     dim: fg(p.textMuted),
+    muted: fg(p.textSecondary),
     bold,
     italic,
     underline,
@@ -67,10 +71,10 @@ export function buildTheme(
 
     symbols: {
       spinner: ["◒", "◐", "◓", "◑"],
-      success: "✓",
-      error: "✗",
-      warning: "⚠",
-      arrow: "→",
+      success: ICONS.success,
+      error: ICONS.error,
+      warning: ICONS.warning,
+      arrow: ICONS.arrow,
       bullet: "●",
       pending: "○",
       selected: "❯",
