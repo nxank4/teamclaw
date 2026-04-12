@@ -11,6 +11,7 @@ export type {
   OpenPawlTemplate,
   InstalledTemplate,
   TemplateAgent,
+  TeamComposition,
   TemplateIndex,
   TemplateIndexEntry,
   MarketplaceConfig,
@@ -25,3 +26,10 @@ export {
   isSeedTemplate,
   SEED_TEMPLATE_IDS,
 } from "./seeds/index.js";
+export {
+  loadBuiltInTemplates,
+  loadInstalledTemplates,
+  getTemplate,
+  listTemplates,
+  installTemplate,
+} from "./template-store.js";

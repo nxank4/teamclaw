@@ -12,6 +12,7 @@ import { resolveModelForAgent } from "../core/model-config.js";
 import { compressContext, estimateTokens } from "../context/compressor.js";
 import type { ChatMessage, NativeToolDefinition } from "../providers/stream-types.js";
 import { profileStart, profileMeasure, isProfilingEnabled } from "../telemetry/profiler.js";
+import { safeJsonParse } from "../utils/safe-json-parse.js";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -235,11 +236,14 @@ export async function callLLMWithMessages(
   // Prefer native tool calls from provider, fallback to text parsing
   let toolCalls: ToolCall[] = [];
   if (nativeToolCalls?.length) {
-    toolCalls = nativeToolCalls.map((tc) => ({
-      id: tc.id,
-      name: tc.name,
-      input: JSON.parse(tc.arguments || "{}"),
-    }));
+    toolCalls = nativeToolCalls.map((tc) => {
+      const result = safeJsonParse<Record<string, unknown>>(tc.arguments || "{}");
+      return {
+        id: tc.id,
+        name: tc.name,
+        input: result.parsed ? result.data : {},
+      };
+    });
   } else if (text && hasAnyTools) {
     toolCalls = parseToolCalls(text);
   }

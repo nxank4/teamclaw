@@ -140,6 +140,23 @@ export interface OpenPawlGlobalConfig {
     }>;
   };
   uiTheme?: string;
+  agents?: Record<string, {
+    name?: string;
+    description?: string;
+    role?: string;
+    modelOverride?: string | null;
+    temperature?: number;
+    maxTurns?: number;
+    systemPromptAppend?: string;
+    tools?: string[];
+    custom?: boolean;
+  }>;
+  team?: {
+    mode: "autonomous" | "manual" | "template";
+    chatCollaboration?: boolean;
+    templateId?: string | null;
+    customAgents?: Array<{ role: string; task?: string; modelOverride?: string }>;
+  };
   hebbian?: {
     enabled?: boolean;
     activationDecay?: number;
@@ -421,6 +438,42 @@ export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): Ope
     ...(streaming ? { streaming } : {}),
     ...(providers && providers.length > 0 ? { providers } : {}),
     ...(typeof input.uiTheme === "string" && input.uiTheme.trim() ? { uiTheme: input.uiTheme.trim() } : {}),
+    ...(() => {
+      const rawAgents = (input as Record<string, unknown>).agents;
+      if (!rawAgents || typeof rawAgents !== "object" || Array.isArray(rawAgents)) return {};
+      return { agents: rawAgents as OpenPawlGlobalConfig["agents"] };
+    })(),
+    ...(() => {
+      const rawTeam = (input as Record<string, unknown>).team;
+      if (!rawTeam || typeof rawTeam !== "object" || Array.isArray(rawTeam)) return {};
+      const t = rawTeam as Record<string, unknown>;
+      const validModes = ["autonomous", "manual", "template"] as const;
+      const mode = typeof t.mode === "string" && (validModes as readonly string[]).includes(t.mode)
+        ? (t.mode as "autonomous" | "manual" | "template")
+        : "autonomous";
+      const templateId = typeof t.templateId === "string" && t.templateId.trim()
+        ? t.templateId.trim()
+        : t.templateId === null ? null : undefined;
+      const customAgents = Array.isArray(t.customAgents)
+        ? (t.customAgents as unknown[])
+            .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null)
+            .filter((a) => typeof a.role === "string" && a.role.trim())
+            .map((a) => ({
+              role: (a.role as string).trim(),
+              ...(typeof a.task === "string" && a.task.trim() ? { task: a.task.trim() } : {}),
+              ...(typeof a.modelOverride === "string" && a.modelOverride.trim() ? { modelOverride: a.modelOverride.trim() } : {}),
+            }))
+        : undefined;
+      const chatCollaboration = typeof t.chatCollaboration === "boolean" ? t.chatCollaboration : false;
+      return {
+        team: {
+          mode,
+          chatCollaboration,
+          ...(templateId !== undefined ? { templateId } : {}),
+          ...(customAgents && customAgents.length > 0 ? { customAgents } : {}),
+        },
+      };
+    })(),
   };
 }
 

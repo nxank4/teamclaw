@@ -24,6 +24,8 @@ import { Dispatcher } from "./dispatch-strategy.js";
 import type { AgentRunner } from "./dispatch-strategy.js";
 import { RouterEvent, DISPATCH_EVENTS } from "./event-types.js";
 import { parseMentions } from "./mention-parser.js";
+import { buildCollabChain } from "./collab-dispatch.js";
+import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -127,6 +129,7 @@ export class PromptRouter extends EventEmitter {
   async route(
     sessionId: string,
     prompt: string,
+    options?: { appMode?: AppMode },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
     const pendingDecision = this.pendingConfirmation.get(sessionId);
@@ -156,6 +159,42 @@ export class PromptRouter extends EventEmitter {
 
     // 3. Parse mentions
     const mentions = parseMentions(prompt, this.registry.getIds());
+
+    // 3b. Collab mode check
+    const appMode = options?.appMode;
+    if ((appMode === "collab" || mentions.forceCollab) && !mentions.hasExplicitRouting) {
+      const chain = buildCollabChain(mentions.cleanedPrompt);
+      if (chain) {
+        const agents = chain.steps.map((step, i) => ({
+          agentId: step.agentId,
+          role: step.role,
+          task: step.instruction,
+          tools: this.registry.get(step.agentId)?.defaultTools ?? [],
+          priority: i,
+        }));
+        const decision: RouteDecision = {
+          strategy: "collab",
+          agents,
+          requiresConfirmation: false,
+        };
+        const activeSession = this.sessionManager.getActive();
+        const sessionHistory = activeSession
+          ? activeSession.buildContextMessages()
+              .filter(m => m.role !== "system")
+              .map(m => ({ role: m.role, content: m.content }))
+          : [];
+        const dispatchResult = await this.dispatcher.dispatch(sessionId, mentions.cleanedPrompt, decision, sessionHistory);
+        if (dispatchResult.isOk()) {
+          const results = dispatchResult.value.agentResults;
+          const lastAgent = results[results.length - 1];
+          if (lastAgent && lastAgent.agentId !== "system") {
+            this.lastAgentBySession.set(sessionId, lastAgent.agentId);
+          }
+        }
+        return dispatchResult;
+      }
+      // Chain returned null — fall through to solo dispatch
+    }
 
     // 4. Classify intent
     let intent: PromptIntent;
@@ -270,7 +309,7 @@ export class PromptRouter extends EventEmitter {
       "  /agent <id>      Set default agent for this session",
       "  /cost            Show session token usage",
       "  /status          Show active agents, model, token usage",
-      "  /clear           Clear chat display",
+      "  /clear           Clear display",
       "  /compact         Force context compression",
       "  /export [path]   Export conversation to markdown",
       "  /config          Show current config",
@@ -283,8 +322,12 @@ export class PromptRouter extends EventEmitter {
       "  @tester          Route to Tester",
       "  @debugger        Route to Debugger",
       "  @researcher      Route to Researcher",
+      "  @collab          Force collab mode (multi-agent chain)",
+      "",
+      "Modes: Shift+Tab to cycle (solo/collab/sprint) | /mode to pick",
       "",
       "Example: @coder write a login form",
+      "Example: @collab implement auth with OAuth2",
     ];
     return ok(lines.join("\n"));
   }

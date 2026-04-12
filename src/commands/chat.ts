@@ -1,5 +1,5 @@
 /**
- * CLI command: openpawl chat
+ * CLI command: openpawl solo (aliased as openpawl chat)
  * Launches the interactive TUI with SessionManager + PromptRouter.
  * Alias for `openpawl` with no args.
  */
@@ -8,7 +8,7 @@ import { logger } from "../core/logger.js";
 
 export async function runChatCommand(_args: string[]): Promise<void> {
   if (!process.stdin.isTTY) {
-    logger.error("Chat mode requires an interactive terminal. Use `openpawl -p <prompt>` for non-interactive mode.");
+    logger.error("Solo mode requires an interactive terminal. Use `openpawl -p <prompt>` for non-interactive mode.");
     return;
   }
 

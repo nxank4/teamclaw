@@ -35,15 +35,28 @@ export interface SprintResult {
   duration: number;
 }
 
+export interface SprintTeamContext {
+  templateId: string;
+  templateName: string;
+  pipeline: string[];
+  agents: Array<{ role: string; task?: string }>;
+  mode: "template" | "manual";
+}
+
 export interface SprintOptions {
   /** Max tasks the planner should generate. Default: 10. */
   maxTasks?: number;
   /** Max concurrent tasks when running in parallel. Default: 3. */
   maxConcurrency?: number;
+  /** Team template context — when set, planner and agent assignment use template roles. */
+  teamContext?: SprintTeamContext;
+  /** Lessons from previous runs — injected into the planner prompt. */
+  lessons?: string[];
 }
 
 export interface SprintEventMap {
   "sprint:start": { goal: string };
+  "sprint:composition": { entries: Array<{ role: string; task: string; included: boolean; reason: string }>; estimatedTasks: number };
   "sprint:plan": { tasks: SprintTask[] };
   "sprint:round:start": { round: number; tasks: SprintTask[] };
   "sprint:round:complete": { round: number; duration: number };
@@ -63,6 +76,7 @@ export interface SprintEventMap {
     };
   };
   "sprint:done": { result: SprintResult };
+  "sprint:needs_clarification": { questions: string[] };
   "sprint:error": { error: Error; task?: SprintTask };
   "sprint:warning": { warning: string; type: string; taskIndex?: number };
   "sprint:planning": undefined;

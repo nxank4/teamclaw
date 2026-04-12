@@ -20,6 +20,7 @@ import { renderPanel, panelSection } from "../../tui/components/panel.js";
 import { defaultTheme } from "../../tui/themes/default.js";
 import { formatDuration } from "../../utils/formatters.js";
 import { SprintEvent } from "../../router/event-types.js";
+import { ICONS } from "../../tui/constants/icons.js";
 
 export interface SprintCommandDeps {
   agents: AgentRegistry;
@@ -29,6 +30,7 @@ export interface SprintCommandDeps {
 }
 
 let activeRunner: SprintRunner | null = null;
+let sessionLessons: string[] = [];
 
 /** Capitalize first letter of an agent id for display. */
 function agentDisplayName(id: string): string {
@@ -198,6 +200,50 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
       runner.on(SprintEvent.Start, ({ goal: g }: { goal: string }) => {
         ctx.addMessage("system", `**Sprint started:** ${g}`);
         ctx.requestRender();
+
+        // Check for drift against past decisions (non-blocking)
+        void (async () => {
+          try {
+            const { detectDrift } = await import("../../drift/index.js");
+            const lancedb = await import("@lancedb/lancedb");
+            const { join } = await import("node:path");
+            const { homedir } = await import("node:os");
+            const dbPath = join(homedir(), ".openpawl", "memory", "global.db");
+            const { DecisionStore } = await import("../../journal/index.js");
+            const db = await lancedb.connect(dbPath);
+            const store = new DecisionStore();
+            await store.init(db);
+            const decisions = await store.getAll();
+            if (decisions.length > 0) {
+              const result = detectDrift(g, decisions);
+              if (result.conflicts.length > 0) {
+                const warnings = result.conflicts.map((c) =>
+                  `${ICONS.warning} Drift: "${c.decision.decision}" — ${c.explanation}`
+                );
+                ctx.addMessage("system", `**Drift warnings (${result.severity}):**\n${warnings.join("\n")}`);
+                ctx.requestRender();
+              }
+            }
+          } catch {
+            // Drift detection is non-critical (DB may not exist yet)
+          }
+        })();
+      });
+
+      runner.on(SprintEvent.Composition, ({ entries }: { entries: Array<{ role: string; task: string; included: boolean; reason: string }> }) => {
+        const lines = entries.map((e) => {
+          const icon = e.included ? ICONS.success : ICONS.error;
+          return `${icon} **${e.role}** — ${e.reason}`;
+        });
+        ctx.addMessage("system", `**Team composition (autonomous):**\n${lines.join("\n")}`);
+        ctx.requestRender();
+      });
+
+      runner.on(SprintEvent.NeedsClarification, ({ questions }: { questions: string[] }) => {
+        const lines = questions.map((q) => `? ${q}`);
+        ctx.addMessage("system", `**Goal needs clarification:**\n${lines.join("\n")}\n\nProvide a more specific goal with \`/sprint <goal>\`.`);
+        layout.statusBar.updateSegment(3, "Needs clarification", defaultTheme.warning);
+        ctx.requestRender();
       });
 
       runner.on(SprintEvent.Planning, () => {
@@ -256,12 +302,95 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         const statusText = task.status === "completed" ? "completed" : `failed: ${task.error ?? "unknown"}`;
         ctx.addMessage("system", `${icon} Task "${task.description}" ${statusText}`);
         ctx.requestRender();
+
+        // Extract decisions from completed agent output (non-blocking)
+        if (task.result && task.assignedAgent) {
+          void (async () => {
+            try {
+              const { extractDecisions, DecisionStore } = await import("../../journal/index.js");
+              const decisions = extractDecisions({
+                agentRole: task.assignedAgent!,
+                agentOutput: task.result!,
+                taskId: task.id,
+                sessionId: `sprint-${Date.now()}`,
+                runIndex: 0,
+                goalContext: goal,
+              });
+              if (decisions.length > 0) {
+                const lancedb = await import("@lancedb/lancedb");
+                const { join } = await import("node:path");
+                const { homedir } = await import("node:os");
+                const dbPath = join(homedir(), ".openpawl", "memory", "global.db");
+                const db = await lancedb.connect(dbPath);
+                const store = new DecisionStore();
+                await store.init(db);
+                for (const d of decisions) await store.upsert(d);
+              }
+            } catch {
+              // Decision extraction is non-critical
+            }
+          })();
+        }
       });
 
       runner.on(SprintEvent.Done, ({ result }: { result: SprintResult }) => {
         ctx.addMessage("system", buildSummaryPanel(result));
         layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
         ctx.requestRender();
+
+        // Post-mortem analysis if there were failures
+        if (result.failedTasks > 0) {
+          void (async () => {
+            try {
+              const { analyzeRunResult } = await import("../../sprint/post-mortem.js");
+              const postMortem = analyzeRunResult(result, sessionLessons);
+              if (postMortem.failedTasks.length > 0) {
+                const lines = [
+                  `**Post-Mortem:** ${postMortem.failedTasks.length} task${postMortem.failedTasks.length === 1 ? "" : "s"} failed:`,
+                  ...postMortem.failedTasks.map((f) =>
+                    `${ICONS.error} "${f.task.slice(0, 60)}" \u2014 ${f.error}\n  Lesson: ${f.suggestedFix}`,
+                  ),
+                  "",
+                  "Run `/sprint` again to apply these lessons.",
+                ];
+                ctx.addMessage("system", lines.join("\n"));
+                ctx.requestRender();
+              }
+              sessionLessons = [...sessionLessons, ...postMortem.lessons].slice(0, 10);
+            } catch {
+              // Post-mortem is non-critical
+            }
+          })();
+        } else {
+          sessionLessons = [];
+        }
+
+        // Auto-generate CONTEXT.md handoff in background
+        void (async () => {
+          try {
+            const { buildHandoffData, renderContextMarkdown } = await import("../../handoff/index.js");
+            const { writeFileSync } = await import("node:fs");
+            const { join } = await import("node:path");
+            const handoff = buildHandoffData({
+              sessionId: `sprint-${Date.now()}`,
+              projectPath: process.cwd(),
+              goal: result.goal,
+              taskQueue: result.tasks.map((t) => ({ ...t })),
+              nextSprintBacklog: result.tasks.filter((t) => t.status === "failed").map((t) => ({ ...t })),
+              promotedThisRun: [],
+              agentProfiles: [],
+              activeDecisions: [],
+              rfcDocument: null,
+            });
+            const md = renderContextMarkdown(handoff);
+            const outPath = join(process.cwd(), "CONTEXT.md");
+            writeFileSync(outPath, md);
+            ctx.addMessage("system", `${ICONS.success} Handoff saved: CONTEXT.md`);
+            ctx.requestRender();
+          } catch {
+            // Handoff generation is non-critical
+          }
+        })();
       });
 
       runner.on(SprintEvent.Error, ({ error, task }: { error: Error; task?: SprintTask }) => {
@@ -285,13 +414,34 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
+      // ── Resolve team context from config ────────────────────────
+      const { resolveTeamContext } = await import("../../sprint/team-resolver.js");
+      const teamContext = await resolveTeamContext();
+
+      // ── Auto-approve tool calls during sprint ───────────────────
+      const sprintAutoApprove = ({ approve }: { approve: (always?: boolean) => void }) => {
+        approve();
+      };
+      deps.toolExecutor?.prependListener(
+        "tool:confirmation_needed" as string,
+        sprintAutoApprove,
+      );
+
       // ── Run the sprint ───────────────────────────────────────────
       try {
-        await runner.run(goal);
+        await runner.run(goal, {
+          ...(teamContext ? { teamContext } : {}),
+          ...(sessionLessons.length > 0 ? { lessons: sessionLessons } : {}),
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         ctx.addMessage("error", `Sprint failed: ${msg}`);
       } finally {
+        // Remove sprint auto-approve — restore interactive confirmation
+        deps.toolExecutor?.removeListener(
+          "tool:confirmation_needed" as string,
+          sprintAutoApprove,
+        );
         if (activeRunner === runner) {
           activeRunner = null;
         }

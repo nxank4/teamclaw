@@ -1,6 +1,6 @@
 /**
  * TUI-native setup wizard — multi-step flow for configuring a provider.
- * State machine: PROVIDER → [DEVICE_AUTH | OAUTH_AUTH | API_KEY] → MODEL → CONFIRM
+ * State machine: PROVIDER → [DEVICE_AUTH | OAUTH_AUTH | API_KEY] → MODEL → TEAM → CONFIRM
  *
  * PROVIDER step auto-detects available providers and shows ALL providers
  * from the catalog with detected ones sorted to top and marked.
@@ -24,7 +24,7 @@ import { readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js
 import { CredentialStore } from "../../credentials/credential-store.js";
 import { maskCredential } from "../../credentials/masking.js";
 
-enum WizardStep { PROVIDER, DEVICE_AUTH, OAUTH_AUTH, API_KEY, MODEL, CONFIRM }
+enum WizardStep { PROVIDER, DEVICE_AUTH, OAUTH_AUTH, API_KEY, MODEL, TEAM, CONFIRM }
 
 interface ProviderItem {
   type: "provider" | "separator" | "header";
@@ -60,6 +60,14 @@ export class SetupWizardView extends InteractiveView {
   private oauthAuthUrl = "";
   private providerList: ScrollableFilterList<ProviderItem>;
   private modelList: ScrollableFilterList<string>;
+  // Team step state
+  private teamMode: "autonomous" | "template" | "manual" = "autonomous";
+  private teamSubStep: "mode" | "template" | "agents" = "mode";
+  private teamTemplates: import("../../templates/types.js").OpenPawlTemplate[] = [];
+  private teamTemplateIndex = 0;
+  private teamSelectedTemplateId: string | null = null;
+  private teamManualAgents = new Set(["planner", "coder"]);
+  private teamTemplateList: ScrollableFilterList<import("../../templates/types.js").OpenPawlTemplate> | null = null;
 
   constructor(tui: TUI, onClose: () => void, prefill?: OpenPawlGlobalConfig) {
     super(tui, onClose);
@@ -104,6 +112,10 @@ export class SetupWizardView extends InteractiveView {
       case WizardStep.OAUTH_AUTH: return 1;
       case WizardStep.API_KEY: return 1;
       case WizardStep.MODEL: return this.modelList.getFilteredCount(this.filterText);
+      case WizardStep.TEAM:
+        if (this.teamSubStep === "mode") return 3;
+        if (this.teamSubStep === "template") return this.teamTemplates.length;
+        return 5; // agents: planner, coder, reviewer, tester, debugger
       case WizardStep.CONFIRM: return 1;
     }
   }
@@ -139,19 +151,21 @@ export class SetupWizardView extends InteractiveView {
       case WizardStep.OAUTH_AUTH: return this.handleOAuthAuthKey(event);
       case WizardStep.API_KEY: return this.handleApiKeyKey(event);
       case WizardStep.MODEL: return this.handleModelKey(event);
+      case WizardStep.TEAM: return this.handleTeamKey(event);
       case WizardStep.CONFIRM: return this.handleConfirmKey(event);
     }
   }
 
   protected override getPanelTitle(): string {
-    // Auth steps replace API_KEY, so visible step count is always 4
+    // Auth steps replace API_KEY, so visible step count is always 5
     const stepMap: Record<WizardStep, number> = {
       [WizardStep.PROVIDER]: 1,
       [WizardStep.DEVICE_AUTH]: 2,
       [WizardStep.OAUTH_AUTH]: 2,
       [WizardStep.API_KEY]: 2,
       [WizardStep.MODEL]: 3,
-      [WizardStep.CONFIRM]: 4,
+      [WizardStep.TEAM]: 4,
+      [WizardStep.CONFIRM]: 5,
     };
     const titles: Record<WizardStep, string> = {
       [WizardStep.PROVIDER]: "Select Provider",
@@ -159,9 +173,10 @@ export class SetupWizardView extends InteractiveView {
       [WizardStep.OAUTH_AUTH]: "ChatGPT Login",
       [WizardStep.API_KEY]: "API Key",
       [WizardStep.MODEL]: "Select Model",
+      [WizardStep.TEAM]: "Team",
       [WizardStep.CONFIRM]: "Confirm",
     };
-    return `Setup (${stepMap[this.step]}/4) — ${titles[this.step]}`;
+    return `Setup (${stepMap[this.step]}/5) — ${titles[this.step]}`;
   }
 
   protected override getPanelFooter(): string {
@@ -171,6 +186,9 @@ export class SetupWizardView extends InteractiveView {
       case WizardStep.OAUTH_AUTH: return "Waiting for browser login... · Esc cancel";
       case WizardStep.API_KEY: return "Type key, Enter to validate · Esc back";
       case WizardStep.MODEL: return `${ICONS.arrowUp}${ICONS.arrowDown} navigate · Enter select · Type to filter · Esc back`;
+      case WizardStep.TEAM:
+        if (this.teamSubStep === "agents") return `${ICONS.arrowUp}${ICONS.arrowDown} navigate · Space toggle · Enter continue · Esc back`;
+        return `${ICONS.arrowUp}${ICONS.arrowDown} navigate · Enter select · Esc back`;
       case WizardStep.CONFIRM: return "Enter save · Esc back";
     }
   }
@@ -193,6 +211,7 @@ export class SetupWizardView extends InteractiveView {
       case WizardStep.OAUTH_AUTH: return this.renderOAuthAuth();
       case WizardStep.API_KEY: return this.renderApiKey();
       case WizardStep.MODEL: return this.renderModel();
+      case WizardStep.TEAM: return this.renderTeam();
       case WizardStep.CONFIRM: return this.renderConfirm();
     }
   }
@@ -708,9 +727,11 @@ export class SetupWizardView extends InteractiveView {
       const filtered = this.modelList.getFilteredItems(this.filterText);
       if (filtered.length > 0 && this.selectedIndex < filtered.length) {
         this.selectedModel = filtered[this.selectedIndex]!;
-        this.step = WizardStep.CONFIRM;
+        this.step = WizardStep.TEAM;
+        this.teamSubStep = "mode";
         this.selectedIndex = 0;
         this.filterText = "";
+        void this.loadTeamTemplates();
         this.render();
       }
       return true;
@@ -757,6 +778,200 @@ export class SetupWizardView extends InteractiveView {
     return lines;
   }
 
+  // ── Step: TEAM ─────────────────────────────────────────────
+
+  private async loadTeamTemplates(): Promise<void> {
+    const { listTemplates } = await import("../../templates/template-store.js");
+    this.teamTemplates = await listTemplates();
+    if (!this.teamTemplateList) {
+      this.teamTemplateList = new ScrollableFilterList<import("../../templates/types.js").OpenPawlTemplate>({
+        renderItem: (tpl, _index, selected) => {
+          const t = this.theme;
+          const cursor = selected ? t.primary(ICONS.cursor) : t.dim("\u2502");
+          const pipeline = tpl.pipeline
+            ? tpl.pipeline.join(" \u2192 ")
+            : tpl.agents.map((a) => a.role).join(", ");
+          const name = selected ? t.bold(tpl.id) : tpl.id;
+          return `  ${cursor} ${name.padEnd(20)} ${t.dim(pipeline)}`;
+        },
+        filterFn: (tpl, query) => {
+          const q = query.toLowerCase();
+          return tpl.id.includes(q) || tpl.name.toLowerCase().includes(q)
+            || tpl.tags.some((tag) => tag.includes(q));
+        },
+        emptyMessage: "No templates",
+        filterPlaceholder: "Type to search templates...",
+        filterThreshold: 8,
+      });
+    }
+    this.teamTemplateList.setItems(this.teamTemplates);
+    this.render();
+  }
+
+  private handleTeamKey(event: KeyEvent): boolean {
+    if (event.type === "backspace" && !this.filterText) {
+      this.goBack();
+      return true;
+    }
+
+    if (this.teamSubStep === "mode") {
+      if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
+        const modes: Array<"autonomous" | "template" | "manual"> = ["autonomous", "template", "manual"];
+        this.teamMode = modes[this.selectedIndex] ?? "autonomous";
+        if (this.teamMode === "template") {
+          this.teamSubStep = "template";
+          this.selectedIndex = this.teamTemplateIndex;
+          this.filterText = "";
+        } else if (this.teamMode === "manual") {
+          this.teamSubStep = "agents";
+          this.selectedIndex = 0;
+        } else {
+          // Autonomous — advance to confirm
+          this.step = WizardStep.CONFIRM;
+          this.selectedIndex = 0;
+        }
+        this.render();
+        return true;
+      }
+      return true;
+    }
+
+    if (this.teamSubStep === "template") {
+      if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
+        const filtered = this.teamTemplateList?.getFilteredItems(this.filterText) ?? [];
+        if (filtered.length > 0 && this.selectedIndex < filtered.length) {
+          this.teamSelectedTemplateId = filtered[this.selectedIndex]!.id;
+          this.teamTemplateIndex = this.selectedIndex;
+          this.step = WizardStep.CONFIRM;
+          this.selectedIndex = 0;
+          this.filterText = "";
+          this.render();
+        }
+        return true;
+      }
+      return true;
+    }
+
+    if (this.teamSubStep === "agents") {
+      const agentRoles = ["planner", "coder", "reviewer", "tester", "debugger"];
+      if (event.type === "char" && event.char === " ") {
+        const role = agentRoles[this.selectedIndex];
+        if (role && role !== "planner" && role !== "coder") {
+          if (this.teamManualAgents.has(role)) {
+            this.teamManualAgents.delete(role);
+          } else {
+            this.teamManualAgents.add(role);
+          }
+          this.render();
+        }
+        return true;
+      }
+      if (event.type === "enter" || (event.type === "tab" && !event.shift)) {
+        this.step = WizardStep.CONFIRM;
+        this.selectedIndex = 0;
+        this.render();
+        return true;
+      }
+      return true;
+    }
+
+    return true;
+  }
+
+  private renderTeam(): string[] {
+    const t = this.theme;
+    const lines: string[] = [];
+
+    if (this.teamSubStep === "mode") {
+      lines.push("");
+      lines.push(`  ${t.bold("How should your team be assembled?")}`);
+      lines.push("");
+
+      const options: Array<{ label: string; desc: string }> = [
+        { label: "Autonomous", desc: "let OpenPawl pick agents based on your goal (recommended)" },
+        { label: "Template", desc: "use a pre-built team" },
+        { label: "Manual", desc: "pick agents yourself" },
+      ];
+
+      for (let i = 0; i < options.length; i++) {
+        const selected = i === this.selectedIndex;
+        const cursor = selected ? t.primary(ICONS.cursor) : t.dim("\u2502");
+        const label = selected ? t.bold(options[i]!.label) : options[i]!.label;
+        const desc = t.dim(` \u2014 ${options[i]!.desc}`);
+        lines.push(`  ${cursor} ${label}${desc}`);
+      }
+
+      lines.push("");
+      return lines;
+    }
+
+    if (this.teamSubStep === "template") {
+      lines.push("");
+      lines.push(`  ${t.bold("Choose a template:")}`);
+      lines.push("");
+
+      if (this.teamTemplateList && this.teamTemplates.length > 0) {
+        const listLines = this.teamTemplateList.renderLines({
+          filterText: this.filterText,
+          selectedIndex: this.selectedIndex,
+          scrollOffset: this.scrollOffset,
+          maxVisible: this.maxVisible,
+        });
+        lines.push(...listLines);
+      } else {
+        lines.push(`  ${t.dim("Loading templates...")}`);
+      }
+
+      lines.push("");
+      return lines;
+    }
+
+    if (this.teamSubStep === "agents") {
+      lines.push("");
+      lines.push(`  ${t.bold("Select agents")} ${t.dim("(space to toggle):")}`);
+      lines.push("");
+
+      const agentRoles = ["planner", "coder", "reviewer", "tester", "debugger"];
+      const required = new Set(["planner", "coder"]);
+
+      for (let i = 0; i < agentRoles.length; i++) {
+        const role = agentRoles[i]!;
+        const selected = i === this.selectedIndex;
+        const isActive = this.teamManualAgents.has(role);
+        const isRequired = required.has(role);
+        const cursor = selected ? t.primary(ICONS.cursor) : t.dim("\u2502");
+        const check = isActive ? t.success(ICONS.success) : "\u25fb";
+        const label = selected ? t.bold(role) : role;
+        const tag = isRequired ? t.dim(" (required)") : "";
+        lines.push(`  ${cursor} ${check} ${label}${tag}`);
+      }
+
+      lines.push("");
+      return lines;
+    }
+
+    return lines;
+  }
+
+  /** Get team summary for the confirm step. */
+  private getTeamSummary(): string {
+    if (this.teamMode === "autonomous") {
+      return "autonomous (agents selected per goal)";
+    }
+    if (this.teamMode === "template" && this.teamSelectedTemplateId) {
+      const tpl = this.teamTemplates.find((t) => t.id === this.teamSelectedTemplateId);
+      if (tpl) {
+        const pipeline = tpl.pipeline ? tpl.pipeline.join(" \u2192 ") : tpl.agents.map((a) => a.role).join(", ");
+        return `${tpl.id} (${pipeline})`;
+      }
+      return this.teamSelectedTemplateId;
+    }
+    if (this.teamMode === "manual") {
+      return `manual (${[...this.teamManualAgents].join(", ")})`;
+    }
+    return "autonomous";
+  }
+
   // ── Step: CONFIRM ─────────────────────────────────────────
 
   private handleConfirmKey(event: KeyEvent): boolean {
@@ -780,6 +995,7 @@ export class SetupWizardView extends InteractiveView {
     if (this.needsKey) {
       lines.push(`    ${t.dim("API Key")}    ${maskCredential(this.apiKey)}`);
     }
+    lines.push(`    ${t.dim("Team")}       ${this.getTeamSummary()}`);
     lines.push("");
 
     if (this.healthLatency > 0) {
@@ -814,12 +1030,23 @@ export class SetupWizardView extends InteractiveView {
     }
     const existing = readGlobalConfig();
     const otherProviders = existing?.providers?.filter((p) => p.type !== this.selectedProvider) ?? [];
+    const teamConfig: OpenPawlGlobalConfig["team"] = {
+      mode: this.teamMode,
+    };
+    if (this.teamMode === "template" && this.teamSelectedTemplateId) {
+      teamConfig.templateId = this.teamSelectedTemplateId;
+    }
+    if (this.teamMode === "manual") {
+      teamConfig.customAgents = [...this.teamManualAgents].map((role) => ({ role }));
+    }
+
     const config: OpenPawlGlobalConfig = {
       ...(existing ?? { version: 1, dashboardPort: 9001, debugMode: false }),
       activeProvider: this.selectedProvider,
       activeModel: this.selectedModel,
       model: this.selectedModel,
       providers: [entry, ...otherProviders],
+      team: teamConfig,
     };
     writeGlobalConfig(config);
     this.deactivate();
@@ -859,8 +1086,18 @@ export class SetupWizardView extends InteractiveView {
           this.buildProviderItems();
         }
         break;
+      case WizardStep.TEAM:
+        if (this.teamSubStep === "template" || this.teamSubStep === "agents") {
+          this.teamSubStep = "mode";
+          this.selectedIndex = 0;
+        } else {
+          this.step = WizardStep.MODEL;
+          this.selectedIndex = 0;
+        }
+        break;
       case WizardStep.CONFIRM:
-        this.step = WizardStep.MODEL;
+        this.step = WizardStep.TEAM;
+        this.teamSubStep = "mode";
         this.selectedIndex = 0;
         break;
     }
@@ -870,7 +1107,8 @@ export class SetupWizardView extends InteractiveView {
   // ── Key handler override ──────────────────────────────────
 
   private isFilterableStep(): boolean {
-    return this.step === WizardStep.PROVIDER || this.step === WizardStep.MODEL;
+    return this.step === WizardStep.PROVIDER || this.step === WizardStep.MODEL
+      || (this.step === WizardStep.TEAM && this.teamSubStep === "template");
   }
 
   override handleKey(event: KeyEvent): boolean {

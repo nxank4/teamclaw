@@ -79,9 +79,8 @@ import { setLoggerMuted, logger, isDebugMode } from "../core/logger.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { bold } from "../tui/core/ansi.js";
 import { visibleWidth } from "../tui/utils/text-width.js";
-import { separator } from "../tui/primitives/separator.js";
 import { findClosest } from "../utils/fuzzy.js";
-import { ModeSystem, type OperatingMode } from "../tui/keybindings/mode-system.js";
+import { AppModeSystem } from "../tui/keybindings/app-mode.js";
 import { RouterEvent, ToolEvent, SessionEvent } from "../router/event-types.js";
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
@@ -421,7 +420,7 @@ function wireRouterEvents(
     sessionInputTokens += result.totalInputTokens;
     sessionOutputTokens += result.totalOutputTokens;
     const display = formatTokenPair(sessionInputTokens, sessionOutputTokens);
-    layout.statusBar.updateSegment(4, display, null);
+    layout.statusBar.updateSegment(3, display, null);
     layout.tui.requestRender();
     onTokensUsed?.(result.totalInputTokens, result.totalOutputTokens);
   };
@@ -486,7 +485,7 @@ function wireSessionEvents(
 ): () => void {
   const onTokensUpdated = (_sessionId: string, tokens: { input?: number; output?: number }) => {
     const display = formatTokenPair(tokens.input ?? 0, tokens.output ?? 0);
-    layout.statusBar.updateSegment(4, display, null);
+    layout.statusBar.updateSegment(3, display, null);
     layout.tui.requestRender();
   };
 
@@ -514,6 +513,7 @@ async function handleWithRouter(
   router: PromptRouter,
   layout: AppLayout,
   ctx: { addMessage: (role: string, content: string) => void },
+  appModeSystem?: AppModeSystem | null,
 ): Promise<void> {
   // Check for ambiguous prompts that need clarification before routing
   try {
@@ -533,7 +533,9 @@ async function handleWithRouter(
   layout.statusBar.updateSegment(3, "routing...", defaultTheme.accent);
   layout.tui.requestRender();
 
-  const result = await router.route(session.id, text);
+  const result = await router.route(session.id, text, {
+    appMode: appModeSystem?.getMode(),
+  });
 
   if (result.isErr()) {
     // Don't show error for user-initiated cancellations
@@ -671,7 +673,8 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     doomLoopDetector: null as { reset: () => void } | null,
     toolOutputHandler: null as { cleanup: () => Promise<void> } | null,
     configState: null as ConfigState | null,
-    modeSystem: null as ModeSystem | null,
+    appModeSystem: null as AppModeSystem | null,
+    memoryCleanup: null as (() => void) | null,
     onQueueDrain: null as (() => void) | null,
   };
 
@@ -751,15 +754,23 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         // Check TUI registry first (has /help, /status, /settings, etc.)
         const result = registry.lookup(`/${parsed.name} ${parsed.args}`);
         if (result) {
-          // Auto-name session from sprint goal
+          // Auto-name session from sprint goal and set app mode
           if (parsed.name === "sprint" && parsed.args.trim() && ctx.chatSession) {
             const title = ctx.chatSession.getState().title;
             if (title === "Untitled session" || title === "New session") {
               const { generateSessionName } = await import("../session/session-name.js");
               ctx.chatSession.setTitle(generateSessionName(parsed.args));
             }
+            // Set app mode to sprint during execution
+            const prevMode = appModeSystem.getMode();
+            appModeSystem.setMode("sprint");
+            updateModeDisplay();
+            await result.command.execute(result.args, msgCtx);
+            appModeSystem.setMode(prevMode);
+            updateModeDisplay();
+          } else {
+            await result.command.execute(result.args, msgCtx);
           }
-          await result.command.execute(result.args, msgCtx);
         } else if (ctx.router && ctx.chatSession) {
           // Fall through to PromptRouter for its slash commands (/agents, /compact, etc.)
           const slashResult = await ctx.router.handleSlashCommand(ctx.chatSession.id, `/${parsed.name} ${parsed.args}`);
@@ -884,7 +895,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         agentBusy = true;
         try {
           if (ctx.router && ctx.chatSession) {
-            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.appModeSystem);
           } else {
             await handleChatFallback(fullPrompt, layout, msgCtx);
           }
@@ -941,7 +952,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     agentBusy = true;
     try {
       if (ctx.router && ctx.chatSession) {
-        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx);
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.appModeSystem);
       } else {
         await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
       }
@@ -1040,6 +1051,21 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       timestamp: new Date(),
     });
     welcomeMessageActive = true;
+
+    // Load session briefing in background (non-blocking)
+    void (async () => {
+      try {
+        const { collectBriefingData, renderBriefing } = await import("../briefing/index.js");
+        const data = await collectBriefingData();
+        if (data.lastSession) {
+          const briefing = renderBriefing(data);
+          layout.messages.addMessage({ role: "system", content: briefing, timestamp: new Date() });
+          layout.tui.requestRender();
+        }
+      } catch {
+        // Briefing is non-critical
+      }
+    })();
   };
 
   // Re-render welcome banner on terminal resize (recomputes centering)
@@ -1055,7 +1081,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   layout.statusBar.setSegments([
     { text: "no provider", color: defaultTheme.secondary },
     { text: `${DOT_SYMBOL.empty} not configured`, color: defaultTheme.error },
-    { text: `${ICONS.diamond} default`, color: defaultTheme.primary },
+    { text: `${ICONS.modeSolo} solo`, color: defaultTheme.dim },
     { text: "idle", color: defaultTheme.dim },
     { text: "", color: defaultTheme.dim },
   ]);
@@ -1229,26 +1255,28 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     // Config warnings shown after deferred health check completes (see below)
   }
 
-  // ── Mode system ─────────────────────────────────────────────────
-  const modeSystem = new ModeSystem();
-  ctx.modeSystem = modeSystem;
+  // ── Mode system (solo/collab/sprint) ────────────────────────────
+  const appModeSystem = new AppModeSystem();
+  ctx.appModeSystem = appModeSystem;
   const updateModeDisplay = () => {
-    const info = modeSystem.getModeInfo();
-    // Auto-accept mode uses yellow (visual warning), others use mauve
-    const modeColor = info.mode === "auto-accept" ? defaultTheme.warning : defaultTheme.primary;
-    layout.statusBar.updateSegment(2, `${info.icon} ${info.shortName}`, modeColor);
+    const info = appModeSystem.getModeInfo();
+    layout.statusBar.updateSegment(2, `${info.icon} ${info.shortName}`, info.color);
     layout.tui.requestRender();
   };
 
-  // ── Register /plan (needs modeSystem) ───────────────────────────
+  // ── Register /mode and /plan commands (need appModeSystem) ─────
   {
+    const { createModeCommand } = await import("./commands/mode.js");
+    registry.register(createModeCommand({
+      getMode: () => appModeSystem.getMode(),
+      setMode: (mode) => appModeSystem.setMode(mode),
+      updateDisplay: updateModeDisplay,
+    }));
+
     const { createPlanCommand } = await import("./commands/plan.js");
-    const planDeps = {
-      modeSystem,
-      updateModeDisplay,
+    registry.register(createPlanCommand({
       flashMessage: (msg: string) => layout.tui.onFlashMessage?.(msg),
-    };
-    registry.register(createPlanCommand(planDeps));
+    }));
   }
 
   // ── Leader key ─────────────────────────────────────────────────
@@ -1415,11 +1443,11 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
         }
       }
 
-      // Shift+Tab → mode cycle (only when not in autocomplete)
+      // Shift+Tab → cycle mode (solo → collab → sprint)
       if (combo === "shift+tab" && !layout.editor.isAutocompleteActive()) {
-        modeSystem.cycleNext();
+        appModeSystem.cycleNext();
         updateModeDisplay();
-        const info = modeSystem.getModeInfo();
+        const info = appModeSystem.getModeInfo();
         layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
         return true;
       }
@@ -1490,24 +1518,11 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.tui.requestRender();
   };
 
-  // Mode action from TUI keybindings (Alt+0..4 direct mode, or mode.cycle)
-  layout.tui.onModeAction = (modeAction: string) => {
-    if (modeAction === "cycle") {
-      modeSystem.cycleNext();
-    } else {
-      // Direct mode shortcuts: "auto" → "auto-accept", etc.
-      const modeMap: Record<string, OperatingMode> = {
-        auto: "auto-accept",
-        ask: "default",
-        build: "auto-accept",
-        brainstorm: "default",
-        loopHell: "auto-accept",
-      };
-      const resolved = modeMap[modeAction];
-      if (resolved) modeSystem.setMode(resolved);
-    }
+  // Mode action from TUI keybindings
+  layout.tui.onModeAction = (_modeAction: string) => {
+    appModeSystem.cycleNext();
     updateModeDisplay();
-    const info = modeSystem.getModeInfo();
+    const info = appModeSystem.getModeInfo();
     layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
   };
 
@@ -1625,6 +1640,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       await Promise.allSettled([
         Promise.resolve(ctx.cleanupRouter?.cleanup()),
         Promise.resolve(ctx.cleanupSession?.()),
+        Promise.resolve(ctx.memoryCleanup?.()),
         ctx.router?.shutdown().catch(() => {}),
         ctx.toolOutputHandler?.cleanup().catch(() => {}),
       ]);
@@ -1737,95 +1753,6 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 // ---------------------------------------------------------------------------
 // Session helpers
 // ---------------------------------------------------------------------------
-
-function showPlanConfirmation(
-  ctx: {
-    chatSession: Session | null;
-    modeSystem: import("../tui/keybindings/mode-system.js").ModeSystem | null;
-    router: PromptRouter | null;
-  },
-  layout: AppLayout,
-): void {
-  const session = ctx.chatSession;
-  if (!session) return;
-
-  // Find last assistant message as the plan — must be substantial (200+ chars)
-  const messages = session.messages;
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-  if (!lastAssistant?.content || lastAssistant.content.length < 200) return;
-
-  // Build confirmation UI
-  const termW = process.stdout.columns ?? 80;
-  const lines = [
-    "",
-    separator({ width: Math.min(40, termW - 8), label: "Plan ready", padding: 4 }),
-    `    Execute this plan? ${defaultTheme.success("[Y]es")}  ${defaultTheme.muted("[N]o (keep planning)")}  ${defaultTheme.muted("[E]dit (refine)")}`,
-    "",
-  ];
-  layout.tui.setInteractiveView(lines);
-
-  const handler = {
-    handleKey(event: import("../tui/core/input.js").KeyEvent): boolean {
-      const dismiss = () => {
-        layout.tui.popKeyHandler();
-        layout.tui.clearInteractiveView();
-      };
-
-      if (event.type === "char" && (event.char === "y" || event.char === "Y")) {
-        dismiss();
-        const planText = lastAssistant.content;
-        ctx.modeSystem?.setMode("default");
-
-        // Inject plan as transient system message (sent to LLM but not rendered in chat)
-        if (session) {
-          session.addMessage({
-            role: "system",
-            content: `Execute this plan step by step. Use all available tools.\n\n---\n${planText}\n---`,
-            metadata: { transient: true },
-          });
-        }
-
-        // Show brief status in chat
-        layout.messages.addMessage({
-          role: "system",
-          content: defaultTheme.success(`${ICONS.planMode} Executing plan...`),
-          timestamp: new Date(),
-        });
-        layout.tui.requestRender();
-
-        // Route execution prompt to the agent
-        if (ctx.router && session) {
-          setTimeout(() => {
-            void handleWithRouter(
-              "Execute this plan step by step.",
-              session,
-              ctx.router!,
-              layout,
-              { addMessage: (role: string, content: string) => {
-                layout.messages.addMessage({ role: role as "system" | "error", content, timestamp: new Date() });
-                layout.tui.requestRender();
-              }},
-            );
-          }, 0);
-        }
-        return true;
-      }
-
-      if (event.type === "char" && (event.char === "n" || event.char === "N" || event.char === "e" || event.char === "E")) {
-        dismiss();
-        return true;
-      }
-
-      if (event.type === "escape") {
-        dismiss();
-        return true;
-      }
-
-      return true;
-    },
-  };
-  layout.tui.pushKeyHandler(handler);
-}
 
 function replaySessionHistory(session: Session | null, layout: AppLayout): void {
   if (!session) return;
@@ -2028,7 +1955,8 @@ async function initSessionRouter(
     doomLoopDetector: { reset: () => void } | null;
     toolOutputHandler: { cleanup: () => Promise<void> } | null;
     configState: ConfigState | null;
-    modeSystem: ModeSystem | null;
+    appModeSystem: AppModeSystem | null;
+    memoryCleanup: (() => void) | null;
     onQueueDrain: (() => void) | null;
   },
   opts: LaunchOptions | undefined,
@@ -2163,26 +2091,80 @@ async function initSessionRouter(
     },
   }));
 
-  const PLAN_ONLY_TOOLS = new Set(["file_read", "file_list", "web_search", "web_fetch"]);
-  const filterToolsForMode = (toolNames: string[], appCtx: typeof ctx): string[] => {
-    return appCtx.modeSystem?.getMode() === "plan-only"
-      ? [...toolNames].filter((t) => PLAN_ONLY_TOOLS.has(t))
-      : toolNames;
-  };
+  // ── Memory stack initialization (non-blocking, graceful degradation) ──
+  let memoryContext: ((prompt: string) => Promise<string | null>) | undefined;
+  let hebbianCleanup: (() => void) | undefined;
+  {
+    try {
+      const { GlobalMemoryManager } = await import("../memory/global/store.js");
+      const { HttpEmbeddingFunction } = await import("../core/knowledge-base.js");
+      const { DecisionStore } = await import("../journal/store.js");
+      const { initHebbianIntegration } = await import("../memory/hebbian-integration.js");
+
+      const embedder = new HttpEmbeddingFunction("http://localhost:11434", "nomic-embed-text", "");
+      const globalMem = new GlobalMemoryManager();
+      await globalMem.init(embedder);
+
+      const decisionStore = new DecisionStore();
+      const db = globalMem.getDb();
+      if (db) await decisionStore.init(db);
+
+      const hebbian = initHebbianIntegration();
+      if (hebbian.enabled) hebbianCleanup = () => hebbian.cleanup();
+
+      const patternStore = globalMem.getPatternStore();
+
+      memoryContext = async (prompt: string): Promise<string | null> => {
+        const parts: string[] = [];
+
+        // Retrieve success patterns
+        if (patternStore) {
+          try {
+            const { retrieveSuccessPatterns } = await import("../memory/success/retriever.js");
+            const patterns = await retrieveSuccessPatterns(patternStore, embedder, prompt, { limit: 3 });
+            if (patterns.length > 0) {
+              const { withSuccessContext } = await import("../memory/success/prompt.js");
+              parts.push(withSuccessContext("", patterns));
+            }
+          } catch {
+            // Pattern retrieval failed — skip
+          }
+        }
+
+        // Retrieve past decisions
+        try {
+          const decisions = await decisionStore.getAll();
+          if (decisions.length > 0) {
+            const { withDecisionContext } = await import("../journal/prompt.js");
+            parts.push(withDecisionContext("", decisions));
+          }
+        } catch {
+          // Decision retrieval failed — skip
+        }
+
+        const combined = parts.join("\n").trim();
+        return combined || null;
+      };
+
+      if (hebbianCleanup) ctx.memoryCleanup = hebbianCleanup;
+      _mark("[bg] memory stack initialized");
+    } catch {
+      // Memory initialization failed — continue without memory
+      _mark("[bg] memory stack skipped (init failed)");
+    }
+  }
 
   const agentRunner = createLLMAgentRunner({
     onToken: (agentId, token) => tokenEmitter.emit(agentId, token),
     onToolCall: (agentId, toolName, status, details) => toolEmitter.emit(agentId, toolName, status, details as Record<string, unknown> | undefined),
     getToolSchemas: toolRegistry
       ? (toolNames) => {
-          const filtered = filterToolsForMode(toolNames, ctx);
-          return toolRegistry!.exportForLLM(filtered);
+          return toolRegistry!.exportForLLM(toolNames);
         }
       : undefined,
     getNativeTools: toolRegistry
       ? (toolNames) => {
-          const filtered = filterToolsForMode(toolNames, ctx);
-          return toolRegistry!.exportForAPI(filtered);
+          return toolRegistry!.exportForAPI(toolNames);
         }
       : undefined,
     executeTool: toolExecutor
@@ -2219,6 +2201,7 @@ async function initSessionRouter(
       );
       layout.tui.requestRender();
     },
+    getMemoryContext: memoryContext,
   });
 
   _mark("[bg] tool registry + executor ready");
@@ -2305,11 +2288,7 @@ async function initSessionRouter(
     if (ctx.chatSession) {
       ctx.chatSession.addMessage({ role: "assistant", content, agentId });
     }
-  }, () => {
-    // Plan-ready callback: show execute confirmation when agent finishes in plan mode
-    if (ctx.modeSystem?.getMode() !== "plan-only") return;
-    showPlanConfirmation(ctx, layout);
-  }, () => {
+  }, undefined, () => {
     // Queue drain callback: process next queued prompt
     ctx.onQueueDrain?.();
   }, (input, output) => {

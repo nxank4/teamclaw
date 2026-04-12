@@ -37,6 +37,7 @@ export const DISPATCH_EVENTS = [
 
 export enum SprintEvent {
   Start = "sprint:start",
+  Composition = "sprint:composition",
   Planning = "sprint:planning",
   Plan = "sprint:plan",
   RoundStart = "sprint:round:start",
@@ -46,6 +47,7 @@ export enum SprintEvent {
   AgentToken = "sprint:agent:token",
   AgentTool = "sprint:agent:tool",
   Done = "sprint:done",
+  NeedsClarification = "sprint:needs_clarification",
   Error = "sprint:error",
   Warning = "sprint:warning",
   Paused = "sprint:paused",

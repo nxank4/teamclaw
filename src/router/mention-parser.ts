@@ -43,24 +43,33 @@ export function parseMentions(
     }
   }
 
+  // Detect @collab prefix (force collab mode for this prompt)
+  let forceCollab = false;
+  let processedPrompt = prompt;
+  const collabMatch = prompt.match(/(?:^|\s)@collab\b/i);
+  if (collabMatch) {
+    forceCollab = true;
+    processedPrompt = prompt.replace(/@collab\b/gi, "").replace(/\s+/g, " ").trim();
+  }
+
   // Find code block ranges to exclude
-  const codeRanges = findCodeBlockRanges(prompt);
+  const codeRanges = findCodeBlockRanges(processedPrompt);
 
   const mentions: AgentMention[] = [];
   const mentionPositions: Array<{ start: number; end: number; agentId: string; raw: string }> = [];
 
   // Scan for @mentions
-  for (let i = 0; i < prompt.length; i++) {
-    if (prompt[i] !== "@") continue;
+  for (let i = 0; i < processedPrompt.length; i++) {
+    if (processedPrompt[i] !== "@") continue;
 
     // Skip if inside a code block
     if (isInCodeBlock(i, codeRanges)) continue;
 
     // Skip email-like: character before @ is a word char (not whitespace/start)
-    if (i > 0 && /\w/.test(prompt[i - 1]!)) continue;
+    if (i > 0 && /\w/.test(processedPrompt[i - 1]!)) continue;
 
     // Extract the identifier after @
-    const afterAt = prompt.slice(i + 1);
+    const afterAt = processedPrompt.slice(i + 1);
     const match = afterAt.match(/^([a-zA-Z][a-zA-Z0-9_-]*)/);
     if (!match) continue;
 
@@ -89,16 +98,17 @@ export function parseMentions(
   if (mentionPositions.length === 0) {
     return {
       mentions: [],
-      cleanedPrompt: prompt.trim(),
+      cleanedPrompt: processedPrompt.trim(),
       hasExplicitRouting: false,
+      ...(forceCollab ? { forceCollab } : {}),
     };
   }
 
   // Extract tasks: text between mentions
   for (let i = 0; i < mentionPositions.length; i++) {
     const current = mentionPositions[i]!;
-    const nextStart = mentionPositions[i + 1]?.start ?? prompt.length;
-    const taskText = prompt.slice(current.end, nextStart).trim();
+    const nextStart = mentionPositions[i + 1]?.start ?? processedPrompt.length;
+    const taskText = processedPrompt.slice(current.end, nextStart).trim();
 
     mentions.push({
       agentId: current.agentId,
@@ -112,12 +122,13 @@ export function parseMentions(
   const deduped = deduplicateMentions(mentions);
 
   // Build cleaned prompt: remove @mention tokens
-  const cleanedPrompt = buildCleanedPrompt(prompt, mentionPositions);
+  const cleanedPrompt = buildCleanedPrompt(processedPrompt, mentionPositions);
 
   return {
     mentions: deduped,
     cleanedPrompt,
     hasExplicitRouting: true,
+    ...(forceCollab ? { forceCollab } : {}),
   };
 }
 

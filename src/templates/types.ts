@@ -4,6 +4,7 @@
 
 export interface TemplateAgent {
   role: string;
+  task?: string;
   model?: string;
   systemPromptOverride?: string;
   taskTypes?: string[];
@@ -21,11 +22,21 @@ export interface OpenPawlTemplate {
   description: string;
   tags: string[];
   agents: TemplateAgent[];
+  pipeline?: string[];
   defaultGoalTemplate?: string;
   estimatedCostPerRun?: number;
+  builtIn?: boolean;
   minRuns?: number;
   requiresWebhook?: boolean;
   readme?: string;
+}
+
+export interface TeamComposition {
+  mode: "manual" | "autonomous" | "template";
+  templateId?: string;
+  activeAgents: TemplateAgent[];
+  excludedAgents?: { role: string; reason: string }[];
+  confidence?: number;
 }
 
 export interface InstalledTemplate extends OpenPawlTemplate {

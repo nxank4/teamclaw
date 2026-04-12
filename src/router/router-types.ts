@@ -38,7 +38,8 @@ export type DispatchStrategy =
   | "sequential"
   | "parallel"
   | "orchestrated"
-  | "clarify";
+  | "clarify"
+  | "collab";
 
 export interface AgentAssignment {
   agentId: string;
@@ -87,6 +88,7 @@ export interface MentionParseResult {
   mentions: AgentMention[];
   cleanedPrompt: string;
   hasExplicitRouting: boolean;
+  forceCollab?: boolean;
 }
 
 // ─── Dispatch Results ────────────────────────────────────────────────────────

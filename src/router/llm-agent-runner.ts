@@ -39,6 +39,8 @@ export interface LLMAgentRunnerOptions {
   contextTracker?: ContextTracker;
   /** Called when context level changes (for status bar updates). */
   onContextUpdate?: (utilization: number, level: ContextLevel) => void;
+  /** Optional memory context to inject into system prompts (retrieved from success patterns, decisions, etc.). */
+  getMemoryContext?: (prompt: string) => Promise<string | null>;
 }
 
 /**
@@ -50,6 +52,7 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
   const {
     onToken, onToolCall, getToolSchemas, getNativeTools, executeTool,
     doomLoopDetector, toolOutputHandler, contextTracker, onContextUpdate,
+    getMemoryContext,
   } = opts;
   const injectionDetector = new InjectionDetector();
 
@@ -81,6 +84,16 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
       const projectContext = getProjectContext(process.cwd());
       if (projectContext) {
         systemPrompt += projectContext;
+      }
+
+      // Inject memory context (success patterns, decisions) if available
+      if (getMemoryContext) {
+        try {
+          const memCtx = await getMemoryContext(prompt);
+          if (memCtx) systemPrompt += `\n\n${memCtx}`;
+        } catch {
+          // Memory retrieval failure is non-fatal
+        }
       }
 
       if (hasTools) {

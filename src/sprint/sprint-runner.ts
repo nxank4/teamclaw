@@ -5,50 +5,92 @@
  */
 import { EventEmitter } from "node:events";
 import type { AgentRegistry } from "../router/agent-registry.js";
-import type { SprintTask, SprintState, SprintResult, SprintOptions, SprintEventMap } from "./types.js";
+import type { SprintTask, SprintState, SprintResult, SprintOptions, SprintEventMap, SprintTeamContext } from "./types.js";
+import { mapTemplateRoleToAgent } from "./team-resolver.js";
+import { analyzeGoal } from "./goal-analyzer.js";
 import { parseTasks } from "./task-parser.js";
 import { validatePlan, reorderSetupFirst } from "./plan-validator.js";
 import { profileMeasure } from "../telemetry/profiler.js";
 import { resolveModelForAgent } from "../core/model-config.js";
 
-const PLANNER_PROMPT = (goal: string, maxTasks: number) =>
-  `You are planning a sprint to accomplish this goal: "${goal}"\n\n` +
-  `STEP 1 — GOAL ANALYSIS:\n` +
-  `Before generating tasks, identify the 3-5 core feature areas the goal requires.\n` +
-  `Example: "coffee shop website" → menu display, product pages, shopping cart, order checkout, admin dashboard.\n` +
-  `Example: "todo app" → task list view, add/edit/delete tasks, filters/search, persistence.\n` +
-  `Think about what a USER of this product would actually use.\n\n` +
-  `STEP 2 — TASK ALLOCATION (max ${maxTasks} tasks):\n` +
-  `Distribute tasks across the feature areas you identified:\n` +
-  `- Task 1: ALWAYS project setup (init project, install deps, create config)\n` +
-  `- Tasks 2–${Math.max(3, maxTasks - 1)}: Core features from your goal analysis. ` +
-  `Most tasks (60-80%) should directly implement what the user asked for. ` +
-  `Do NOT fill the plan with generic auth/login/CRUD — only include auth if the goal requires it.\n` +
-  `- Last task: ALWAYS testing (write and run tests to verify the build)\n` +
-  `- If the goal implies a web app, include at least one frontend/UI task.\n\n` +
-  `RULES:\n` +
-  `1. GOAL FOCUS: Task descriptions must be specific to the domain. ` +
-  `"Create src/pages/menu.tsx with coffee product cards, prices, and add-to-cart buttons" NOT "Implement /api/users endpoint".\n` +
-  `2. DEPENDENCY ORDER: Order tasks so dependencies come first. ` +
-  `If task N needs output from task M, M must come first. Include "dependsOn" with 1-based task numbers.\n` +
-  `3. MVP SCOPE: Build the MINIMUM viable version. Do NOT add:\n` +
-  `   - Payment (Stripe, PayPal), email (SendGrid, Nodemailer), OAuth/social login, Docker, CI/CD, monitoring — unless explicitly requested\n` +
-  `4. NO ASSUMED LIBRARIES: Only use ORMs/frameworks (Prisma, TypeORM, Mongoose) if the user mentioned them. Prefer built-in approaches.\n` +
-  `5. SPECIFICITY: Each task must name the exact file path, what it should contain, and the technology to use.\n` +
-  `6. TECH CONSTRAINTS: Every task description MUST repeat the specific technologies from the goal (database, framework, language, libraries). ` +
-  `Example: "Implement auth routes using PostgreSQL for user storage, bcrypt for passwords, Zod for validation" — NOT just "Implement auth routes".\n` +
-  `7. WORKER-READY: Each task must include enough detail for a coder to implement without re-reading the full plan: ` +
-  `key function/export names, expected input/output, and which other tasks it depends on.\n\n` +
-  `Output as a JSON array:\n` +
-  `[{"description": "...", "dependsOn": []}, {"description": "...", "dependsOn": [1]}]\n\n` +
-  `Goal: ${goal}`;
+const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeamContext, lessons?: string[]) => {
+  let prompt =
+    `You are planning a sprint to accomplish this goal: "${goal}"\n\n` +
+    `STEP 1 — GOAL ANALYSIS:\n` +
+    `Before generating tasks, identify the 3-5 core feature areas the goal requires.\n` +
+    `Example: "coffee shop website" → menu display, product pages, shopping cart, order checkout, admin dashboard.\n` +
+    `Example: "todo app" → task list view, add/edit/delete tasks, filters/search, persistence.\n` +
+    `Think about what a USER of this product would actually use.\n\n` +
+    `STEP 2 — TASK ALLOCATION (max ${maxTasks} tasks):\n` +
+    `Distribute tasks across the feature areas you identified:\n` +
+    `- Task 1: ALWAYS project setup (init project, install deps, create config)\n` +
+    `- Tasks 2–${Math.max(3, maxTasks - 1)}: Core features from your goal analysis. ` +
+    `Most tasks (60-80%) should directly implement what the user asked for. ` +
+    `Do NOT fill the plan with generic auth/login/CRUD — only include auth if the goal requires it.\n` +
+    `- Last task: ALWAYS testing (write and run tests to verify the build)\n` +
+    `- If the goal implies a web app, include at least one frontend/UI task.\n\n` +
+    `RULES:\n` +
+    `1. GOAL FOCUS: Task descriptions must be specific to the domain. ` +
+    `"Create src/pages/menu.tsx with coffee product cards, prices, and add-to-cart buttons" NOT "Implement /api/users endpoint".\n` +
+    `2. DEPENDENCY ORDER: Order tasks so dependencies come first. ` +
+    `If task N needs output from task M, M must come first. Include "dependsOn" with 1-based task numbers.\n` +
+    `3. MVP SCOPE: Build the MINIMUM viable version. Do NOT add:\n` +
+    `   - Payment (Stripe, PayPal), email (SendGrid, Nodemailer), OAuth/social login, Docker, CI/CD, monitoring — unless explicitly requested\n` +
+    `4. NO ASSUMED LIBRARIES: Only use technologies explicitly mentioned in the goal. ` +
+    `If the goal says PostgreSQL, use pg driver directly, not an ORM unless specified. ` +
+    `If the goal doesn't specify a library for something, use the simplest built-in approach.\n` +
+    `5. SPECIFICITY: Each task must name the exact file path, what it should contain, and the technology to use.\n` +
+    `6. TECH CONSTRAINTS: Every task description MUST repeat the specific technologies from the goal (database, framework, language, libraries). ` +
+    `Example: "Implement auth routes using PostgreSQL for user storage, bcrypt for passwords, Zod for validation" — NOT just "Implement auth routes".\n` +
+    `7. WORKER-READY: Each task must include enough detail for a coder to implement without re-reading the full plan: ` +
+    `key function/export names, expected input/output, and which other tasks it depends on.\n` +
+    `8. SETUP FIRST: When the goal is to build something new, Task 1 must always be project initialization: ` +
+    `create directory, init package.json, install specified dependencies, create config files. Never skip setup.\n` +
+    `9. NO QUESTIONS AS TASKS: NEVER output clarification questions as tasks. Every task description must start with an action verb ` +
+    `(Create, Implement, Write, Set up, Configure, Build, Add, Install, Test, Deploy). ` +
+    `If the goal is too vague to decompose into actionable tasks, respond with EXACTLY:\n` +
+    `NEEDS_CLARIFICATION: followed by your questions, one per line. Do NOT wrap questions in JSON or task format.\n\n`;
+
+  if (teamContext) {
+    const agentList = teamContext.agents
+      .map((a) => `- ${a.role}${a.task ? `: ${a.task}` : ""}`)
+      .join("\n");
+    prompt +=
+      `TEAM CONTEXT:\n` +
+      `You are working as part of the "${teamContext.templateName}" team.\n` +
+      `Available agents:\n${agentList}\n\n` +
+      `Pipeline order: ${teamContext.pipeline.join(" → ")}\n\n` +
+      `Tag each task with the agent role that should execute it using the "agent" field.\n\n` +
+      `Output as a JSON array:\n` +
+      `[{"description": "...", "agent": "${teamContext.pipeline[0] ?? "coder"}", "dependsOn": []}, ` +
+      `{"description": "...", "agent": "${teamContext.pipeline[1] ?? "coder"}", "dependsOn": [1]}]\n\n`;
+  } else {
+    prompt +=
+      `Output as a JSON array:\n` +
+      `[{"description": "...", "dependsOn": []}, {"description": "...", "dependsOn": [1]}]\n\n`;
+  }
+
+  if (lessons && lessons.length > 0) {
+    prompt += `LESSONS FROM PREVIOUS RUNS (you MUST apply these):\n`;
+    for (const lesson of lessons) {
+      prompt += `- ${lesson}\n`;
+    }
+    prompt += `\n`;
+  }
+
+  prompt += `Goal: ${goal}`;
+  return prompt;
+};
 
 const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
   const context = state.tasks
-    .filter((t) => t.status === "completed" && t.result)
-    .map((t) => `- ${t.description}: ${t.result!.slice(0, 200)}`)
+    .filter((t) => (t.status === "completed" || (t.status === "failed" && t.result)) && t.result)
+    .map((t) => {
+      const label = t.status === "completed" ? "completed" : "partial (failed)";
+      return `- ${t.description} [${label}]: ${t.result!.slice(0, 200)}`;
+    })
     .join("\n");
-  const prior = context ? `\n\nCompleted so far:\n${context}` : "";
+  const prior = context ? `\n\nPrior work:\n${context}` : "";
   return `Goal: ${state.goal}\n\nYour task: ${task.description}${prior}\n\nWorking directory: ${process.cwd()}`;
 };
 
@@ -72,6 +114,37 @@ const WRITE_INTENT_KEYWORDS = ["create", "build", "implement", "write", "add", "
 /** Tools that constitute a write action. */
 const WRITE_TOOLS = new Set(["file_write", "file_edit", "shell_exec"]);
 
+/** Extract clarification questions if planner responded with NEEDS_CLARIFICATION. */
+function extractClarification(response: string): string[] | null {
+  const trimmed = response.trim();
+  // Check for explicit NEEDS_CLARIFICATION marker
+  const marker = "NEEDS_CLARIFICATION:";
+  const idx = trimmed.indexOf(marker);
+  if (idx === -1) return null;
+
+  const questionsText = trimmed.slice(idx + marker.length).trim();
+  const questions = questionsText
+    .split("\n")
+    .map((l) => l.replace(/^[-\d.)\s*]+/, "").trim())
+    .filter((l) => l.length > 0);
+
+  return questions.length > 0 ? questions : null;
+}
+
+/** Patterns that indicate a task description is actually a question, not an action. */
+const QUESTION_PREFIXES = /^(what|which|how\s+should|do\s+you|should\s+we|can\s+you|where|when|why|is\s+there|are\s+there|would)/i;
+
+/** Filter out tasks that are questions or otherwise non-actionable. */
+function filterInvalidTasks(tasks: SprintTask[]): SprintTask[] {
+  return tasks.filter((task) => {
+    const desc = task.description.trim();
+    // Reject questions
+    if (desc.endsWith("?")) return false;
+    if (QUESTION_PREFIXES.test(desc)) return false;
+    return true;
+  });
+}
+
 const KEYWORD_RULES: Array<{ keywords: string[]; agent: string }> = [
   { keywords: ["test", "spec", "verify", "coverage"], agent: "tester" },
   { keywords: ["review", "check", "audit", "inspect"], agent: "reviewer" },
@@ -93,6 +166,7 @@ export class SprintRunner extends EventEmitter {
   private abortController: AbortController | null = null;
   private paused = false;
   private pauseResolve: (() => void) | null = null;
+  private teamContext: SprintTeamContext | undefined;
 
   constructor(protected agents: AgentRegistry) {
     super();
@@ -101,6 +175,7 @@ export class SprintRunner extends EventEmitter {
   async run(goal: string, options?: SprintOptions): Promise<SprintResult> {
     const startTime = Date.now();
     this.abortController = new AbortController();
+    this.teamContext = options?.teamContext;
     this.state = {
       goal,
       tasks: [],
@@ -124,13 +199,22 @@ export class SprintRunner extends EventEmitter {
       });
     }
 
+    // Autonomous composition: analyze goal and emit team composition
+    if (!this.teamContext) {
+      const analysis = analyzeGoal(goal);
+      this.emitTyped("sprint:composition", {
+        entries: analysis.entries,
+        estimatedTasks: analysis.estimatedTasks,
+      });
+    }
+
     // Phase 1: Planning
     this.emitTyped("sprint:planning", undefined);
     let planResponse: string;
     try {
       planResponse = await profileMeasure("sprint_planning", goal.slice(0, 40), () =>
         this.runAgent("planner", {
-          prompt: PLANNER_PROMPT(goal, options?.maxTasks ?? 10),
+          prompt: PLANNER_PROMPT(goal, options?.maxTasks ?? 10, this.teamContext, options?.lessons),
           signal: this.abortController!.signal,
         }),
       );
@@ -140,12 +224,25 @@ export class SprintRunner extends EventEmitter {
       this.emitTyped("sprint:error", { error });
       throw err;
     }
+    // Check for NEEDS_CLARIFICATION response
+    const clarification = extractClarification(planResponse);
+    if (clarification) {
+      this.state.phase = "stopped";
+      this.emitTyped("sprint:needs_clarification", { questions: clarification });
+      return this.buildResult(startTime);
+    }
+
     this.state.tasks = parseTasks(planResponse);
+
+    // Validate tasks — filter out questions and invalid entries
+    this.state.tasks = filterInvalidTasks(this.state.tasks);
     if (this.state.tasks.length === 0) {
-      this.state.phase = "done";
-      const result = this.buildResult(startTime);
-      this.emitTyped("sprint:done", { result });
-      return result;
+      // All tasks were invalid (likely all questions) — treat as needs clarification
+      this.state.phase = "stopped";
+      this.emitTyped("sprint:needs_clarification", {
+        questions: ["The goal is too vague to decompose into actionable tasks. Please provide more detail."],
+      });
+      return this.buildResult(startTime);
     }
 
     // Validate plan and emit warnings
@@ -215,7 +312,28 @@ export class SprintRunner extends EventEmitter {
     for (let i = 0; i < tasks.length; i++) {
       await this.checkPaused();
       if (this.abortController!.signal.aborted) break;
-      await this.executeTask(tasks[i]!, i);
+      const task = tasks[i]!;
+
+      // Soft dependency check: skip only if dep produced NO output at all
+      const deps = task.dependsOn ?? [];
+      const hardFail = deps.some((d) => {
+        const dep = tasks[d - 1];
+        return dep && dep.status === "failed" && !dep.result && !(dep.toolsCalled?.length);
+      });
+      if (hardFail) {
+        task.status = "failed";
+        task.error = "Skipped: dependency produced no output";
+        this.state.failedTasks++;
+        this.emitTyped("sprint:task:complete", { task });
+        continue;
+      }
+
+      await this.executeTask(task, i);
+
+      // Single retry for non-timeout, non-skip failures (includes incomplete)
+      if ((task.status === "failed" || task.status === "incomplete") && this.isRetriable(task)) {
+        await this.retryTask(task, i);
+      }
     }
   }
 
@@ -231,22 +349,32 @@ export class SprintRunner extends EventEmitter {
       await this.checkPaused();
       if (this.abortController!.signal.aborted) break;
 
-      // Find tasks whose dependencies are all completed
+      // Find tasks whose dependencies are resolved (completed or failed-with-output)
       const ready: number[] = [];
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i]!;
         if (task.status !== "pending") continue;
         const deps = task.dependsOn ?? [];
-        // Skip if any dependency failed
-        if (deps.some((d) => failed.has(d))) {
-          task.status = "failed";
-          task.error = "Skipped: dependency failed";
-          this.state.failedTasks++;
-          this.emitTyped("sprint:task:complete", { task });
-          continue;
+
+        // Soft dependency: skip only if a failed dep produced NO output at all
+        const failedDeps = deps.filter((d) => failed.has(d));
+        if (failedDeps.length > 0) {
+          const hasPartialOutput = failedDeps.some((d) => {
+            const dep = tasks[d - 1];
+            return dep && (dep.result || (dep.toolsCalled?.length ?? 0) > 0);
+          });
+          if (!hasPartialOutput) {
+            task.status = "failed";
+            task.error = "Skipped: dependency produced no output";
+            this.state.failedTasks++;
+            this.emitTyped("sprint:task:complete", { task });
+            continue;
+          }
+          // Dep failed but produced partial output — allow this task to attempt
         }
-        // Check all dependencies completed
-        if (deps.every((d) => completed.has(d))) {
+
+        // All deps must be resolved (completed or in the failed set)
+        if (deps.every((d) => completed.has(d) || failed.has(d))) {
           ready.push(i);
         }
       }
@@ -279,6 +407,17 @@ export class SprintRunner extends EventEmitter {
         }
       }
 
+      // Retry failed tasks from this batch once (skip timeouts and skips)
+      const retriable = batch.filter((i) => (tasks[i]!.status === "failed" || tasks[i]!.status === "incomplete") && this.isRetriable(tasks[i]!));
+      for (const i of retriable) {
+        await this.retryTask(tasks[i]!, i);
+        const taskNum = i + 1;
+        if (tasks[i]!.status === "completed") {
+          failed.delete(taskNum);
+          completed.add(taskNum);
+        }
+      }
+
       this.emitTyped("sprint:round:complete", { round, duration: Date.now() - roundStart });
     }
   }
@@ -305,6 +444,7 @@ export class SprintRunner extends EventEmitter {
       if (this.taskExpectsWrite(task) && !this.taskDidWrite(task)) {
         task.status = "incomplete";
         task.error = "Task expects file creation/modification but agent only performed read operations";
+        this.state.failedTasks++;
       } else {
         task.status = "completed";
         this.state.completedTasks++;
@@ -315,6 +455,40 @@ export class SprintRunner extends EventEmitter {
       this.state.failedTasks++;
     }
     this.emitTyped("sprint:task:complete", { task });
+  }
+
+  /** Check if a failed task is worth retrying (not timeout, not skip, not abort). */
+  private isRetriable(task: SprintTask): boolean {
+    const err = task.error ?? "";
+    return !err.includes("timeout") && !err.includes("Timed out")
+      && !err.includes("Skipped:") && !err.includes("aborted");
+  }
+
+  /** Retry a failed task once with error context appended. */
+  private async retryTask(task: SprintTask, index: number): Promise<void> {
+    const origError = task.error ?? "unknown";
+    const origDesc = task.description;
+
+    // Reset task state
+    task.status = "pending";
+    task.error = undefined;
+    task.result = undefined;
+    task.toolsCalled = [];
+    this.state.failedTasks--;
+
+    this.emitTyped("sprint:warning", {
+      warning: `Retrying task ${index + 1}: "${origDesc.slice(0, 50)}..."`,
+      type: "retry",
+    });
+
+    // Append error context so the LLM tries a different approach
+    task.description = origDesc +
+      `\n\n[RETRY — previous attempt failed: ${origError.slice(0, 150)}. Try a different approach.]`;
+
+    await this.executeTask(task, index);
+
+    // Restore original description (keep retry result)
+    task.description = origDesc;
   }
 
   /** Override in subclass or mock for testing. */
@@ -348,6 +522,16 @@ export class SprintRunner extends EventEmitter {
   }
 
   protected assignAgent(task: SprintTask): string {
+    // Template mode: use planner-assigned role or map template roles
+    if (this.teamContext) {
+      // If planner tagged the task with an agent role, map it
+      if (task.assignedAgent) {
+        const mapped = mapTemplateRoleToAgent(task.assignedAgent);
+        if (this.agents.has(mapped)) return mapped;
+      }
+      // Fall through to keyword matching
+    }
+
     const lower = task.description.toLowerCase();
     for (const rule of KEYWORD_RULES) {
       if (rule.keywords.some((kw) => lower.includes(kw))) {
