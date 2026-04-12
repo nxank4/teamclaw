@@ -1,39 +1,28 @@
 /**
- * /plan command — enter plan-only mode with read-only tools.
- * After agent responds, an inline confirmation auto-shows to execute the plan.
+ * /plan command — ask the agent to create a plan before executing.
+ * Sends a system message instructing read-only exploration and planning.
  */
 import type { SlashCommand } from "../../tui/index.js";
-import type { ModeSystem } from "../../tui/keybindings/mode-system.js";
 import { ICONS } from "../../tui/constants/icons.js";
 
 export interface PlanCommandDeps {
-  modeSystem: ModeSystem;
-  updateModeDisplay: () => void;
   flashMessage: (msg: string) => void;
 }
 
 export const PLAN_SYSTEM_MESSAGE = [
-  "**Plan mode active.** You are now in read-only exploration mode.",
+  "**Plan mode active.** Explore the codebase and create a detailed plan.",
   "",
-  "Your job: explore the codebase and create a detailed plan.",
-  "You can read files, list directories, and search — but you cannot modify anything.",
-  "",
-  "When your plan is ready, you'll be prompted to execute it.",
+  "Read files, list directories, and search — then present your plan.",
+  "When the plan is ready, ask for confirmation before executing.",
 ].join("\n");
 
 export function createPlanCommand(deps: PlanCommandDeps): SlashCommand {
   return {
     name: "plan",
-    description: "Enter plan-only mode (read-only tools, auto-execute when ready)",
+    description: "Ask the agent to plan before executing",
     async execute(_args, ctx) {
-      if (deps.modeSystem.getMode() === "plan-only") {
-        deps.flashMessage("Already in plan mode");
-        return;
-      }
-      deps.modeSystem.setMode("plan-only");
-      deps.updateModeDisplay();
       ctx.addMessage("system", PLAN_SYSTEM_MESSAGE);
-      deps.flashMessage(`${ICONS.planMode} Plan mode active`);
+      deps.flashMessage(`${ICONS.bolt} Plan mode`);
     },
   };
 }

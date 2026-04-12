@@ -33,9 +33,10 @@ const FIELDS: SettingField[] = [
   { key: "provider", label: "provider", description: "LLM provider", type: "select", options: [] /* populated at runtime from ProviderRegistry */ },
   { key: "model", label: "model", description: "Active model", type: "select", options: [] },
   { key: "apikey", label: "apikey", description: "API key", type: "password" },
-  { key: "mode", label: "mode", description: "Default execution mode", type: "select", options: ["auto", "ask", "build", "brainstorm", "loop-hell"] },
+  { key: "mode", label: "mode", description: "Dispatch mode", type: "select", options: ["solo", "collab", "sprint"] },
   { key: "maxCycles", label: "maxCycles", description: "Max cycles per task", type: "number", validate: (v) => { const n = parseInt(v); return isNaN(n) || n < 1 || n > 50 ? "Must be 1-50" : null; } },
   { key: "temperature", label: "temperature", description: "LLM temperature", type: "number", validate: (v) => { const n = parseFloat(v); return isNaN(n) || n < 0 || n > 2 ? "Must be 0-2" : null; } },
+  { key: "team", label: "team", description: "Team config → /team", type: "text" },
 ];
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -157,6 +158,20 @@ export class SettingsView extends InteractiveView {
     // Dynamic model discovery — load real models for the model field
     if (field.key === "model") {
       void this.loadAndEditModels(field);
+      return;
+    }
+
+    // Team field opens TeamView
+    if (field.key === "team") {
+      this.deactivate();
+      import("./team-view.js").then(({ TeamView }) => {
+        const view = new TeamView(
+          this.tui,
+          () => { /* config updated by TeamView */ },
+          () => { /* closed */ },
+        );
+        view.activate();
+      });
       return;
     }
 
@@ -420,6 +435,19 @@ export class SettingsView extends InteractiveView {
       for (const key of ["mode", "maxCycles", "temperature"]) {
         const result = getConfigValue(key, { raw: true });
         this.values.set(key, result.value ?? "");
+      }
+
+      // Team config summary
+      const { readGlobalConfigWithDefaults } = await import("../../core/global-config.js");
+      const globalCfg = readGlobalConfigWithDefaults();
+      const team = globalCfg.team;
+      if (team) {
+        const teamLabel = team.templateId
+          ? `${team.mode}: ${team.templateId}`
+          : team.mode;
+        this.values.set("team", teamLabel);
+      } else {
+        this.values.set("team", "autonomous");
       }
     } catch {
       // Config unavailable

@@ -89,8 +89,14 @@ export const CLI_COMMANDS: CommandDef[] = [
     handler: { module: "./commands/clarity.js", fn: "runClarityCommand" },
   },
   {
+    name: "solo",
+    description: "Interactive solo mode (single agent)",
+    category: "daily",
+    handler: { module: "./commands/chat.js", fn: "runChatCommand" },
+  },
+  {
     name: "chat",
-    description: "Interactive chat mode",
+    description: "Alias for solo (backward compatibility)",
     category: "daily",
     handler: { module: "./commands/chat.js", fn: "runChatCommand" },
   },

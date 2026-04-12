@@ -78,6 +78,7 @@ export class ScrollableFilterList<T> {
     } = this.config;
 
     const filtered = this.getFilteredItems(filterText);
+    const effectiveMaxVisible = Math.max(1, maxVisible);
     const lines: string[] = [];
 
     // Filter bar
@@ -109,14 +110,14 @@ export class ScrollableFilterList<T> {
     let aboveCount: number;
     let belowCount: number;
 
-    if (count <= maxVisible) {
+    if (count <= effectiveMaxVisible) {
       start = 0;
       end = count;
       aboveCount = 0;
       belowCount = 0;
     } else {
       start = scrollOffset;
-      end = Math.min(count, start + maxVisible);
+      end = Math.min(count, start + effectiveMaxVisible);
       aboveCount = start;
       belowCount = count - end;
     }

@@ -101,6 +101,9 @@ export class Dispatcher extends EventEmitter {
         case "orchestrated":
           result = await this.dispatchOrchestrated(sessionId, prompt, decision, controller.signal);
           break;
+        case "collab":
+          result = await this.dispatchCollab(sessionId, prompt, decision, controller.signal);
+          break;
         case "clarify":
           result = await this.dispatchClarify(sessionId, prompt);
           break;
@@ -247,6 +250,40 @@ export class Dispatcher extends EventEmitter {
       strategy: "clarify",
       agentResults: [result],
       ...aggregateCosts([result]),
+    };
+  }
+
+  private async dispatchCollab(
+    sessionId: string,
+    originalPrompt: string,
+    decision: RouteDecision,
+    signal: AbortSignal,
+  ): Promise<DispatchResult> {
+    const sorted = [...decision.agents].sort((a, b) => a.priority - b.priority);
+    const results: AgentResult[] = [];
+    const priorOutputs: { role: string; response: string }[] = [];
+
+    for (const assignment of sorted) {
+      if (signal.aborted) break;
+
+      // Each agent gets the original prompt plus all prior agents' output
+      const contextParts = [originalPrompt];
+      for (const prior of priorOutputs) {
+        contextParts.push(`\n\n[${prior.role} output]:\n${prior.response}`);
+      }
+      const taskPrompt = contextParts.join("");
+
+      const result = await this.runAgent(sessionId, assignment, taskPrompt, signal);
+      results.push(result);
+
+      if (!result.success) break;
+      priorOutputs.push({ role: assignment.role, response: result.response });
+    }
+
+    return {
+      strategy: "collab",
+      agentResults: results,
+      ...aggregateCosts(results),
     };
   }
 

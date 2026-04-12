@@ -59,12 +59,7 @@ export const WINDOWS_KEYMAP: KeymapPreset = {
   "nav.select": "enter",
   "nav.back": "escape",
 
-  "mode.auto": "alt+0",
-  "mode.ask": "alt+1",
-  "mode.build": "alt+2",
-  "mode.brainstorm": "alt+3",
-  "mode.loopHell": "alt+4",
-  // These are handled by the app layer (editor onKey override), not the TUI keybinding system.
+  // Mode cycling is handled by the app layer (editor onKey override), not the TUI keybinding system.
   // Use unregistered keys to satisfy the type while avoiding conflicts.
   "mode.cycle": "f19",
   "palette.show": "f20",

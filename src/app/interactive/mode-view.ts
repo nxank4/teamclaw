@@ -1,23 +1,23 @@
 /**
- * Interactive mode picker.
+ * Interactive mode picker — solo / collab / sprint.
  * ↑/↓ navigate, Enter to select, Esc to close.
  */
 import type { KeyEvent } from "../../tui/core/input.js";
 import type { TUI } from "../../tui/core/tui.js";
 import { InteractiveView } from "./base-view.js";
 import { ICONS } from "../../tui/constants/icons.js";
+import type { AppMode } from "../../tui/keybindings/app-mode.js";
 
 interface ModeOption {
-  name: string;
+  name: AppMode;
+  icon: string;
   description: string;
 }
 
 const MODES: ModeOption[] = [
-  { name: "auto", description: "Auto-detect from prompt (default)" },
-  { name: "ask", description: "Answer questions, no code changes" },
-  { name: "build", description: "Write code, create/modify files" },
-  { name: "brainstorm", description: "Explore multiple approaches" },
-  { name: "loop-hell", description: "Iterate until tests pass" },
+  { name: "solo", icon: ICONS.modeSolo, description: "Single agent responds to prompts" },
+  { name: "collab", icon: ICONS.modeCollab, description: "Multi-agent chain (coder → reviewer)" },
+  { name: "sprint", icon: ICONS.modeSprint, description: "Autonomous multi-agent task execution" },
 ];
 
 export class ModeView extends InteractiveView {
@@ -28,7 +28,6 @@ export class ModeView extends InteractiveView {
     super(tui, onClose);
     this.currentMode = currentMode;
     this.onSelect = onSelect;
-    // Pre-select current mode
     const idx = MODES.findIndex((m) => m.name === currentMode);
     if (idx >= 0) this.selectedIndex = idx;
   }
@@ -50,7 +49,7 @@ export class ModeView extends InteractiveView {
     return true;
   }
 
-  protected override getPanelTitle(): string { return `${ICONS.bolt} Execution Mode`; }
+  protected override getPanelTitle(): string { return `${ICONS.bolt} Mode`; }
   protected override getPanelFooter(): string { return `${ICONS.arrowUp}${ICONS.arrowDown} navigate \u00b7 Enter select \u00b7 Esc close`; }
 
   protected renderLines(): string[] {
@@ -62,14 +61,13 @@ export class ModeView extends InteractiveView {
       const isSelected = i === this.selectedIndex;
       const isCurrent = mode.name === this.currentMode;
       const cursor = isSelected ? t.primary(`${ICONS.cursor} `) : "  ";
-      const name = mode.name.padEnd(14);
+      const label = `${mode.icon} ${mode.name}`.padEnd(14);
       const current = isCurrent ? t.success("(current)") : "";
 
-
       if (isSelected) {
-        lines.push(`    ${cursor}${t.bold(name)} ${t.dim(mode.description)}  ${current}`);
+        lines.push(`    ${cursor}${t.bold(label)} ${t.dim(mode.description)}  ${current}`);
       } else {
-        lines.push(`    ${cursor}${t.dim(name)} ${t.dim(mode.description)}  ${current}`);
+        lines.push(`    ${cursor}${t.dim(label)} ${t.dim(mode.description)}  ${current}`);
       }
     }
 

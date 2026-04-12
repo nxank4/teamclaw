@@ -1,24 +1,29 @@
 /**
- * /mode command — show or switch execution mode.
+ * /mode command — show or switch dispatch mode (solo/collab/sprint).
  * No args → interactive mode picker.
  * With args → set mode directly.
  */
 import type { SlashCommand } from "../../tui/index.js";
 import { ModeView } from "../interactive/mode-view.js";
 import { ICONS } from "../../tui/constants/icons.js";
+import type { AppMode } from "../../tui/keybindings/app-mode.js";
 
-const VALID_MODES = ["auto", "ask", "build", "brainstorm", "loop-hell"];
+const VALID_MODES: AppMode[] = ["solo", "collab", "sprint"];
 
-export function createModeCommand(): SlashCommand {
+export interface ModeCommandDeps {
+  getMode: () => AppMode;
+  setMode: (mode: AppMode) => void;
+  updateDisplay: () => void;
+}
+
+export function createModeCommand(deps?: ModeCommandDeps): SlashCommand {
   return {
     name: "mode",
     aliases: ["md"],
-    description: "Switch execution mode",
+    description: "Switch dispatch mode (solo/collab/sprint)",
     args: "[mode-name]",
     async execute(args, ctx) {
-      const { getConfigValue, setConfigValue } = await import("../../core/configManager.js");
-      const currentResult = getConfigValue("mode", { raw: true });
-      const currentMode = currentResult.value ?? "auto";
+      const currentMode = deps?.getMode() ?? "solo";
 
       if (!args.trim()) {
         // Interactive mode
@@ -26,13 +31,12 @@ export function createModeCommand(): SlashCommand {
           const view = new ModeView(
             ctx.tui,
             currentMode,
-            async (mode) => {
-              const result = setConfigValue("mode", mode);
-              if ("error" in result) {
-                ctx.addMessage("error", result.error);
-              } else {
-                ctx.addMessage("system", `${ICONS.success} Mode switched to ${mode}`);
+            (mode) => {
+              if (deps) {
+                deps.setMode(mode as AppMode);
+                deps.updateDisplay();
               }
+              ctx.addMessage("system", `${ICONS.success} Mode switched to ${mode}`);
             },
             () => { /* closed */ },
           );
@@ -45,29 +49,26 @@ export function createModeCommand(): SlashCommand {
           `Current mode: ${currentMode}`,
           "",
           "Available modes:",
-          "  auto        Auto-detect from prompt (default)",
-          "  ask         Answer questions, no code changes",
-          "  build       Write code, create/modify files",
-          "  brainstorm  Explore multiple approaches",
-          "  loop-hell   Iterate until tests pass",
+          `  ${ICONS.modeSolo} solo      Single agent responds to prompts`,
+          `  ${ICONS.modeCollab} collab    Multi-agent chain (coder → reviewer)`,
+          `  ${ICONS.modeSprint} sprint    Autonomous multi-agent task execution`,
           "",
-          "Switch: /mode <name>",
+          "Switch: /mode <name> or Shift+Tab to cycle",
         ].join("\n"));
         return;
       }
 
       // Direct set
-      const mode = args.trim().toLowerCase();
+      const mode = args.trim().toLowerCase() as AppMode;
       if (!VALID_MODES.includes(mode)) {
         ctx.addMessage("error", `Unknown mode: ${mode}. Available: ${VALID_MODES.join(", ")}`);
         return;
       }
-      const result = setConfigValue("mode", mode);
-      if ("error" in result) {
-        ctx.addMessage("error", result.error);
-      } else {
-        ctx.addMessage("system", `${ICONS.success} Mode switched to ${mode}`);
+      if (deps) {
+        deps.setMode(mode);
+        deps.updateDisplay();
       }
+      ctx.addMessage("system", `${ICONS.success} Mode switched to ${mode}`);
     },
   };
 }

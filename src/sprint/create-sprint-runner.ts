@@ -31,6 +31,14 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
 
       // Build system prompt
       let systemPrompt = agent.systemPrompt;
+
+      // Apply per-agent config overrides (systemPromptAppend)
+      const { getAgentConfig } = await import("../router/agent-config.js");
+      const agentOverride = getAgentConfig(agentName);
+      if (agentOverride?.systemPromptAppend) {
+        systemPrompt += "\n\n" + agentOverride.systemPromptAppend;
+      }
+
       const projectContext = getProjectContext(process.cwd());
       if (projectContext) {
         systemPrompt += projectContext;

@@ -26,10 +26,11 @@ export const ICONS = {
   scrollUp: "\u25b2",    // ▲
   scrollDown: "\u25bc",  // ▼
 
-  // Mode icons
-  bolt: "\u26a1",        // ⚡
-  planMode: "\u25a3",    // ▣
-  reviewMode: "\u25ce",  // ◎
+  // Mode icons (solo/collab/sprint)
+  bolt: "\u26a1",               // ⚡ (used for sprint mode)
+  modeSolo: "\u203a",           // ›
+  modeCollab: "\u00bb",         // »
+  modeSprint: "\u26a1",         // ⚡
 
   // Misc
   hourglass: "\u23f3",   // ⏳

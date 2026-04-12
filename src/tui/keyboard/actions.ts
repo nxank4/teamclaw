@@ -59,12 +59,7 @@ export const ACTIONS = {
   "nav.back": "Go back / close view",
 
   // Mode switching
-  "mode.auto": "Switch to auto mode",
-  "mode.ask": "Switch to ask mode",
-  "mode.build": "Switch to build mode",
-  "mode.brainstorm": "Switch to brainstorm mode",
-  "mode.loopHell": "Switch to loop-hell mode",
-  "mode.cycle": "Cycle operating mode",
+  "mode.cycle": "Cycle mode (solo/collab/sprint)",
 
   // Palette & overlays
   "palette.show": "Open command palette",

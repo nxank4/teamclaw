@@ -346,7 +346,7 @@ async function main(): Promise<void> {
         const { runSessionsCommand } = await import("./commands/sessions.js");
         await runSessionsCommand(args.slice(1));
 
-    } else if (cmd === "chat") {
+    } else if (cmd === "chat" || cmd === "solo") {
         const { runChatCommand } = await import("./commands/chat.js");
         await runChatCommand(args.slice(1));
 

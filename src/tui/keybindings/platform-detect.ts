@@ -44,8 +44,8 @@ export function getPlatformFallbacks(platform?: Platform): Record<string, string
   const fallbacks: Record<string, string> = {};
 
   if (p === "windows") {
-    // Shift+Tab may not work on older Windows terminals
-    fallbacks["alt+m"] = "mode:cycle";
+    // Shift+Tab may not work on older Windows terminals; Alt+M as fallback
+    fallbacks["alt+m"] = "mode.cycle";
   }
 
   return fallbacks;
