@@ -32,16 +32,20 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   );
 }
 
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split(".");
+  if (keys.some((k) => DANGEROUS_KEYS.has(k))) return;
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
-    if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
-      target[keys[i]] = {};
+    const key = keys[i]!;
+    if (!target[key] || typeof target[key] !== "object") {
+      target[key] = {};
     }
-    target = target[keys[i]] as Record<string, unknown>;
+    target = target[key] as Record<string, unknown>;
   }
-  target[keys[keys.length - 1]] = value;
+  target[keys[keys.length - 1]!] = value;
 }
 
 function coerce(value: string): unknown {
