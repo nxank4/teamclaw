@@ -3,7 +3,10 @@
  */
 
 import { mark, printStartupTimings } from "./startup.js";
-import { formatToolPermissionPrompt, formatToolPermissionResolved } from "./tool-permission.js";
+import {
+  formatToolPermissionPrompt, formatToolPermissionResolved,
+  rebuildPromptWithSelection, CONFIRM_CHOICES, SAFE_AUTO_APPROVE, sessionAutoApproved,
+} from "./tool-permission.js";
 import { wireRouterEvents, wireSessionEvents, type RouterEventWiring } from "./router-wiring.js";
 import { registerSessionCommands, replaySessionHistory } from "./session-helpers.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
@@ -73,6 +76,12 @@ export async function initSessionRouter(
       toolName: string; input: unknown; riskLevel: string; category: string;
       approve: (always?: boolean) => void; reject: () => void;
     }) => {
+      // Smart auto-approve: read-only tools and session-approved tools
+      if (SAFE_AUTO_APPROVE.has(toolName) || sessionAutoApproved.has(toolName)) {
+        approve();
+        return;
+      }
+
       const prompt = formatToolPermissionPrompt(toolName, input, riskLevel);
       layout.messages.addMessage({
         role: "system",
@@ -81,6 +90,8 @@ export async function initSessionRouter(
         tag: "tool-approval",
       });
       layout.tui.requestRender();
+
+      let selectedIndex = 0;
 
       const resolve = (result: string, color: (s: string) => string, action: () => void) => {
         layout.tui.popKeyHandler();
@@ -91,13 +102,58 @@ export async function initSessionRouter(
         action();
       };
 
+      const updateSelection = () => {
+        layout.messages.replaceLast(
+          rebuildPromptWithSelection(toolName, input, riskLevel, selectedIndex),
+        );
+        layout.tui.requestRender();
+      };
+
       layout.tui.pushKeyHandler({
         handleKey: (event) => {
+          // Arrow navigation
+          if (event.type === "arrow" && event.direction === "right") {
+            selectedIndex = Math.min(selectedIndex + 1, CONFIRM_CHOICES.length - 1);
+            updateSelection();
+            return true;
+          }
+          if (event.type === "arrow" && event.direction === "left") {
+            selectedIndex = Math.max(selectedIndex - 1, 0);
+            updateSelection();
+            return true;
+          }
+          if (event.type === "tab") {
+            selectedIndex = (selectedIndex + 1) % CONFIRM_CHOICES.length;
+            updateSelection();
+            return true;
+          }
+
+          // Enter confirms current selection
+          if (event.type === "enter") {
+            const choice = CONFIRM_CHOICES[selectedIndex]!;
+            if (choice.value === "allow") {
+              resolve(`${ICONS.success} Approved`, defaultTheme.success, () => approve());
+            } else if (choice.value === "skip") {
+              resolve(`${ICONS.error} Skipped`, defaultTheme.dim, () => reject());
+            } else if (choice.value === "always") {
+              sessionAutoApproved.add(toolName);
+              resolve(`${ICONS.success} Always approved`, defaultTheme.success, () => approve(true));
+            } else {
+              resolve(`${ICONS.error} Denied`, defaultTheme.error, () => reject());
+            }
+            return true;
+          }
+
+          // Legacy single-key shortcuts
           if (event.type === "char" && !event.ctrl) {
             const ch = event.char.toLowerCase();
             if (ch === "y") { resolve(`${ICONS.success} Approved`, defaultTheme.success, () => approve()); return true; }
             if (ch === "n") { resolve(`${ICONS.error} Denied`, defaultTheme.error, () => reject()); return true; }
-            if (ch === "!") { resolve(`${ICONS.success} Always approved for session`, defaultTheme.success, () => approve(true)); return true; }
+            if (ch === "!") {
+              sessionAutoApproved.add(toolName);
+              resolve(`${ICONS.success} Always approved`, defaultTheme.success, () => approve(true));
+              return true;
+            }
           }
           if (event.type === "escape") { resolve(`${ICONS.error} Denied`, defaultTheme.error, () => reject()); return true; }
           return true;
