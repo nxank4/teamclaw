@@ -7,5 +7,13 @@ export default defineConfig({
   build: {
     outDir: "../../../dist/client",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom"],
+          "reactflow-vendor": ["reactflow", "@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
+        },
+      },
+    },
   },
 });

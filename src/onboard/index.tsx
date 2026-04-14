@@ -1,20 +1,23 @@
 #!/usr/bin/env node
 /**
- * TeamClaw onboarding wizard — interactive setup for OpenClaw worker and team.
+ * TeamClaw onboarding wizard — delegates to the unified setup wizard.
  */
 
-import { render } from "ink";
-import App from "./App.js";
+import { runSetup } from "./setup-flow.js";
+import { logger } from "../core/logger.js";
 
-export async function runOnboard(): Promise<void> {
-  const instance = render(<App />);
-  await instance.waitUntilExit();
+export interface RunOnboardOptions {
+    installDaemon?: boolean;
+}
+
+export async function runOnboard(_options?: RunOnboardOptions): Promise<void> {
+    await runSetup();
 }
 
 const isMain = process.argv[1]?.endsWith("onboard.js") ?? false;
 if (isMain) {
-  runOnboard().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+    runOnboard().catch((err) => {
+        logger.error(String(err));
+        process.exit(1);
+    });
 }

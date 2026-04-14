@@ -22,9 +22,9 @@ What actually happened.
 
 ## Environment
 - Node version:
-- pnpm version:
+- bun version:
 - OS:
-- TeamClaw version (if known):
+- OpenPawl version (if known):
 
 ## Additional context
 Logs, screenshots, or other relevant info.

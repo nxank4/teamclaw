@@ -1,48 +1,44 @@
 import { WebSocketProvider, useWsStore } from "./ws";
 import { useTheme } from "./theme";
 import { KanbanBoard } from "./components/KanbanBoard";
-import { EisenhowerMatrix } from "./components/EisenhowerMatrix";
-import { NodeGraphView } from "./components/NodeGraphView";
-import { AlertCenter } from "./components/AlertCenter";
+import { PaletteSettings } from "./components/settings/PaletteSettings";
+import { SummaryCards } from "./components/SummaryCards";
+import { WorkflowStepper } from "./components/WorkflowStepper";
+import { InsightsSection } from "./components/InsightsSection";
+import { StandupPanel } from "./components/StandupPanel";
+import { NotificationPanel } from "./components/NotificationPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { useState } from "react";
+import { HumanApprovalModal } from "./components/HumanApprovalModal";
+import { CostBadge } from "./components/CostBadge";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { LlmLogPanel } from "./components/LlmLogPanel";
+import { PreviewPanel } from "./components/PreviewPanel";
+import { useState, useEffect } from "react";
+import { AnimatePresence } from "motion/react";
+import { useResizable } from "./hooks/useResizable";
 
-type ActiveView = "dashboard" | "settings";
-
-function Sidebar({
-  activeView,
-  setActiveView,
-}: {
-  activeView: ActiveView;
-  setActiveView: (v: ActiveView) => void;
-}) {
+function ClawLogo({ size = 120 }: { size?: number }) {
   return (
-    <aside className="w-48 shrink-0 border-r border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-4 transition-colors duration-200 ease-in-out">
-      <nav className="space-y-1">
-        <button
-          type="button"
-          onClick={() => setActiveView("dashboard")}
-          className={`block w-full rounded px-3 py-2 text-left text-sm font-medium transition-colors duration-200 ease-in-out ${
-            activeView === "dashboard"
-              ? "bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-gray-100"
-              : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          }`}
-        >
-          Dashboard
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveView("settings")}
-          className={`block w-full rounded px-3 py-2 text-left text-sm font-medium transition-colors duration-200 ease-in-out ${
-            activeView === "settings"
-              ? "bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-gray-100"
-              : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          }`}
-        >
-          Settings
-        </button>
-      </nav>
-    </aside>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 280 280"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="drop-shadow-2xl"
+    >
+      <rect x="60" y="80" width="30" height="100" rx="4" fill="var(--color-amber-500)" />
+      <rect x="60" y="80" width="30" height="20" rx="4" fill="var(--color-amber-300)" />
+      <rect x="125" y="60" width="30" height="120" rx="4" fill="var(--color-amber-500)" />
+      <rect x="125" y="60" width="30" height="20" rx="4" fill="var(--color-amber-300)" />
+      <rect x="190" y="80" width="30" height="100" rx="4" fill="var(--color-amber-500)" />
+      <rect x="190" y="80" width="30" height="20" rx="4" fill="var(--color-amber-300)" />
+      <rect x="70" y="170" width="140" height="50" rx="6" fill="var(--color-stone-300)" />
+      <rect x="70" y="170" width="140" height="15" rx="6" fill="var(--color-stone-200)" />
+      <rect x="95" y="185" width="8" height="25" rx="2" fill="var(--color-amber-500)" opacity="0.5" />
+      <rect x="136" y="185" width="8" height="25" rx="2" fill="var(--color-amber-500)" opacity="0.5" />
+      <rect x="177" y="185" width="8" height="25" rx="2" fill="var(--color-amber-500)" opacity="0.5" />
+    </svg>
   );
 }
 
@@ -59,137 +55,319 @@ function ThemeToggle() {
       type="button"
       onClick={cycle}
       title={`Theme: ${label} (click to cycle)`}
-      className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200 ease-in-out"
+      className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
     >
       {theme === "light" ? (
-        <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
-        </svg>
+        <i className="bi bi-sun-fill text-sm" />
       ) : theme === "dark" ? (
-        <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-        </svg>
+        <i className="bi bi-moon-fill text-sm" />
       ) : (
-        <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22a.75.75 0 00-.75.75v-3.5a.75.75 0 00-.75-.75H6a.75.75 0 00-.75.75v3.5a.75.75 0 00-.75.75H2a2 2 0 01-2-2V5zm4.75 2.5a.75.75 0 00-.75.75v2.25c0 .414.336.75.75.75h2.25a.75.75 0 00.75-.75V8.25A.75.75 0 009.25 7.5H7z" clipRule="evenodd" />
-        </svg>
+        <i className="bi bi-display text-sm" />
       )}
       <span>{label}</span>
     </button>
   );
 }
 
-function Topbar() {
+function Topbar({
+  onToggleSettings,
+  onToggleNotifications,
+  notificationCount,
+}: {
+  onToggleSettings: () => void;
+  onToggleNotifications: () => void;
+  notificationCount: number;
+}) {
   const connectionStatus = useWsStore((s) => s.connectionStatus);
   const cycle_count = useWsStore((s) => s.cycle_count);
-  const statusLabel =
-    connectionStatus === "open"
-      ? "Connected"
-      : connectionStatus === "reconnecting"
-        ? "Reconnecting…"
-        : connectionStatus === "connecting"
-          ? "Connecting…"
-          : connectionStatus === "error"
-            ? "Error"
-            : "Disconnected";
   const statusColor =
     connectionStatus === "open"
-      ? "text-green-600 dark:text-green-400"
+      ? "text-emerald-500 dark:text-emerald-400"
       : connectionStatus === "reconnecting" || connectionStatus === "connecting"
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-red-600 dark:text-red-400";
+        ? "text-amber-500 dark:text-amber-400"
+        : "text-rose-500 dark:text-rose-400";
+
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 transition-colors duration-200 ease-in-out">
-      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Session</span>
-      <div className="flex items-center gap-3">
-        <ThemeToggle />
+    <header className="relative flex h-14 shrink-0 items-center justify-between border-b border-stone-200 dark:border-stone-700 bg-gradient-to-r from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 px-6 transition-colors">
+      <div className="flex items-center gap-2">
+        <ClawLogo size={24} />
+        <span className={`inline-block h-2 w-2 rounded-full ${statusColor.replace("text-", "bg-")}${connectionStatus === "open" ? " animate-breathe" : ""}`} />
+        <span className="text-sm font-semibold text-stone-800 dark:text-stone-100">TeamClaw</span>
+      </div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
         {connectionStatus === "open" && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">Cycle {cycle_count}</span>
+          <span className="text-xs font-medium text-stone-600 dark:text-stone-400 bg-stone-100 dark:bg-stone-800 rounded-full px-2 py-0.5">
+            {cycle_count === 0 ? "Idle" : `Cycle ${cycle_count}`}
+          </span>
         )}
-        <span className={`text-sm font-medium ${statusColor}`}>{statusLabel}</span>
+        {cycle_count > 0 && <WorkflowStepper />}
+      </div>
+      <div className="flex items-center gap-2">
+        <CostBadge />
+        <ThemeToggle />
+        <button
+          type="button"
+          onClick={onToggleSettings}
+          className="rounded-lg p-1.5 text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors focus:outline-none focus:ring-2 focus:ring-stone-400/20"
+          title="Settings"
+        >
+          <i className="bi bi-gear text-base" />
+        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={onToggleNotifications}
+            className="rounded-lg p-1.5 text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors focus:outline-none focus:ring-2 focus:ring-stone-400/20"
+            title="Notifications"
+          >
+            <i className="bi bi-bell text-base" />
+            {notificationCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-medium text-white animate-badge-pop">
+                {notificationCount > 9 ? "9+" : notificationCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
     </header>
   );
 }
 
-function MainContent({ activeView }: { activeView: ActiveView }) {
-  const [activeTab, setActiveTab] = useState<"matrix" | "graph">("matrix");
-
-  if (activeView === "settings") {
-    return (
-      <main key="settings" className="flex-1 overflow-auto p-4 bg-gray-100 dark:bg-gray-900 transition-colors duration-200 ease-in-out" data-view="settings">
-        <SettingsPanel />
-      </main>
-    );
-  }
+function ServerRestartBanner() {
+  const serverRestarted = useWsStore((s) => s.serverRestarted);
+  const dismiss = useWsStore((s) => s.dismissServerRestart);
+  if (!serverRestarted) return null;
 
   return (
-    <main key="dashboard" className="flex-1 overflow-hidden p-4 bg-gray-100 dark:bg-gray-900 transition-colors duration-200 ease-in-out" data-view="dashboard">
-      <div className="flex h-full flex-col gap-4">
-        <div className="min-h-[220px] flex-1">
-          <KanbanBoard />
+    <div className="rounded-xl border border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-200 animate-drop-in flex items-center justify-between">
+      <span>
+        <span className="font-medium">Server restarted</span> — The dashboard may be out of date.{" "}
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="underline font-medium hover:text-blue-600 dark:hover:text-blue-100"
+        >
+          Refresh now
+        </button>
+      </span>
+      <button
+        type="button"
+        onClick={dismiss}
+        className="ml-4 text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
+        title="Dismiss"
+      >
+        <i className="bi bi-x-lg text-sm" />
+      </button>
+    </div>
+  );
+}
+
+function ApprovalBanner() {
+  const pendingApproval = useWsStore((s) => s.pendingApproval);
+  if (!pendingApproval) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 animate-drop-in">
+      <span className="font-medium">Approval required</span> — {(pendingApproval.description as string) ?? "A task needs your attention."}
+    </div>
+  );
+}
+
+function GatewayBanner() {
+  const gatewayAvailable = useWsStore((s) => s.gatewayAvailable);
+  const setGatewayAvailable = useWsStore((s) => s.setGatewayAvailable);
+  const [checking, setChecking] = useState(false);
+
+  if (gatewayAvailable) return null;
+
+  const recheck = async () => {
+    setChecking(true);
+    try {
+      const res = await fetch("/api/gateway/check", { method: "POST" });
+      const data = await res.json() as { available?: boolean };
+      if (data.available) setGatewayAvailable(true);
+    } catch { /* ignore */ }
+    setChecking(false);
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 flex items-center gap-2">
+      <i className="bi bi-exclamation-triangle text-base" />
+      <span>LLM Gateway not connected — configure a provider to run sessions.</span>
+      <button
+        onClick={recheck}
+        disabled={checking}
+        className="ml-auto text-xs font-medium px-2 py-1 rounded bg-amber-200 dark:bg-amber-800 hover:bg-amber-300 dark:hover:bg-amber-700 disabled:opacity-50"
+      >
+        {checking ? "Checking..." : "Retry"}
+      </button>
+    </div>
+  );
+}
+
+function DashboardSettings({ onDismiss }: { onDismiss: () => void }) {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <div className="flex min-h-full items-center justify-center">
+      <div className="w-full max-w-md rounded-2xl border border-stone-200 dark:border-stone-700 bg-gradient-to-br from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 p-6 shadow-sm space-y-5">
+        <div className="flex flex-col items-center space-y-4">
+          <ClawLogo size={120} />
+          <div className="text-center space-y-1">
+            <h2 className="text-lg font-semibold text-stone-800 dark:text-stone-100">
+              Dashboard Settings
+            </h2>
+            <p className="text-sm text-stone-500 dark:text-stone-400">
+              Customize your dashboard appearance.
+            </p>
+          </div>
+          <GatewayBanner />
         </div>
-        <div className="flex min-h-[260px] flex-1 flex-col rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-2 shadow-sm transition-colors duration-200 ease-in-out">
-          <div className="mb-2 flex items-center gap-2 border-b border-gray-100 dark:border-gray-600 px-1 pb-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab("matrix")}
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors duration-200 ease-in-out ${
-                activeTab === "matrix"
-                  ? "bg-gray-900 dark:bg-gray-700 text-white"
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-              }`}
-            >
-              Eisenhower Matrix
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("graph")}
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors duration-200 ease-in-out ${
-                activeTab === "graph"
-                  ? "bg-gray-900 dark:bg-gray-700 text-white"
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-              }`}
-            >
-              Mind Map
-            </button>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs font-medium text-stone-600 dark:text-stone-400">
+              Theme
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["light", "dark", "system"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTheme(t)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    theme === t
+                      ? "border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                      : "border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  <i className={`bi ${t === "light" ? "bi-sun-fill" : t === "dark" ? "bi-moon-fill" : "bi-display"} text-sm`} />
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex-1 overflow-hidden">
-            {activeTab === "matrix" ? (
-              <div className="h-full overflow-auto">
-                <EisenhowerMatrix />
-              </div>
-            ) : (
-              <div className="h-full overflow-hidden">
-                <NodeGraphView />
-              </div>
-            )}
+
+          <div className="border-t border-stone-200 dark:border-stone-700 pt-4">
+            <PaletteSettings />
           </div>
+
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="w-full rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 text-sm transition-colors"
+          >
+            Done
+          </button>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
 function Dashboard() {
-  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [logsExpanded, setLogsExpanded] = useState(false);
+  const [settingsDismissed, setSettingsDismissed] = useState(
+    () => localStorage.getItem("teamclaw-settings-dismissed") === "true",
+  );
+  const cycle_count = useWsStore((s) => s.cycle_count);
+  const alerts = useWsStore((s) => s.alerts);
+  const pendingApproval = useWsStore((s) => s.pendingApproval);
+
+  const { height: panelHeight, isDragging, handleProps } = useResizable({
+    minHeight: 120,
+    maxHeight: window.innerHeight * 0.7,
+    initialHeight: 280,
+    storageKey: "teamclaw-panel-height",
+  });
+
+  const notificationCount = alerts.filter((a) => !a.read).length + (pendingApproval ? 1 : 0);
+
+  useEffect(() => {
+    if (cycle_count > 0) {
+      setLogsExpanded(true);
+    } else {
+      setLogsExpanded(false);
+    }
+  }, [cycle_count]);
+
   return (
-    <div className="flex h-screen flex-col bg-gray-100 dark:bg-gray-900 transition-colors duration-200 ease-in-out">
-      <Topbar />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar activeView={activeView} setActiveView={setActiveView} />
-        <MainContent activeView={activeView} />
-        <AlertCenter />
+    <div className="flex h-screen flex-col bg-gradient-to-br from-stone-50 via-stone-50 to-stone-100 dark:from-stone-950 dark:via-stone-950 dark:to-stone-900 transition-colors">
+      <div className="relative">
+        <Topbar
+          onToggleSettings={() => { setSettingsOpen(!settingsOpen); setNotificationsOpen(false); }}
+          onToggleNotifications={() => { setNotificationsOpen(!notificationsOpen); setSettingsOpen(false); }}
+          notificationCount={notificationCount}
+        />
+        <div className="absolute right-6 top-14 z-30">
+          <NotificationPanel open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+        </div>
       </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        <main className="flex-1 overflow-auto px-6 py-4 space-y-4">
+          <ServerRestartBanner />
+          <ApprovalBanner />
+          {cycle_count === 0 && !settingsDismissed ? (
+            <DashboardSettings onDismiss={() => { setSettingsDismissed(true); localStorage.setItem("teamclaw-settings-dismissed", "true"); }} />
+          ) : (
+            <>
+              <PreviewPanel />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <StandupPanel />
+              </div>
+              <SummaryCards />
+              <KanbanBoard />
+              <InsightsSection />
+            </>
+          )}
+        </main>
+        <AnimatePresence>
+          {settingsOpen && (
+            <SettingsPanel key="settings" onClose={() => setSettingsOpen(false)} />
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="shrink-0 border-t border-stone-200 dark:border-stone-700">
+        <div className="flex items-center justify-between px-6 py-0 bg-gradient-to-r from-white to-stone-50 dark:from-stone-900 dark:to-stone-950 border-b border-stone-200 dark:border-stone-700">
+          <span className="px-3 py-2 text-xs font-medium text-stone-800 dark:text-stone-100">
+            <i className="bi bi-journal-text mr-1" />Logs
+          </span>
+          <button
+            type="button"
+            onClick={() => setLogsExpanded(!logsExpanded)}
+            className="text-xs text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 transition-colors py-2"
+          >
+            {logsExpanded ? "Hide" : "Show"}
+          </button>
+        </div>
+        {logsExpanded && (
+          <>
+            <div className="resize-handle" {...handleProps}>
+              <div className="resize-handle-indicator" />
+            </div>
+            <div style={{ height: panelHeight }} className={isDragging ? "pointer-events-none" : ""}>
+              <LlmLogPanel />
+            </div>
+          </>
+        )}
+      </div>
+
+      <HumanApprovalModal />
     </div>
   );
 }
 
 function App() {
   return (
-    <WebSocketProvider>
-      <Dashboard />
-    </WebSocketProvider>
+    <ErrorBoundary>
+      <WebSocketProvider>
+        <Dashboard />
+      </WebSocketProvider>
+    </ErrorBoundary>
   );
 }
 

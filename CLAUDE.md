@@ -1,97 +1,253 @@
-# Repository Guidelines
+# CLAUDE.md
 
-- Repo: TeamClaw (this repository)
-- In chat replies, file references must be repo-root relative only (e.g. `src/core/simulation.ts:49`); never absolute paths or `~/...`.
-- GitHub issues/comments/PR comments: use literal multiline strings or `-F - <<'EOF'` (or `$'...'`) for real newlines; never embed `"\\n"`.
-- GitHub comment footgun: never use `gh issue/pr comment -b "..."` when body contains backticks or shell chars. Always use single-quoted heredoc (`-F - <<'EOF'`) so no command substitution/escaping corruption.
-- GitHub linking footgun: don't wrap issue/PR refs like `#123` in backticks when you want auto-linking. Use plain `#123` (optionally add full URL).
-- When working on a GitHub Issue or PR, print the full URL at the end of the task.
-- When answering questions, respond with high-confidence answers only: verify in code; do not guess.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-TeamClaw is a team orchestration application. Users define goals and teams (e.g. Game Dev: programmers, artist, SFX), and AI agents collaborate via LangGraph. Optional multi-run mode learns from failed runs via RAG (ChromaDB or JSON fallback). No economics—pure team coordination.
+OpenPawl is an interactive AI agent TUI with two modes: **chat mode** (single agent responds to prompts with tool calling) and **sprint mode** (autonomous multi-agent task execution from a goal). Agents use native API tool calling, hebbian memory for learning, and context engineering for long conversations.
 
-## Project Structure & Module Organization
+## Commands
 
-- Source code: `src/` (CLI in `src/cli.ts`, orchestration in `src/core`, agents in `src/agents`, web in `src/web`, onboarding in `src/onboard`).
-- Tests: `tests/` (Vitest). Built output in `dist/`.
-- Docs: `docs/`.
-- Key modules:
-  - **src/core/** — State, config, LangGraph simulation, knowledge-base, team templates
-  - **src/agents/** — Coordinator (goal decomposition), WorkerBot (task execution), Analyst (postmortem)
-  - **src/interfaces/** — Sparki SDK (RealSparki / MockSparki)
-  - **src/web/** — Fastify + WebSocket; streams workflow to `static/terminal.html`
-  - **src/work-runner.ts** — Work session logic
-  - **src/check.ts** — Connectivity check CLI
+- Runtime: Node **>= 20**, **bun**.
+- `bun install` — install deps
+- `bun run build` — build (tsup + web client)
+- `bun run typecheck` — type-check (`tsc --noEmit`)
+- `bun run test` — tests (bun test, NOT Vitest)
+- `bun run test -- path/to/file.test.ts` — run a single test file
+- `bun run test:watch` — watch mode
+- `bun run lint` — lint (`eslint src/`)
+- `bun run dev` — tsup watch mode
+- Pre-commit hook runs: typecheck → lint → tests (all must pass)
 
-### Agent Pattern
+## Architecture
 
-Each LangGraph node receives `GraphState` and returns `Partial<GraphState>` (only changed keys). Nodes include `__node__` for streaming identification.
+### TUI Application (src/app/index.ts)
 
-### RAG & LLM
+Main entry point. Interactive terminal UI with:
+- Editor component for user input (multiline, history, autocomplete)
+- Messages component for conversation display (tree-structured agent responses)
+- Status bar, divider, thinking indicator
+- Slash commands (`/sprint`, `/compact`, `/settings`, `/sessions`, `/plan`, etc.)
+- Session management with persistence and recovery
 
-- `VectorMemory`: ChromaDB or `data/vector_store/lessons_fallback.json`.
-- Ollama at `localhost:11434`, model `qwen2.5-coder:7b`. Configure via `.env`.
+### Chat Mode (src/router/)
 
-## Build, Test, and Development Commands
+User prompt → `PromptRouter` → intent classification → agent selection → `LLMAgentRunner` → `callLLMMultiTurn` with native tool calling → streamed response to TUI.
 
-- Runtime: Node **>= 20**. Package manager: **pnpm**.
-- Install: `pnpm install`
-- If deps missing (`node_modules` empty, `vitest not found`), run `pnpm install`, then retry the command.
-- Type-check: `pnpm run typecheck`
-- Build: `pnpm run build`
-- Lint: `pnpm run lint`
-- Tests: `pnpm run test` (Vitest)
-- Watch mode: `pnpm run test:watch`, `pnpm run dev`
-- Web UI: `pnpm run web` (http://localhost:8000)
-- Work sessions: `pnpm run work` (or `teamclaw work --runs 5`)
-- Makefile: `make install`, `make check` (typecheck + test), `make lint`, `make web`, `make work`, `make clean`
+Key files:
+- `src/router/prompt-router.ts` — routes prompts to agents, emits dispatch events
+- `src/router/agent-registry.ts` — built-in agents (coder, reviewer, planner, tester, debugger, researcher, assistant)
+- `src/router/llm-agent-runner.ts` — bridges agents to LLM with tool loop, doom-loop detection, context compaction
+- `src/router/dispatch-strategy.ts` — sequential/parallel agent dispatch
 
-## Coding Style & Naming Conventions
+### Sprint Mode (src/sprint/)
 
-- Language: TypeScript (ESM). Prefer strict typing; avoid `any`.
-- Never add `@ts-nocheck` or disable `no-explicit-any`; fix root causes.
-- Add brief comments for tricky or non-obvious logic.
-- Keep files concise; extract helpers instead of duplicating. Aim under ~700 LOC when feasible.
-- Naming: **TeamClaw** for product/docs headings; `teamclaw` for CLI command and package.
+`/sprint <goal>` → `SprintRunner` → planner agent breaks goal into tasks → sequential execution with keyword-based agent assignment → events streamed to TUI.
 
-## Testing Guidelines
+- `src/sprint/sprint-runner.ts` — orchestrator with pause/resume/stop
+- `src/sprint/create-sprint-runner.ts` — factory wiring to `callLLMMultiTurn`
+- `src/sprint/task-parser.ts` — parses planner output (JSON or numbered list)
 
-- Framework: Vitest.
-- Naming: match source with `*.test.ts`; e.g. `tests/state.test.ts`.
-- Run `pnpm run test` before pushing when touching logic.
-- Do not set test workers above 16 if memory pressure occurs.
+### LLM Engine (src/engine/llm.ts)
 
-## Commit & Pull Request Guidelines
+Three entry points:
+- `callLLM(prompt, options)` — single-turn streaming
+- `callLLMWithMessages(messages, options)` — multi-turn with context compression
+- `callLLMMultiTurn(opts)` — agentic loop with native tool calling (handles tool calls, gets results, continues)
 
-- Follow concise, action-oriented commit messages (e.g. `fix: add reducer to graph-state Annotation`).
-- Group related changes; avoid bundling unrelated refactors.
-- Issue templates: `.github/ISSUE_TEMPLATE/`
-- PR template: add `.github/pull_request_template.md` if desired.
+### Provider System (src/providers/)
+
+Multi-provider LLM support: Anthropic, OpenAI-compatible, Bedrock, Vertex, GitHub Copilot. Auto-detection, health monitoring, model discovery, smart routing.
+
+### Tool System (src/tools/)
+
+Built-in tools: `file_read`, `file_write`, `file_edit`, `file_list`, `shell_exec`, `web_search`, `web_fetch`, `git_ops`, `execute_code`. Tool registry with per-agent permissions, sandboxed execution, MCP server support.
+
+### Context Engineering (src/context/)
+
+- `context-tracker.ts` — monitors token utilization, triggers compaction at thresholds
+- `compaction.ts` — three strategies: tool result masking (high), message pruning (critical), LLM summarization (emergency)
+- `doom-loop-detector.ts` — detects repeated identical tool calls, blocks or warns
+- `tool-output-handler.ts` — summarizes large tool outputs, offloads to scratch files
+- `project-context.ts` — injects CLAUDE.md and project type into agent prompts
+
+### Memory (src/memory/)
+
+- `hebbian/` — hebbian learning: strengthens associations between concepts based on co-activation
+- `success/` — success pattern store: persists what worked across sessions
+- `global/` — global memory manager
+- `hybrid-retriever.ts` — combines vector search with hebbian associations
+- Vector memory via embedded LanceDB
+
+### Session Management (src/session/)
+
+- `session-manager.ts` — create, resume, list, delete sessions
+- `session.ts` — session state, message history, token tracking
+- `session-recovery.ts` — crash recovery for interrupted sessions
+- `session-store.ts` — persistence to disk
+- `prompt-history-store.ts` — prompt history across sessions
+
+### TUI Components (src/tui/)
+
+- `components/` — messages (tree-structured), markdown renderer (with syntax highlighting, table rendering), editor, status bar, thinking indicator, tool call views
+- `primitives/` — badge, separator, columns, selectable list, confirm prompt
+- `core/` — terminal abstraction, differential renderer, ANSI utilities, input handling
+- `themes/` — Catppuccin Mocha color palette
+- `utils/` — ANSI-aware text wrapping, width calculation, truncation
+
+### Superpowers Modules
+
+- `src/think/` — multi-round deliberation for complex reasoning
+- `src/clarity/` — goal clarity analysis (vague verbs, missing success criteria)
+- `src/drift/` — detects conflicts between goal and task execution
+- `src/journal/` — decision journal with supersession/contradiction checks
+- `src/personality/` — agent personality injection (traits, communication styles)
+- `src/briefing/` — session briefing from prior runs
+- `src/handoff/` — generates CONTEXT.md handoff from final state
+
+## Code Style
+
+- TypeScript (ESM, built with tsup). Strict typing; no `any`, no `@ts-nocheck`.
+- Brief comments for non-obvious logic only.
+- Keep files under ~700 LOC; extract helpers over duplicating.
+- Naming: **OpenPawl** in docs/headings; `openpawl` for CLI/package.
+
+## Testing
+
+- Bun test runner. Test files: `tests/*.test.ts` or colocated `src/**/*.test.ts`.
+- Run `bun run test` before pushing when touching logic.
+
+## Commits & PRs
+
+- Concise action-oriented messages (e.g. `fix: correct event payload keys in sprint runner`).
+- Group related changes; don't bundle unrelated refactors.
+- **Auto-commit cadence:** Commit and push after each major logical unit of work (new feature, bug fix, refactor). Do NOT wait until the entire task is done — commit at natural milestones. Aim for commits in the ~200-1000 lines changed range. Avoid micro-commits for trivial edits (typos, single-line fixes) and avoid mega-commits with 2000+ lines.
+- **Pre-commit safety checks:** Before every commit, run `git status` and `git diff --stat` to review what is staged. Check for accidentally included large files, build artifacts (`dist/`, `node_modules/`), secrets (`.env`, credentials), or binary blobs. If any staged file exceeds 500KB or any folder adds 50+ new files, stop and ask before committing.
+
+## Git Workflow
+
+### Branch strategy
+
+```
+main ← production, tagged releases only
+  └── staging ← integration branch, sprint accumulator
+        ├── feat/setup-wizard-tui ← feature branch (auto-created, auto-merged, auto-deleted)
+        ├── fix/scroll-performance
+        ├── feat/oauth-providers
+        └── ...
+```
+
+### Branch lifecycle (FOLLOW THIS EVERY TIME)
+
+**Before starting any task:**
+1. `git checkout staging && git pull origin staging`
+2. Create a topic branch: `git checkout -b <type>/<short-name>`
+   - Types: `feat/`, `fix/`, `refactor/`, `chore/`, `docs/`
+   - Example: `feat/dev-mode`, `fix/emoji-selection`, `refactor/message-renderer`
+3. One branch = one theme. Multiple commits OK, but all related to the same topic.
+
+**While working:**
+4. Commit at natural milestones (~200-1000 lines changed)
+5. Commit messages: `type: concise description` (e.g. `feat: add dev mode perf overlay`)
+
+**When task is complete:**
+6. Run full CI checks locally:
+   ```bash
+   bun run typecheck && bun run lint && bun run test
+   ```
+7. If ANY check fails → fix it on the same branch → re-run checks → repeat until all pass
+8. Merge into staging:
+   ```bash
+   git checkout staging
+   git merge --no-ff <branch-name>
+   ```
+9. Push staging: `git push origin staging`
+10. Delete the topic branch:
+    ```bash
+    git branch -d <branch-name>
+    git push origin --delete <branch-name> 2>/dev/null
+    ```
+
+**NEVER skip steps 6-7. NEVER merge with failing checks.**
+
+### Staging → Main (sprint release)
+
+When a sprint's worth of features/fixes are stable on staging:
+
+1. Ensure staging CI is green
+2. Merge staging into main:
+   ```bash
+   git checkout main
+   git pull origin main
+   git merge --no-ff staging
+   ```
+3. Run CI checks on main: `bun run typecheck && bun run lint && bun run test`
+4. If CI fails → fix on a `fix/` branch off main → merge back to both main and staging
+5. If CI passes → tag and release:
+   ```bash
+   # Determine version bump using semantic versioning:
+   # - fix only → patch (0.0.x)
+   # - new feature → minor (0.x.0)
+   # - breaking change → major (x.0.0)
+
+   git tag -a v<version> -m "Release v<version>: <summary>"
+   git push origin main --tags
+   ```
+6. Create GitHub release from the tag with changelog
+
+### Semantic versioning rules
+
+- **patch** (0.0.1 → 0.0.2): bug fixes, perf improvements, typo fixes
+- **minor** (0.1.0 → 0.2.0): new features, new commands, new providers, UI improvements
+- **major** (0.0.x → 1.0.0): breaking config changes, CLI interface changes, v1.0.0 launch
+
+Current version: 0.0.1 (pre-release). Most changes are minor until v1.0.0.
+
+### Changelog generation
+
+When tagging a release, generate changelog from commits since last tag:
+```bash
+git log v<prev>..HEAD --oneline --no-merges
+```
+
+Group by type (feat/fix/refactor/chore) in the release notes.
+
+### Rules
+
+- Never commit directly to main
+- Never commit directly to staging (except merge commits)
+- Never force push main or staging
+- Always create a topic branch for every task
+- Always delete topic branches after merge
+- One theme per branch, no mixing unrelated changes
+- If a branch lives > 5 days, rebase on staging to avoid conflicts
+
+## Pre-commit Hook
+
+Located at `.githooks/pre-commit`, installed via `make install-hooks` (sets `core.hooksPath`). Runs typecheck → lint → tests in sequence. All must pass or the commit is blocked.
 
 ## Git Notes
 
-- If `git branch -d/-D` is policy-blocked, delete ref directly: `git update-ref -d refs/heads/<branch>`.
-- Bulk PR close/reopen: if action would affect more than 5 PRs, ask for explicit confirmation with exact count and scope.
+- Branch delete blocked? Use `git update-ref -d refs/heads/<branch>`.
+- Bulk PR operations (>5): ask for explicit confirmation with count and scope.
+- File references: repo-root relative only (e.g. `src/core/simulation.ts:49`).
+- GitHub CLI: use `-F - <<'EOF'` for multiline bodies; never `\"\\n\"` or `-b "..."` with backticks/shell chars.
+- GitHub linking: plain `#123` for auto-links (no backticks). Print full URL at end of issue/PR tasks.
+- Verify answers in code; do not guess.
 
-## Security & Configuration Tips
+## Security
 
-- Never commit or publish real credentials, tokens, or live config. Use placeholders in docs, tests, and examples.
-- `.env` from `.env.example`; ChromaDB, Ollama, OpenClaw worker URLs configurable.
+- Never commit real credentials/tokens. Use `.env` from `.env.example`.
+- Dashboard server has no built-in auth. Bind to `127.0.0.1` or trusted network.
 
 ## Agent-Specific Notes
 
-- Never edit `node_modules`. Updates overwrite.
-- **Multi-agent safety:** do not create/apply/drop `git stash` unless explicitly requested. Assume other agents may be working.
-- **Multi-agent safety:** when the user says "push", you may `git pull --rebase` to integrate latest. When "commit", scope to your changes only.
-- **Multi-agent safety:** do not switch branches unless explicitly requested.
-- **Multi-agent safety:** focus reports on your edits; avoid guard-rail disclaimers unless blocked.
-- Lint/format churn: if diffs are formatting-only, auto-resolve without asking. Only ask when changes are semantic.
-- Bug investigations: read source of relevant dependencies and local code before concluding; aim for high-confidence root cause.
-- Dependency changes: avoid patching (pnpm patches, overrides) unless explicitly approved.
-- Version bump: do not change versions without explicit consent.
+- Never edit `node_modules`.
+- **Multi-agent safety:** no stash create/apply/drop unless requested. No branch switching unless requested. Scope commits to your changes only. On push, `git pull --rebase` to integrate. Focus reports on your edits.
+- Formatting-only diffs: auto-resolve without asking. Only ask on semantic changes.
+- Bug investigations: read source before concluding; aim for high-confidence root cause.
+- No dependency patching or version bumps without explicit approval.
 
 ## Tech Stack
 
-LangGraph.js, Zod, Fastify + WebSocket, ChromaDB (optional), Ollama. No Python.
+TypeScript (ESM), Bun, tsup, Zod, LanceDB, cli-highlight. Multi-provider LLM (Anthropic SDK, OpenAI-compatible, Bedrock, Vertex). No Python.

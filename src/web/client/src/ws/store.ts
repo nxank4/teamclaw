@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getApiBase } from "../utils/api";
 
 export type ConnectionStatus = "connecting" | "open" | "closed" | "reconnecting" | "error";
 
@@ -8,7 +9,7 @@ export interface NodeEventState {
   cycle?: number;
 }
 
-export type AlertType = "approval_request" | "hallucination_warning" | "system_error";
+export type AlertType = "approval_request" | "hallucination_warning" | "system_error" | "timeout";
 
 export interface AlertItem {
   id: string;
@@ -16,6 +17,95 @@ export interface AlertItem {
   message: string;
   details?: Record<string, unknown>;
   created_at: string;
+  read: boolean;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  types: Record<AlertType, boolean>;
+}
+
+const DEFAULT_NOTIF_PREFS: NotificationPreferences = {
+  enabled: true,
+  types: { approval_request: true, hallucination_warning: true, system_error: true, timeout: true },
+};
+
+function loadNotifPrefs(): NotificationPreferences {
+  try {
+    const raw = localStorage.getItem("openpawl_notif_prefs");
+    if (raw) return JSON.parse(raw) as NotificationPreferences;
+  } catch {}
+  return { ...DEFAULT_NOTIF_PREFS, types: { ...DEFAULT_NOTIF_PREFS.types } };
+}
+
+function saveNotifPrefs(prefs: NotificationPreferences): void {
+  try { localStorage.setItem("openpawl_notif_prefs", JSON.stringify(prefs)); } catch {}
+}
+
+export interface ModelConfigState {
+  defaultModel: string;
+  agentModels: Record<string, string>;
+  fallbackChain: string[];
+  availableModels: string[];
+  aliases: Record<string, string>;
+  allowlist: string[];
+}
+
+export interface TokenUsage {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCachedInputTokens: number;
+  lastUpdate: number;
+  model: string;
+}
+
+export interface NodeEventEntry {
+  node: string;
+  data: Record<string, unknown>;
+  timestamp: string;
+  receivedAt: number;
+}
+
+export interface GenerationProgress {
+  generation: number;
+  maxGenerations: number;
+  lessonsCount: number;
+  startedAt: number;
+  outcome: string | null;
+  finalState: Record<string, unknown> | null;
+}
+
+export interface CycleProgress {
+  cycle: number;
+  maxCycles: number;
+  startedAt: number;
+}
+
+export interface ReasoningEntry {
+  botId: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface LlmLogEntry {
+  id: string;
+  level: "info" | "success" | "warn" | "error";
+  source: string;
+  action: string;
+  model: string;
+  botId: string;
+  message: string;
+  meta?: Record<string, unknown>;
+  timestamp: number;
+}
+
+export type LlmLogFilter = "all" | "info" | "success" | "warn" | "error";
+export type LlmSourceFilter = "all" | "llm-client" | "worker-adapter" | "gateway" | "console";
+
+export interface StreamingTextEntry {
+  botId: string;
+  text: string;
+  timestamp: number;
 }
 
 interface WsStore {
@@ -27,7 +117,26 @@ interface WsStore {
   lastError: string | null;
   alerts: AlertItem[];
   pendingApproval: Record<string, unknown> | null;
+  pendingTaskApprovals: Record<string, unknown>[];
+  pendingPreview: Record<string, unknown> | null;
+  activeNode: string | null;
+  completedNodes: string[];
+  nodeEventHistory: NodeEventEntry[];
+  generationProgress: GenerationProgress | null;
+  cycleProgress: CycleProgress | null;
+  tokenUsage: TokenUsage;
+  modelConfig: ModelConfigState | null;
+  notificationPrefs: NotificationPreferences;
+  reasoning: Record<string, ReasoningEntry>;
+  streamingText: Record<string, StreamingTextEntry>;
+  llmLogs: LlmLogEntry[];
+  llmLogFilter: LlmLogFilter;
+  llmSourceFilter: LlmSourceFilter;
+  gatewayAvailable: boolean;
+  serverStartTs: number | null;
+  serverRestarted: boolean;
   sendMessage: (payload: object) => void;
+  sendCommand: (command: string, body?: Record<string, unknown>) => Promise<void>;
   setConnectionStatus: (status: ConnectionStatus) => void;
   setFromNodeEvent: (state: NodeEventState) => void;
   setConfig: (config: Record<string, unknown> | null) => void;
@@ -36,10 +145,82 @@ interface WsStore {
   pushAlert: (alert: AlertItem) => void;
   removeAlert: (id: string) => void;
   clearAlerts: () => void;
+  markRead: (id: string) => void;
+  markAllRead: () => void;
+  setNotificationPrefs: (prefs: Partial<NotificationPreferences>) => void;
+  toggleNotificationType: (type: AlertType) => void;
   setPendingApproval: (pending: Record<string, unknown> | null) => void;
+  setPendingTaskApprovals: (tasks: Record<string, unknown>[]) => void;
+  resolveTaskApproval: (taskId: string) => void;
+  setPendingPreview: (preview: Record<string, unknown> | null) => void;
+  clearPendingPreview: () => void;
+  setActiveNode: (node: string | null) => void;
+  addCompletedNode: (node: string) => void;
+  pushNodeEvent: (entry: NodeEventEntry) => void;
+  setGenerationProgress: (progress: GenerationProgress | null) => void;
+  setCycleProgress: (progress: CycleProgress | null) => void;
+  resetNodeState: () => void;
+  addTokenUsage: (input: number, output: number, cached: number) => void;
+  setModel: (model: string) => void;
+  setModelConfig: (config: ModelConfigState | null) => void;
+  setReasoning: (taskId: string, botId: string, text: string) => void;
+  appendStreamChunk: (botId: string, chunk: string) => void;
+  clearStreamingText: (botId: string) => void;
+  pushLlmLog: (entry: LlmLogEntry) => void;
+  setLlmLogFilter: (filter: LlmLogFilter) => void;
+  setLlmSourceFilter: (filter: LlmSourceFilter) => void;
+  clearLlmLogs: () => void;
+  setGatewayAvailable: (available: boolean) => void;
+  setServerStartTs: (ts: number) => void;
+  dismissServerRestart: () => void;
 }
 
 function noopSendMessage(_payload: object): void {}
+
+/** Simple pub/sub for raw terminal output strings. */
+const terminalListeners = new Set<(data: string) => void>();
+
+export function subscribeToTerminalOutput(cb: (data: string) => void): () => void {
+  terminalListeners.add(cb);
+  return () => { terminalListeners.delete(cb); };
+}
+
+export function emitTerminalOutput(data: string): void {
+  for (const cb of terminalListeners) cb(data);
+}
+
+const COMMAND_ROUTES: Record<string, { method: string; path: string | ((body: Record<string, unknown>) => string) }> = {
+  start: { method: "POST", path: "/api/session/start" },
+  pause: { method: "POST", path: "/api/session/pause" },
+  resume: { method: "POST", path: "/api/session/resume" },
+  cancel: { method: "POST", path: "/api/session/cancel" },
+  speed: { method: "POST", path: "/api/session/speed" },
+  config: { method: "POST", path: "/api/session/config" },
+  approval_response: { method: "POST", path: "/api/approval/respond" },
+  task_approval_respond: { method: "POST", path: "/api/approval/task-respond" },
+  preview_response: { method: "POST", path: "/api/preview/respond" },
+  update_task: { method: "POST", path: (body) => `/api/tasks/${encodeURIComponent(String(body.taskId ?? ""))}` },
+  model_switch: { method: "POST", path: "/api/models/switch" },
+  model_query: { method: "GET", path: "/api/models/state" },
+  bridge_relay: { method: "POST", path: "/api/bridge/relay" },
+};
+
+async function dispatchCommand(command: string, body?: Record<string, unknown>): Promise<void> {
+  const route = COMMAND_ROUTES[command];
+  if (!route) return;
+  const base = getApiBase();
+  const url = typeof route.path === "function" ? route.path(body ?? {}) : route.path;
+  try {
+    const opts: RequestInit = { method: route.method };
+    if (route.method === "POST" && body) {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(body);
+    }
+    await fetch(`${base}${url}`, opts);
+  } catch {
+    // best-effort
+  }
+}
 
 export const useWsStore = create<WsStore>((set) => ({
   connectionStatus: "connecting",
@@ -49,28 +230,176 @@ export const useWsStore = create<WsStore>((set) => ({
   config: null,
   lastError: null,
   alerts: [],
+  notificationPrefs: loadNotifPrefs(),
   pendingApproval: null,
+  pendingTaskApprovals: [],
+  pendingPreview: null,
+  activeNode: null,
+  completedNodes: [],
+  nodeEventHistory: [],
+  generationProgress: null,
+  cycleProgress: null,
+  modelConfig: null,
+  reasoning: {},
+  streamingText: {},
+  llmLogs: [],
+  llmLogFilter: "all",
+  llmSourceFilter: "all",
+  gatewayAvailable: true,
+  serverStartTs: null,
+  serverRestarted: false,
+  tokenUsage: { totalInputTokens: 0, totalOutputTokens: 0, totalCachedInputTokens: 0, lastUpdate: 0, model: "gpt-4o-mini" },
   sendMessage: noopSendMessage,
+  sendCommand: dispatchCommand,
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setFromNodeEvent: (state) =>
-    set((prev) => ({
-      task_queue: state.task_queue ?? prev.task_queue,
-      bot_stats: state.bot_stats ?? prev.bot_stats,
-      cycle_count: state.cycle ?? prev.cycle_count,
-    })),
+    set((prev) => {
+      let nextQueue = state.task_queue ?? prev.task_queue;
+      // Stable sort by task_id so cards don't jump around when the queue is replaced
+      if (state.task_queue) {
+        nextQueue = [...state.task_queue].sort((a, b) => {
+          const idA = (a.task_id as string) ?? "";
+          const idB = (b.task_id as string) ?? "";
+          return idA.localeCompare(idB);
+        });
+      }
+      return {
+        task_queue: nextQueue,
+        bot_stats: state.bot_stats ?? prev.bot_stats,
+        cycle_count: state.cycle ?? prev.cycle_count,
+      };
+    }),
   setConfig: (config) => set({ config }),
   setLastError: (message) => set({ lastError: message }),
   setSendMessage: (fn) => set({ sendMessage: fn }),
   pushAlert: (alert) =>
     set((prev) => {
-      const next = [...prev.alerts, alert];
-      // Keep only the most recent 50 alerts to avoid unbounded growth.
-      return { alerts: next.slice(-50) };
+      // Dedup: skip if last alert matches type+message within 5s
+      const last = prev.alerts[prev.alerts.length - 1];
+      if (last && last.type === alert.type && last.message === alert.message) {
+        const elapsed = Date.now() - new Date(last.created_at).getTime();
+        if (elapsed < 5000) return prev;
+      }
+      const next = [...prev.alerts, { ...alert, read: false }];
+      // Cap at 30 — evict oldest read first, then oldest unread
+      if (next.length > 30) {
+        const readIdx = next.findIndex((a) => a.read);
+        if (readIdx !== -1) next.splice(readIdx, 1);
+        else next.shift();
+      }
+      return { alerts: next };
     }),
   removeAlert: (id) =>
     set((prev) => ({
       alerts: prev.alerts.filter((a) => a.id !== id),
     })),
   clearAlerts: () => set({ alerts: [] }),
+  markRead: (id) =>
+    set((prev) => ({
+      alerts: prev.alerts.map((a) => (a.id === id ? { ...a, read: true } : a)),
+    })),
+  markAllRead: () =>
+    set((prev) => ({
+      alerts: prev.alerts.map((a) => (a.read ? a : { ...a, read: true })),
+    })),
+  setNotificationPrefs: (prefs) =>
+    set((prev) => {
+      const next = { ...prev.notificationPrefs, ...prefs };
+      saveNotifPrefs(next);
+      return { notificationPrefs: next };
+    }),
+  toggleNotificationType: (type) =>
+    set((prev) => {
+      const next = {
+        ...prev.notificationPrefs,
+        types: { ...prev.notificationPrefs.types, [type]: !prev.notificationPrefs.types[type] },
+      };
+      saveNotifPrefs(next);
+      return { notificationPrefs: next };
+    }),
   setPendingApproval: (pending) => set({ pendingApproval: pending }),
+  setPendingTaskApprovals: (tasks) => set({ pendingTaskApprovals: tasks }),
+  resolveTaskApproval: (taskId) =>
+    set((prev) => ({
+      pendingTaskApprovals: prev.pendingTaskApprovals.filter(
+        (t) => (t.task_id as string) !== taskId,
+      ),
+    })),
+  setPendingPreview: (preview) => set({ pendingPreview: preview }),
+  clearPendingPreview: () => set({ pendingPreview: null }),
+  setActiveNode: (node) => set({ activeNode: node }),
+  addCompletedNode: (node) =>
+    set((prev) => ({
+      completedNodes: prev.completedNodes.includes(node)
+        ? prev.completedNodes
+        : [...prev.completedNodes, node],
+    })),
+  pushNodeEvent: (entry) =>
+    set((prev) => ({
+      nodeEventHistory: [...prev.nodeEventHistory, entry].slice(-100),
+    })),
+  setGenerationProgress: (progress) => set({ generationProgress: progress }),
+  setCycleProgress: (progress) => set({ cycleProgress: progress }),
+  resetNodeState: () => set({ activeNode: null, completedNodes: [], nodeEventHistory: [], generationProgress: null, cycleProgress: null }),
+  addTokenUsage: (input, output, cached) =>
+    set((prev) => ({
+      tokenUsage: {
+        totalInputTokens: prev.tokenUsage.totalInputTokens + input,
+        totalOutputTokens: prev.tokenUsage.totalOutputTokens + output,
+        totalCachedInputTokens: prev.tokenUsage.totalCachedInputTokens + cached,
+        lastUpdate: Date.now(),
+        model: prev.tokenUsage.model,
+      },
+    })),
+  setModel: (model) =>
+    set((prev) => ({
+      tokenUsage: {
+        ...prev.tokenUsage,
+        model,
+      },
+    })),
+  setModelConfig: (config) => set({ modelConfig: config }),
+  setReasoning: (taskId, botId, text) =>
+    set((prev) => ({
+      reasoning: {
+        ...prev.reasoning,
+        [taskId]: { botId, text, timestamp: Date.now() },
+      },
+    })),
+  appendStreamChunk: (botId, chunk) =>
+    set((prev) => {
+      const existing = prev.streamingText[botId];
+      const text = (existing?.text ?? "") + chunk;
+      return {
+        streamingText: {
+          ...prev.streamingText,
+          [botId]: { botId, text, timestamp: Date.now() },
+        },
+      };
+    }),
+  clearStreamingText: (botId) =>
+    set((prev) => {
+      const next = { ...prev.streamingText };
+      delete next[botId];
+      return { streamingText: next };
+    }),
+  pushLlmLog: (entry) =>
+    set((prev) => ({
+      llmLogs: [...prev.llmLogs, entry].slice(-200),
+    })),
+  setLlmLogFilter: (filter) => set({ llmLogFilter: filter }),
+  setLlmSourceFilter: (filter) => set({ llmSourceFilter: filter }),
+  clearLlmLogs: () => set({ llmLogs: [] }),
+  setGatewayAvailable: (available) => set({ gatewayAvailable: available }),
+  setServerStartTs: (ts) =>
+    set((prev) => {
+      if (prev.serverStartTs === null) {
+        return { serverStartTs: ts };
+      }
+      if (prev.serverStartTs !== ts) {
+        return { serverStartTs: ts, serverRestarted: true };
+      }
+      return prev;
+    }),
+  dismissServerRestart: () => set({ serverRestarted: false }),
 }));

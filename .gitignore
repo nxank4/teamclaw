@@ -1,43 +1,64 @@
-# Logs
-*.log
-logs/
-
-# Node
+# Dependencies
 node_modules/
+
+# Build output
 dist/
-package-lock.json
-yarn.lock
-*.tsbuildinfo
-.turbo
-coverage/
-
-# IDEs
-.vscode/
-.idea/
-.cursor/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Tool caches
-.mypy_cache/
-__pycache__/
-
-# Runtime data
-data/
-work_history.log
+build/
 
 # Environment
 .env
 .env.local
 .env.*.local
 
-# User config (teamclaw.config.example.json is the template)
-teamclaw.config.json
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Local Docker overrides
-docker-compose.override.yml
+# OS
+.DS_Store
+Thumbs.db
+
+# Test & coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# Generated/runtime
+.teamclaw/
+data/
+static/
+
+# Build tools
+.eslintcache
+*.tsbuildinfo
+
+# Runtime configs (keep example)
+teamclaw.config.json
+openpawl.config.json
+!teamclaw.config.example.json
+
+# External/standalone projects (not part of TeamClaw)
+/client/
+server/
+DOCS/
+
+# Binaries
+teamclaw
+
+# Root vite config (use src/web/client/vite.config.ts)
+vite.config.ts
+
+# Agent configs
+.github/agents/
+
+# Agent-generated code (from headless tool execution)
+/home/
+/src/api/
+/src/middleware/
+/src/routes/
+/tmp/

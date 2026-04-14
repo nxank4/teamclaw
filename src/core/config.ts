@@ -1,123 +1,231 @@
 /**
- * Global configuration for TeamClaw.
- * Loads overrides from .env via dotenv.
+ * Global configuration for OpenPawl.
+ * Loads from Global JSON (~/.openpawl/config.json) and Workspace JSON (openpawl.config.json).
+ * Priority: CLI Flags → Global JSON → Workspace JSON → Defaults.
  */
 
-import "dotenv/config";
+import { readGlobalConfigWithDefaults } from "./global-config.js";
+import { setConfigAgentModels } from "./model-config.js";
 
-function env(key: string, defaultVal: string): string;
-function env(key: string, defaultVal: number): number;
-function env(key: string, defaultVal: string | number): string | number {
-  const val = process.env[key];
-  if (val === undefined) return defaultVal;
-  if (typeof defaultVal === "number") {
-    const n = parseFloat(val);
-    return Number.isInteger(defaultVal) ? Math.floor(n) : n;
-  }
-  return val;
+export type MemoryBackend = "lancedb" | "local_json";
+
+function loadGlobalConfig() {
+    return readGlobalConfigWithDefaults();
 }
 
-function envBool(key: string, defaultVal: boolean): boolean {
-  const val = process.env[key];
-  if (val === undefined) return defaultVal;
-  return ["true", "1", "yes"].includes(val.toLowerCase());
+const globalCfg = loadGlobalConfig() as unknown as Record<string, unknown>;
+
+// Feed per-agent models from global config into the model resolution layer
+const _globalAgentModels = globalCfg.agentModels;
+if (_globalAgentModels && typeof _globalAgentModels === "object" && !Array.isArray(_globalAgentModels)) {
+    setConfigAgentModels(_globalAgentModels as Record<string, string>);
 }
 
-const gatewayUrlRaw = env("GATEWAY_URL", "") as string;
-export const CONFIG = {
-  gatewayUrl: gatewayUrlRaw?.trim() ? gatewayUrlRaw.replace(/\/$/, "") : "",
-  teamModel: env("TEAM_MODEL", "team-default") as string,
-  llmModel: env("OLLAMA_MODEL", "qwen2.5-coder:7b") as string,
-  llmTemperature: env("LLM_TEMPERATURE", 0.7) as number,
-  creativity: env("CREATIVITY", 0.5) as number,
-  llmBaseUrl: env("OLLAMA_BASE_URL", "http://localhost:11434") as string,
-  llmTimeoutMs: env("LLM_TIMEOUT_MS", 120_000) as number,
+function getGlobalString(key: string, defaultVal: string): string {
+    const val = globalCfg[key];
+    if (typeof val === "string" && val.trim()) return val.trim();
+    return defaultVal;
+}
 
-  maxCycles: env("MAX_CYCLES", 10) as number,
-  maxRuns: env("MAX_RUNS", env("MAX_GENERATIONS", 5) as number) as number,
-
-  chromadbPersistDir: env("CHROMADB_PERSIST_DIR", "data/vector_store") as string,
-  verboseLogging: envBool("VERBOSE_LOGGING", true),
-
-  openclawWorkerUrl: env("OPENCLAW_WORKER_URL", "") as string,
-  openclawWorkers: (() => {
-    const raw = process.env["OPENCLAW_WORKERS"];
-    if (!raw?.trim()) return {} as Record<string, string>;
-    try {
-      return JSON.parse(raw) as Record<string, string>;
-    } catch {
-      return {} as Record<string, string>;
+function getGlobalNumber(key: string, defaultVal: number): number {
+    const val = globalCfg[key];
+    if (typeof val === "number" && Number.isFinite(val)) return val;
+    if (typeof val === "string") {
+        const n = Number(val);
+        if (Number.isFinite(n)) return n;
     }
-  })(),
-  openclawAuthToken: env("OPENCLAW_AUTH_TOKEN", "") as string,
-  openclawProvisionTimeout: env("OPENCLAW_PROVISION_TIMEOUT", 30_000) as number,
+    return defaultVal;
+}
 
-  webhookOnTaskComplete: env("WEBHOOK_ON_TASK_COMPLETE", "") as string,
-  webhookOnCycleEnd: env("WEBHOOK_ON_CYCLE_END", "") as string,
-  webhookSecret: env("WEBHOOK_SECRET", "") as string,
+function getGlobalBoolean(key: string, defaultVal: boolean): boolean {
+    const val = globalCfg[key];
+    if (typeof val === "boolean") return val;
+    return defaultVal;
+}
+
+export const CONFIG = {
+    llmTemperature: getGlobalNumber("llmTemperature", 0.7),
+    creativity: getGlobalNumber("creativity", 0.5),
+    llmTimeoutMs: getGlobalNumber("llmTimeoutMs", 300_000),
+
+    maxCycles: getGlobalNumber("maxCycles", 10),
+    maxRuns: getGlobalNumber("maxRuns", 5),
+
+    workspaceDir: getGlobalString("workspaceDir", "./openpawl-workspace"),
+
+    vectorStorePath: getGlobalString("vectorStorePath", "data/vector_store"),
+    memoryBackend: (getGlobalString("memoryBackend", "lancedb") as MemoryBackend),
+    verboseLogging: getGlobalBoolean("verboseLogging", false),
+    debugMode: getGlobalBoolean("debugMode", false),
+
+    thinkingLevel: getGlobalString("thinkingLevel", "adaptive"),
+
+    webhookOnTaskComplete: getGlobalString("webhookOnTaskComplete", ""),
+    webhookOnCycleEnd: getGlobalString("webhookOnCycleEnd", ""),
+    webhookSecret: getGlobalString("webhookSecret", ""),
+
+    webhookApprovalUrl: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const url = (wa as Record<string, unknown>).url;
+            return typeof url === "string" ? url.trim() : "";
+        }
+        return "";
+    })(),
+    webhookApprovalSecret: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const secret = (wa as Record<string, unknown>).secret;
+            if (typeof secret === "string" && secret.trim()) return secret.trim();
+        }
+        return getGlobalString("webhookSecret", "");
+    })(),
+    webhookApprovalProvider: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const p = (wa as Record<string, unknown>).provider;
+            if (p === "slack") return "slack" as const;
+        }
+        return "generic" as const;
+    })(),
+    webhookApprovalTimeoutSeconds: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const t = (wa as Record<string, unknown>).timeoutSeconds;
+            if (typeof t === "number" && Number.isFinite(t) && t > 0) return t;
+        }
+        return 300;
+    })(),
+    webhookApprovalRetryAttempts: (() => {
+        const wa = (globalCfg as Record<string, unknown>).webhookApproval;
+        if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+            const r = (wa as Record<string, unknown>).retryAttempts;
+            if (typeof r === "number" && Number.isFinite(r) && r > 0) return r;
+        }
+        return 3;
+    })(),
+
+    confidenceScoringEnabled: (() => {
+        const cs = (globalCfg as Record<string, unknown>).confidenceScoring;
+        if (cs && typeof cs === "object" && !Array.isArray(cs)) {
+            return (cs as Record<string, unknown>).enabled !== false;
+        }
+        return true;
+    })(),
+    personalityEnabled: (() => {
+        const p = (globalCfg as Record<string, unknown>).personality;
+        if (p && typeof p === "object" && !Array.isArray(p)) {
+            return (p as Record<string, unknown>).enabled !== false;
+        }
+        return false;
+    })(),
+    personalityPushbackEnabled: (() => {
+        const p = (globalCfg as Record<string, unknown>).personality;
+        if (p && typeof p === "object" && !Array.isArray(p)) {
+            return (p as Record<string, unknown>).pushbackEnabled !== false;
+        }
+        return true;
+    })(),
+    personalityCoordinatorIntervention: (() => {
+        const p = (globalCfg as Record<string, unknown>).personality;
+        if (p && typeof p === "object" && !Array.isArray(p)) {
+            return (p as Record<string, unknown>).coordinatorIntervention !== false;
+        }
+        return true;
+    })(),
+    personalityAgentOverrides: (() => {
+        const p = (globalCfg as Record<string, unknown>).personality;
+        if (p && typeof p === "object" && !Array.isArray(p)) {
+            const overrides = (p as Record<string, unknown>).agentOverrides;
+            if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
+                return overrides as Record<string, { enabled?: boolean }>;
+            }
+        }
+        return {} as Record<string, { enabled?: boolean }>;
+    })(),
+
+    confidenceThresholds: (() => {
+        const defaults = { autoApprove: 0.85, reviewRequired: 0.60, reworkRequired: 0.40 };
+        const cs = (globalCfg as Record<string, unknown>).confidenceScoring;
+        if (cs && typeof cs === "object" && !Array.isArray(cs)) {
+            const th = (cs as Record<string, unknown>).thresholds;
+            if (th && typeof th === "object" && !Array.isArray(th)) {
+                const t = th as Record<string, unknown>;
+                return {
+                    autoApprove: typeof t.autoApprove === "number" ? t.autoApprove : defaults.autoApprove,
+                    reviewRequired: typeof t.reviewRequired === "number" ? t.reviewRequired : defaults.reviewRequired,
+                    reworkRequired: typeof t.reworkRequired === "number" ? t.reworkRequired : defaults.reworkRequired,
+                };
+            }
+        }
+        return defaults;
+    })(),
 } as const;
 
 export interface SessionConfig {
-  creativity?: number;
-  max_cycles?: number;
-  max_generations?: number;
-  worker_url?: string;
-  user_goal?: string;
-  team_template?: string;
-  approval_keywords?: string[];
-  gateway_url?: string;
-  team_model?: string;
+    creativity?: number;
+    max_cycles?: number;
+    max_generations?: number;
+    worker_url?: string;
+    user_goal?: string;
+    team_template?: string;
+    approval_keywords?: string[];
+    team_model?: string;
 }
 
-const DEFAULT_APPROVAL_KEYWORDS = ["deploy", "release", "production", "critical"];
+const DEFAULT_APPROVAL_KEYWORDS = [
+    "deploy",
+    "release",
+    "production",
+    "critical",
+];
 
 let sessionOverrides: Partial<SessionConfig> = {};
 
 export function setSessionConfig(overrides: Partial<SessionConfig>): void {
-  sessionOverrides = { ...overrides };
+    sessionOverrides = { ...overrides };
 }
 
 export function getApprovalKeywords(): string[] {
-  return sessionOverrides.approval_keywords ?? DEFAULT_APPROVAL_KEYWORDS;
+    return sessionOverrides.approval_keywords ?? DEFAULT_APPROVAL_KEYWORDS;
 }
 
 export function getSessionCreativity(): number {
-  return sessionOverrides.creativity ?? CONFIG.creativity;
+    return sessionOverrides.creativity ?? CONFIG.creativity;
+}
+
+export function updateSessionCreativity(value: number): void {
+    sessionOverrides = { ...sessionOverrides, creativity: Math.max(0, Math.min(1, value)) };
 }
 
 export function clearSessionConfig(): void {
-  sessionOverrides = {};
+    sessionOverrides = {};
 }
 
 function creativityToTemperature(creativity: number): number {
-  return Math.max(0.2, Math.min(1.5, 0.3 + creativity * 0.9));
+    return Math.max(0.2, Math.min(1.5, 0.3 + creativity * 0.9));
 }
 
 export function getSessionTemperature(): number {
-  return creativityToTemperature(getSessionCreativity());
-}
-
-export function getGatewayUrl(): string {
-  return sessionOverrides.gateway_url?.trim() ?? CONFIG.gatewayUrl;
+    return creativityToTemperature(getSessionCreativity());
 }
 
 export function getTeamModel(): string {
-  return sessionOverrides.team_model?.trim() ?? CONFIG.teamModel;
+    return sessionOverrides.team_model?.trim() ?? "team-default";
 }
 
-export function getWorkerUrlsForTeam(
-  botIds: string[],
-  overrides?: { singleUrl?: string; workers?: Record<string, string> }
-): Record<string, string> {
-  if (overrides?.workers && Object.keys(overrides.workers).length > 0) {
-    return overrides.workers;
-  }
-  const single = overrides?.singleUrl?.trim() ?? CONFIG.openclawWorkerUrl?.trim();
-  if (single) {
-    const out: Record<string, string> = {};
-    for (const id of botIds) out[id] = single;
-    return out;
-  }
-  if (Object.keys(CONFIG.openclawWorkers).length > 0) return CONFIG.openclawWorkers;
-  return {};
+export function getWorkspaceDir(): string {
+    return CONFIG.workspaceDir;
 }
+
+export function isPersonalityEnabled(role?: string): boolean {
+    if (!CONFIG.personalityEnabled) return false;
+    if (role) {
+        const override = CONFIG.personalityAgentOverrides[role];
+        if (override && typeof override.enabled === "boolean") return override.enabled;
+    }
+    return true;
+}
+
+// Re-export validateOrPromptConfig from the extracted module
+export { validateOrPromptConfig } from "./config-prompts.js";
