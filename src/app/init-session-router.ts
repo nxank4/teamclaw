@@ -248,7 +248,10 @@ export async function initSessionRouter(
             workingDirectory: process.cwd(),
           });
           if (result.isOk()) {
-            return result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
+            const text = result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
+            const data = result.value.data as Record<string, unknown> | undefined;
+            const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
+            return diff ? { text, diff } : text;
           }
           const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
           throw new Error(`${result.error.type}${cause}`);

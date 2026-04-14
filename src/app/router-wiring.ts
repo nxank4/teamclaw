@@ -120,14 +120,14 @@ export function wireRouterEvents(
     }
   };
 
-  const onAgentTool = (_sessionId: string, _agentId: string, toolName: string, status: string, details?: { executionId?: string; inputSummary?: string; duration?: number; outputSummary?: string; success?: boolean }) => {
+  const onAgentTool = (_sessionId: string, _agentId: string, toolName: string, status: string, details?: { executionId?: string; inputSummary?: string; duration?: number; outputSummary?: string; success?: boolean; diff?: import("../utils/diff.js").DiffResult }) => {
     const execId = details?.executionId ?? `fallback_${Date.now()}`;
 
     if (status === "running") {
       layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, _agentId);
       startToolSpinner();
     } else if (status === "completed" || status === "failed") {
-      layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0);
+      layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0, details?.diff);
     }
 
     layout.tui.requestRender();
