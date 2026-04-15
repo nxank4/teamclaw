@@ -39,6 +39,8 @@ OpenPawl replaces that friction with a team that remembers, learns, and holds it
   <img src="./docs/demo.gif" width="800" alt="OpenPawl Demo" />
 </p>
 
+
+
 ---
 
 ## Install
@@ -82,6 +84,8 @@ Switch modes with `Shift+Tab` in the TUI or `--mode` in headless.
 
 <img src="./docs/screenshots/modes.png" width="800" alt="Execution Modes" />
 
+
+
 ### Team Orchestration
 
 7 built-in agents (coder, reviewer, planner, tester, debugger, researcher, assistant) collaborate via native API tool calling. The planner decomposes goals into tasks, workers execute in parallel, and a post-mortem loop extracts lessons for future runs. Agents use keyword-based routing and confidence-gated delivery.
@@ -89,6 +93,8 @@ Switch modes with `Shift+Tab` in the TUI or `--mode` in headless.
 Team composition is flexible: pick agents manually, let the system compose autonomously based on your goal, or use one of 5 built-in templates. Custom agents can be created and configured via `/agents` in the TUI. Agent profiles track performance across runs.
 
 <img src="./docs/screenshots/sprint.png" width="800" alt="Sprint Mode" />
+
+
 
 ### Memory and Learning
 
@@ -283,6 +289,8 @@ Three execution modes share a common LLM multi-turn loop with native tool callin
 | Agent heatmap | Utilization + bottleneck | None | None | None |
 
 <img src="./docs/screenshots/comparison.png" width="800" alt="Feature Comparison" />
+
+
 
 OpenPawl focuses on multi-agent workflows and persistent learning. For single-agent coding tasks, Claude Code and Aider are more mature. For a detailed feature comparison, see [docs/comparison.md](./docs/comparison.md).
 
