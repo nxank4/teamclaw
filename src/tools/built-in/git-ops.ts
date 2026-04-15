@@ -50,10 +50,11 @@ export function createGitOpsTool(): ToolDefinition {
         if (!message) {
           return err({ type: "validation_failed", toolName: "git_ops", errors: ["Commit message is required"] });
         }
-        const safeMsg = message.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`");
-        command = `git commit -m "[openpawl] ${safeMsg}"`;
+        const safeMsg = `[openpawl] ${message}`.replace(/'/g, "'\\''");
+        command = `git commit -m '${safeMsg}'`;
       } else if (operation === "add" && files?.length) {
-        command = `git add ${files.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(" ")}`;
+        const safeFiles = files.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(" ");
+        command = `git add ${safeFiles}`;
       } else if (fullArgs) {
         command += ` ${fullArgs}`;
       }
