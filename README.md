@@ -35,10 +35,47 @@ No structure                    →   Sprint cadence with standup
 
 OpenPawl replaces that friction with a team that remembers, learns, and holds itself accountable.
 
-<p align="center">
-  <img src="./docs/demo.gif" width="800" alt="OpenPawl Demo" />
-</p>
+---
 
+## Screenshots
+
+> All screenshots from real sessions using **opencode-go** provider with **minimax-m2.7** model.
+
+### Welcome
+
+<img src="./docs/screenshots/welcome.png" width="800" alt="OpenPawl Welcome Screen" />
+
+*Interactive TUI with slash commands, agent mentions, and status bar.*
+
+### Model & Provider Selection
+
+<img src="./docs/screenshots/model.png" width="800" alt="Model Selection" />
+
+*Switch providers and models on the fly. 15+ providers supported.*
+
+### Team Templates
+
+<img src="./docs/screenshots/team.png" width="800" alt="Team Templates" />
+
+*5 built-in team templates. Pick a team or let OpenPawl compose autonomously.*
+
+### Collab Mode (coder -> reviewer -> revision)
+
+<img src="./docs/screenshots/collab.png" width="800" alt="Collab Mode" />
+
+*Multi-agent collaboration: coder writes, reviewer catches issues, coder revises.*
+
+### Sprint Mode (full pipeline)
+
+<img src="./docs/screenshots/sprint.png" width="800" alt="Sprint Mode" />
+
+*Planner decomposes goal, parallel coders execute, post-mortem extracts lessons. Template: indie-hacker.*
+
+### Escape to Cancel
+
+<img src="./docs/screenshots/cancel.png" width="800" alt="Cancel Streaming" />
+
+*Press Escape to stop any response mid-stream. Partial output preserved.*
 
 ---
 
@@ -81,17 +118,11 @@ openpawl run --headless --goal "Build auth" --mode sprint --runs 2
 
 Switch modes with `Shift+Tab` in the TUI or `--mode` in headless.
 
-<img src="./docs/screenshots/modes.png" width="800" alt="Execution Modes" />
-
-
 ### Team Orchestration
 
 7 built-in agents (coder, reviewer, planner, tester, debugger, researcher, assistant) collaborate via native API tool calling. The planner decomposes goals into tasks, workers execute in parallel, and a post-mortem loop extracts lessons for future runs. Agents use keyword-based routing and confidence-gated delivery.
 
 Team composition is flexible: pick agents manually, let the system compose autonomously based on your goal, or use one of 5 built-in templates. Custom agents can be created and configured via `/agents` in the TUI. Agent profiles track performance across runs.
-
-<img src="./docs/screenshots/sprint.png" width="800" alt="Sprint Mode" />
-
 
 ### Memory and Learning
 
@@ -284,9 +315,6 @@ Three execution modes share a common LLM multi-turn loop with native tool callin
 | Interactive TUI | Custom (Catppuccin, mouse) | Built-in | Bubbletea | Terminal |
 | Headless mode | `--mode`, `--template`, `--runs` | Non-interactive | CLI only | CLI only |
 | Agent heatmap | Utilization + bottleneck | None | None | None |
-
-<img src="./docs/screenshots/comparison.png" width="800" alt="Feature Comparison" />
-
 
 OpenPawl focuses on multi-agent workflows and persistent learning. For single-agent coding tasks, Claude Code and Aider are more mature. For a detailed feature comparison, see [docs/comparison.md](./docs/comparison.md).
 
