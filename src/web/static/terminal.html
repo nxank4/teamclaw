@@ -1,0 +1,1953 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TeamClaw | AI Agent Team Workspace</title>
+    <meta
+      name="description"
+      content="Build and run AI agent teams with TeamClaw. Real-time workflow telemetry and team visualization."
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #0a0e14;
+        --panel: #131920;
+        --panel-border: #1e2a35;
+        --panel-hover: #1a2530;
+        --text: #d4d4d4;
+        --dim: #5a6577;
+        --green: #10b981;
+        --red: #ef4444;
+        --yellow: #eab308;
+        --cyan: #22d3ee;
+        --magenta: #c084fc;
+        --blue: #60a5fa;
+        --orange: #f97316;
+        --anim-speed: 1;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Courier New", monospace;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* Splash Screen */
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        background: var(--bg);
+        overflow-y: auto;
+        padding: 2rem 1rem;
+      }
+      #splash h1 {
+        font-size: 2rem;
+        color: var(--green);
+        text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+        margin-bottom: 0.5rem;
+      }
+      #splash p {
+        color: var(--dim);
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+      }
+      #start-btn {
+        padding: 1rem 3rem;
+        font-size: 1.2rem;
+        font-family: inherit;
+        font-weight: bold;
+        background: var(--green);
+        color: var(--bg);
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      #start-btn:hover {
+        box-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+        transform: scale(1.05);
+      }
+      #splash.hidden {
+        display: none;
+      }
+
+      /* Config Panel (Splash) */
+      .splash-config {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 1.2rem 1.5rem;
+        margin-bottom: 1.5rem;
+        width: 100%;
+        max-width: 580px;
+      }
+      .splash-config-title {
+        font-size: 0.85rem;
+        font-weight: bold;
+        color: var(--cyan);
+        margin-bottom: 0.8rem;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid var(--panel-border);
+      }
+      .cfg-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem 0.8rem;
+      }
+      .cfg-field {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .cfg-label {
+        font-size: 0.7rem;
+        color: var(--dim);
+        font-weight: bold;
+        letter-spacing: 0.5px;
+      }
+      .cfg-hint {
+        font-size: 0.65rem;
+        color: var(--dim);
+        opacity: 0.9;
+        margin-top: 1px;
+      }
+      .cfg-input {
+        padding: 4px 8px;
+        font-family: inherit;
+        font-size: 0.8rem;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--panel-border);
+        border-radius: 4px;
+        outline: none;
+        transition: border-color 0.2s;
+        width: 100%;
+      }
+      .cfg-input:focus {
+        border-color: var(--cyan);
+      }
+
+      /* Layout */
+      #app {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100vh;
+        padding: 0.75rem;
+        gap: 0.75rem;
+      }
+      .header {
+        background: var(--panel);
+        border: 1px solid var(--green);
+        border-radius: 6px;
+        padding: 0.6rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .header-title {
+        color: var(--green);
+        font-size: 1.1rem;
+        font-weight: bold;
+        text-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+      }
+      .header-stats {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 0.85rem;
+        align-items: center;
+      }
+      .stat-val {
+        font-weight: bold;
+      }
+      .header-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .ctrl-btn {
+        padding: 4px 12px;
+        font-family: inherit;
+        font-size: 0.75rem;
+        font-weight: bold;
+        background: transparent;
+        color: var(--cyan);
+        border: 1px solid var(--cyan);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .ctrl-btn:hover {
+        background: rgba(34, 211, 238, 0.1);
+      }
+      .ctrl-btn.active {
+        background: rgba(34, 211, 238, 0.2);
+      }
+      .ctrl-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .speed-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.75rem;
+        color: var(--dim);
+      }
+
+      /* Main 3-column View */
+      .main-view {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        gap: 0.75rem;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .panel-title {
+        font-size: 0.85rem;
+        font-weight: bold;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--panel-border);
+        margin-bottom: 0.5rem;
+      }
+
+      /* Canvas Building */
+      #building-canvas {
+        width: 100%;
+        height: 100%;
+        image-rendering: crisp-edges;
+        cursor: pointer;
+      }
+
+      /* Entity Detail panel (overlays canvas bottom) */
+      #entity-detail {
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        background: rgba(19, 25, 32, 0.95);
+        border: 1px solid var(--cyan);
+        border-radius: 8px;
+        padding: 0.8rem 1rem;
+        display: none;
+        z-index: 10;
+        backdrop-filter: blur(6px);
+        animation: slideUp 0.2s ease-out;
+      }
+      #entity-detail.visible {
+        display: block;
+      }
+
+      .approval-panel {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 14, 20, 0.9);
+        backdrop-filter: blur(4px);
+      }
+      .approval-panel.hidden {
+        display: none;
+      }
+      .approval-inner {
+        background: var(--panel);
+        border: 2px solid var(--yellow);
+        border-radius: 10px;
+        padding: 1.5rem;
+        max-width: 500px;
+        width: 90%;
+      }
+      .approval-title {
+        font-weight: bold;
+        color: var(--yellow);
+        margin-bottom: 0.75rem;
+        font-size: 0.9rem;
+      }
+      .approval-task {
+        color: var(--text);
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
+      }
+      .approval-meta {
+        font-size: 0.7rem;
+        color: var(--dim);
+        margin-bottom: 1rem;
+      }
+      .approval-feedback-wrap,
+      .approval-edit-wrap {
+        margin-bottom: 1rem;
+      }
+      .approval-feedback-wrap.hidden,
+      .approval-edit-wrap.hidden {
+        display: none;
+      }
+      .approval-feedback-input,
+      .approval-edit-input {
+        width: 100%;
+        padding: 8px;
+        font-family: inherit;
+        font-size: 0.8rem;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--panel-border);
+        border-radius: 4px;
+        resize: vertical;
+      }
+      .approval-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .approval-actions.hidden {
+        display: none;
+      }
+      .approval-secondary {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      .approval-secondary.hidden {
+        display: none;
+      }
+      .approval-btn {
+        padding: 6px 14px;
+        font-family: inherit;
+        font-size: 0.8rem;
+        font-weight: bold;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 1px solid;
+      }
+      .approval-btn.approve {
+        background: var(--green);
+        color: var(--bg);
+        border-color: var(--green);
+      }
+      .approval-btn.feedback {
+        background: transparent;
+        color: var(--cyan);
+        border-color: var(--cyan);
+      }
+      .approval-btn.edit {
+        background: transparent;
+        color: var(--magenta);
+        border-color: var(--magenta);
+      }
+      .approval-btn.submit {
+        background: var(--cyan);
+        color: var(--bg);
+        border-color: var(--cyan);
+      }
+      .approval-btn.cancel {
+        background: transparent;
+        color: var(--dim);
+        border-color: var(--dim);
+      }
+
+      .dashboard-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 0.5rem;
+      }
+      .tab-btn {
+        padding: 4px 10px;
+        font-family: inherit;
+        font-size: 0.75rem;
+        background: transparent;
+        color: var(--dim);
+        border: 1px solid var(--panel-border);
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .tab-btn.active {
+        background: var(--cyan);
+        color: var(--bg);
+        border-color: var(--cyan);
+      }
+      .tab-content {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+      .kanban-board {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.5rem;
+        height: 100%;
+        min-height: 150px;
+      }
+      .kanban-col {
+        background: var(--bg);
+        border-radius: 6px;
+        padding: 6px;
+        overflow-y: auto;
+        min-width: 0;
+      }
+      .kanban-col-title {
+        font-size: 0.7rem;
+        font-weight: bold;
+        color: var(--dim);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+      }
+      .kanban-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .kanban-card {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font-size: 0.72rem;
+        line-height: 1.3;
+        animation: kanbanIn 0.2s ease-out;
+      }
+      .lessons-list {
+        font-size: 0.8rem;
+        line-height: 1.5;
+        max-height: 100%;
+        overflow-y: auto;
+      }
+      .lesson-item {
+        padding: 4px 0;
+        border-bottom: 1px solid var(--panel-border);
+      }
+      @keyframes kanbanIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .entity-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+      }
+      .entity-name {
+        font-weight: bold;
+        font-size: 0.95rem;
+      }
+      .entity-close {
+        background: none;
+        border: none;
+        color: var(--dim);
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 1rem;
+        padding: 0 4px;
+      }
+      .entity-close:hover {
+        color: var(--red);
+      }
+      .entity-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 0.5rem;
+        font-size: 0.75rem;
+      }
+      .entity-stat {
+        background: var(--bg);
+        border-radius: 4px;
+        padding: 4px 8px;
+      }
+      .entity-stat-label {
+        color: var(--dim);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+      }
+      .entity-stat-value {
+        font-weight: bold;
+        margin-top: 2px;
+      }
+
+      /* Sidebar Panels */
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .tele-section {
+        margin-bottom: 0.8rem;
+      }
+      .tele-section-title {
+        font-size: 0.75rem;
+        font-weight: bold;
+        margin-bottom: 0.4rem;
+        padding-bottom: 3px;
+        border-bottom: 1px solid var(--panel-border);
+      }
+      .tele-row {
+        margin-bottom: 0.6rem;
+      }
+      .tele-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        margin-bottom: 3px;
+      }
+      .bar-track {
+        width: 100%;
+        height: 14px;
+        background: var(--bg);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition:
+          width 0.5s ease,
+          background 0.5s ease;
+      }
+
+      /* Event Feed */
+      .feed-container {
+        flex: 1;
+        overflow-y: auto;
+        font-size: 0.75rem;
+        line-height: 1.5;
+        min-height: 0;
+      }
+      .feed-container::-webkit-scrollbar {
+        width: 6px;
+      }
+      .feed-container::-webkit-scrollbar-track {
+        background: var(--bg);
+      }
+      .feed-container::-webkit-scrollbar-thumb {
+        background: var(--panel-border);
+        border-radius: 3px;
+      }
+      .ev {
+        padding: 2px 0;
+        animation: fadeInSlide 0.3s ease-out;
+      }
+      .ev-time {
+        color: var(--dim);
+      }
+      .g {
+        color: var(--green);
+      }
+      .r {
+        color: var(--red);
+      }
+      .y {
+        color: var(--yellow);
+      }
+      .c {
+        color: var(--cyan);
+      }
+      .m {
+        color: var(--magenta);
+      }
+      .d {
+        color: var(--dim);
+      }
+
+      /* Charts column */
+      .chart-col {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .chart-panel {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        padding: 0.6rem;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .chart-title {
+        font-size: 0.75rem;
+        font-weight: bold;
+        margin-bottom: 0.4rem;
+      }
+      .chart-wrapper {
+        flex: 1;
+        position: relative;
+        min-height: 0;
+      }
+      .chart-wrapper canvas {
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      /* Gen Summary Table */
+      #gen-table {
+        width: 100%;
+        font-size: 0.7rem;
+        border-collapse: collapse;
+      }
+      #gen-table th {
+        text-align: left;
+        color: var(--dim);
+        padding: 2px 6px;
+        border-bottom: 1px solid var(--panel-border);
+      }
+      #gen-table td {
+        padding: 2px 6px;
+      }
+      #gen-table .outcome-survived {
+        color: var(--green);
+      }
+      #gen-table .outcome-bankruptcy {
+        color: var(--red);
+      }
+
+      /* Generation Banner */
+      .gen-banner {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--panel);
+        border: 2px solid var(--cyan);
+        border-radius: 12px;
+        padding: 2rem 3rem;
+        text-align: center;
+        z-index: 50;
+        box-shadow: 0 0 40px rgba(34, 211, 238, 0.2);
+        animation: fadeIn 0.3s;
+      }
+      .gen-banner h2 {
+        color: var(--cyan);
+        font-size: 1.4rem;
+        margin-bottom: 0.5rem;
+      }
+      .gen-banner p {
+        color: var(--dim);
+        font-size: 0.9rem;
+      }
+      .gen-banner.hidden {
+        display: none;
+      }
+
+      .error-banner {
+        position: fixed;
+        top: 1rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--panel);
+        border: 2px solid var(--red);
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+        max-width: 90%;
+        z-index: 50;
+        box-shadow: 0 0 24px rgba(239, 68, 68, 0.25);
+        animation: fadeIn 0.3s;
+      }
+      .error-banner p {
+        color: var(--red);
+        font-size: 0.95rem;
+        margin-bottom: 0.5rem;
+      }
+      .error-banner button {
+        font-family: inherit;
+        padding: 0.35rem 0.75rem;
+        background: transparent;
+        color: var(--dim);
+        border: 1px solid var(--panel-border);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8rem;
+      }
+      .error-banner button:hover {
+        color: var(--text);
+      }
+      .error-banner.hidden {
+        display: none;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes fadeInSlide {
+        from {
+          opacity: 0;
+          transform: translateX(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Splash Screen -->
+    <div id="splash">
+      <h1>TEAMCLAW</h1>
+      <p>Team Orchestration Platform</p>
+      <div class="splash-config">
+        <div class="splash-config-title">TEAM SETUP</div>
+        <div class="cfg-grid">
+          <div class="cfg-field" style="grid-column: span 2">
+            <span class="cfg-label">TEAM TEMPLATE</span>
+            <select class="cfg-input" id="cfg-team_template">
+              <option value="game_dev">Game Dev Team (Programmers, Artist, SFX, Designer)</option>
+              <option value="startup">Startup Team (Engineers, PM, Designer)</option>
+              <option value="content">Content Team (Writer, Editor, Designer)</option>
+            </select>
+          </div>
+          <div class="cfg-field" style="grid-column: span 2">
+            <span class="cfg-label">LLM PROVIDER URL</span>
+            <span class="cfg-hint">Required before first run.</span>
+            <input
+              class="cfg-input"
+              type="text"
+              id="cfg-worker_url"
+              placeholder="http://localhost:8001"
+            />
+          </div>
+          <div class="cfg-field" style="grid-column: span 2">
+            <span class="cfg-label">GOAL</span>
+            <span class="cfg-hint">What should the team accomplish? Applies to the entire work session (all cycles).</span>
+            <textarea
+              class="cfg-input"
+              id="cfg-user_goal"
+              rows="3"
+              placeholder="e.g. Build a simple 2D platformer with sprite assets and sound effects"
+            >Build a small 2D game with sprite assets and sound effects</textarea>
+          </div>
+          <div class="cfg-field">
+            <span class="cfg-label">CREATIVITY (0-1)</span>
+            <input
+              class="cfg-input"
+              type="number"
+              id="cfg-creativity"
+              value="0.50"
+              min="0"
+              max="1"
+              step="0.05"
+            />
+          </div>
+          <div class="cfg-field">
+            <span class="cfg-label">MAX CYCLES</span>
+            <input
+              class="cfg-input"
+              type="number"
+              id="cfg-max_cycles"
+              value="10"
+              min="1"
+              max="100"
+              step="1"
+            />
+          </div>
+          <div class="cfg-field" style="grid-column: span 2">
+            <span class="cfg-label">MAX RETRIES</span>
+            <span class="cfg-hint">Attempts when using lesson learning (1 = single attempt, 5 = retry up to 5 times on failure).</span>
+            <input
+              class="cfg-input"
+              type="number"
+              id="cfg-max_generations"
+              value="1"
+              min="1"
+              max="50"
+              step="1"
+            />
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+        <button id="start-btn">Start working!</button>
+        <button id="save-config-btn" class="ctrl-btn" style="padding:0.75rem 1rem">Save config</button>
+      </div>
+    </div>
+
+    <!-- Run Banner -->
+    <div id="gen-banner" class="gen-banner hidden">
+      <h2 id="gen-banner-title">Run 1</h2>
+      <p id="gen-banner-info">Starting fresh...</p>
+    </div>
+
+    <!-- Error Banner (e.g. invalid template) -->
+    <div id="error-banner" class="error-banner hidden">
+      <p id="error-banner-message"></p>
+      <button type="button" id="error-banner-dismiss">Dismiss</button>
+    </div>
+
+    <!-- Approval Panel (Human-in-the-Loop) -->
+    <div id="approval-panel" class="approval-panel hidden">
+      <div class="approval-inner">
+        <div class="approval-title">APPROVAL REQUIRED</div>
+        <div class="approval-task" id="approval-task-desc"></div>
+        <div class="approval-meta" id="approval-task-meta"></div>
+        <div class="approval-feedback-wrap hidden" id="approval-feedback-wrap">
+          <textarea id="approval-feedback-input" placeholder="Type your feedback for the Coordinator…" rows="3"></textarea>
+        </div>
+        <div class="approval-edit-wrap hidden" id="approval-edit-wrap">
+          <textarea id="approval-edit-input" placeholder="Edit task description…" rows="2"></textarea>
+        </div>
+        <div class="approval-actions">
+          <button class="approval-btn approve" id="approval-approve">✓ Approve</button>
+          <button class="approval-btn feedback" id="approval-feedback">💬 Feedback</button>
+          <button class="approval-btn edit" id="approval-edit">✎ Edit</button>
+        </div>
+        <div class="approval-secondary hidden" id="approval-secondary">
+          <button class="approval-btn submit" id="approval-submit">Submit</button>
+          <button class="approval-btn cancel" id="approval-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" style="opacity: 0">
+      <!-- Header -->
+      <div class="header">
+        <span class="header-title" id="header-title">TEAMCLAW</span>
+        <div class="header-stats">
+          <span>🔄 <span class="stat-val c" id="h-cycle">0/10</span></span>
+          <span>🔄 <span class="stat-val m" id="h-gen">Run 1</span></span>
+          <span>✓✗ <span class="stat-val g" id="h-tasks">0 / 0</span></span>
+          <span>📊 <span class="stat-val y" id="h-quality">-</span></span>
+        </div>
+        <div class="header-controls">
+          <button class="ctrl-btn" id="pause-btn">PAUSE</button>
+          <div class="speed-control">
+            <span>SPD</span>
+            <span id="speed-val">1.0x</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-view">
+        <!-- Column 1: Building Canvas + Entity Detail overlay -->
+        <div class="panel" style="position: relative">
+          <div class="panel-title g">
+            TEAMCLAW WORKSPACE
+            <span class="d" style="font-weight: normal; font-size: 0.7rem"
+              >— click an entity for details</span
+            >
+          </div>
+          <canvas id="building-canvas"></canvas>
+          <div id="entity-detail">
+            <div class="entity-header">
+              <span class="entity-name c" id="ed-name">—</span>
+              <button class="entity-close" id="ed-close">✕</button>
+            </div>
+            <div class="entity-grid" id="ed-grid"></div>
+          </div>
+        </div>
+
+        <!-- Column 2: Telemetry + Event Feed -->
+        <div class="sidebar">
+          <div class="panel" style="flex-shrink: 0">
+            <div class="panel-title y">TEAM STATUS</div>
+            <div class="tele-section">
+              <div class="tele-section-title d">Worker Status</div>
+              <div class="tele-row">
+                <div class="tele-label">
+                  <span>📊 Quality</span><span id="t-quality">-</span>
+                </div>
+                <div class="bar-track">
+                  <div
+                    class="bar-fill"
+                    id="bar-quality"
+                    style="width: 0%; background: var(--magenta)"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="panel" style="flex: 1; min-height: 0; display: flex; flex-direction: column">
+            <div class="dashboard-tabs">
+              <button class="tab-btn active" data-tab="feed">Feed</button>
+              <button class="tab-btn" data-tab="kanban">Kanban</button>
+              <button class="tab-btn" data-tab="lessons">Lessons</button>
+            </div>
+            <div class="feed-container tab-content active" id="feed"></div>
+            <div class="kanban-container tab-content" id="kanban">
+              <div class="kanban-board">
+                <div class="kanban-col">
+                  <div class="kanban-col-title">To-do</div>
+                  <div class="kanban-cards" id="kanban-pending"></div>
+                </div>
+                <div class="kanban-col">
+                  <div class="kanban-col-title">In Progress</div>
+                  <div class="kanban-cards" id="kanban-in-progress"></div>
+                </div>
+                <div class="kanban-col">
+                  <div class="kanban-col-title">Done</div>
+                  <div class="kanban-cards" id="kanban-completed"></div>
+                </div>
+                <div class="kanban-col">
+                  <div class="kanban-col-title">Failed</div>
+                  <div class="kanban-cards" id="kanban-failed"></div>
+                </div>
+              </div>
+            </div>
+            <div class="lessons-container tab-content" id="lessons">
+              <div class="lessons-list" id="lessons-list"></div>
+              <button class="approval-btn feedback" id="lessons-refresh" style="margin-top:0.5rem">Refresh</button>
+            </div>
+          </div>
+          <div class="panel" style="flex-shrink: 0; max-height: 120px; overflow: hidden">
+            <div class="panel-title c">AGENT MESSAGES</div>
+            <div class="feed-container" id="agent-messages" style="font-size: 0.75rem; max-height: 90px; overflow-y: auto"></div>
+          </div>
+        </div>
+
+        <!-- Column 3: Streaming Charts + Gen Summary -->
+        <div class="chart-col">
+          <div class="chart-panel">
+            <div class="chart-title g">📈 TASKS & QUALITY</div>
+            <div class="chart-wrapper">
+              <canvas id="chart-tasks-quality"></canvas>
+            </div>
+          </div>
+          <div class="chart-panel" style="flex: 0.6">
+            <div class="chart-title m">RUN RESULTS</div>
+            <div style="overflow-y: auto; flex: 1; min-height: 0">
+              <table id="gen-table">
+                <thead>
+                  <tr>
+                    <th>Run</th>
+                    <th>Outcome</th>
+                    <th>Cycles</th>
+                    <th>Done</th>
+                    <th>Failed</th>
+                    <th>Quality</th>
+                  </tr>
+                </thead>
+                <tbody id="gen-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ═══════════════════════════════════════════════════════
+      // STATE
+      // ═══════════════════════════════════════════════════════
+      const S = {
+        cycle: 0,
+        maxCycles: 10,
+        gen: 1,
+        maxGen: 5,
+        completed: 0,
+        failed: 0,
+        lastQuality: 0,
+        currentTask: "",
+      };
+
+      let ws = null;
+      let isPaused = false;
+      let initReceived = false;
+
+      const telemetry = {
+        cycles: [],
+        tasksCompleted: [],
+        tasksFailed: [],
+        quality: [],
+      };
+
+      // ═══════════════════════════════════════════════════════
+      // BUILDING SIMULATION - CANVAS RENDERING
+      // ═══════════════════════════════════════════════════════
+
+      const canvas = document.getElementById("building-canvas");
+      const ctx = canvas.getContext("2d");
+      let animFrame = 0;
+      let lastFrameTime = 0;
+
+      class Bot {
+        constructor(id, name, color, homeFloor, homeX) {
+          this.id = id;
+          this.name = name;
+          this.color = color;
+          this.homeFloor = homeFloor;
+          this.homeX = homeX;
+          this.x = homeX;
+          this.y = 0;
+          this.floor = homeFloor;
+          this.state = "idle";
+          this.frameOffset = Math.random() * 60;
+          this.targetX = homeX;
+          this.targetFloor = homeFloor;
+          this.speechBubble = null;
+          this.particles = [];
+          this.hitbox = { x: 0, y: 0, w: 24, h: 32 };
+          this.selected = false;
+        }
+
+        update(frame) {
+          if (Math.abs(this.x - this.targetX) > 1) {
+            this.x += (this.targetX - this.x) * 0.05;
+            this.state = "walking";
+          } else if (this.floor !== this.targetFloor) {
+            this.floor = this.targetFloor;
+            this.x = this.targetX;
+          } else if (this.state === "walking") {
+            this.state = "idle";
+          }
+          this.particles = this.particles.filter((p) => {
+            p.life--;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.1;
+            return p.life > 0;
+          });
+        }
+
+        draw(ctx, floorY) {
+          this.y = floorY;
+          const f = Math.floor((animFrame + this.frameOffset) / 15) % 4;
+          ctx.save();
+          ctx.translate(this.x, this.y);
+
+          // Selection ring
+          if (this.selected) {
+            ctx.strokeStyle = "#22d3ee";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeRect(-10, -32, 20, 36);
+            ctx.setLineDash([]);
+          }
+
+          // Body
+          ctx.fillStyle = this.color;
+          ctx.fillRect(-6, -20, 12, 20);
+          // Head
+          ctx.fillRect(-5, -28, 10, 8);
+          // Legs
+          if (this.state === "walking") {
+            const lo = f % 2 === 0 ? 2 : -2;
+            ctx.fillRect(-5, -2, 3, 4 + lo);
+            ctx.fillRect(2, -2, 3, 4 - lo);
+          } else {
+            ctx.fillRect(-5, -2, 3, 4);
+            ctx.fillRect(2, -2, 3, 4);
+          }
+          // Arms
+          ctx.fillRect(-8, -16, 2, 8);
+          ctx.fillRect(6, -16, 2, 8);
+
+          // Speech bubble
+          if (this.speechBubble) {
+            ctx.fillStyle = "rgba(19, 25, 32, 0.95)";
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 1;
+            const bw = 60,
+              bh = 20;
+            ctx.fillRect(-bw / 2, -45, bw, bh);
+            ctx.strokeRect(-bw / 2, -45, bw, bh);
+            ctx.fillStyle = "#d4d4d4";
+            ctx.font = "8px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(this.speechBubble.substring(0, 12), 0, -32);
+          }
+
+          // Particles
+          this.particles.forEach((p) => {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life / p.maxLife;
+            ctx.fillRect(p.x, p.y, 3, 3);
+          });
+          ctx.globalAlpha = 1;
+
+          // Update hitbox in canvas coords
+          this.hitbox = { x: this.x - 10, y: this.y - 32, w: 20, h: 36 };
+          ctx.restore();
+        }
+
+        moveTo(floor, x) {
+          this.targetFloor = floor;
+          this.targetX = x;
+        }
+        setState(state) {
+          this.state = state;
+        }
+        showSpeech(text, duration = 2000) {
+          this.speechBubble = text;
+          setTimeout(() => {
+            this.speechBubble = null;
+          }, duration);
+        }
+        spawnParticles(color, count = 5) {
+          for (let i = 0; i < count; i++) {
+            this.particles.push({
+              x: 0,
+              y: -20,
+              vx: (Math.random() - 0.5) * 2,
+              vy: -Math.random() * 3,
+              color,
+              life: 30 + Math.random() * 30,
+              maxLife: 60,
+            });
+          }
+        }
+      }
+
+      const BUILDING = {
+        x: 50,
+        width: 400,
+        floors: [
+          { name: "Lobby", y: 0, height: 80, color: "#1e2a35" },
+          { name: "Dev Floor", y: 80, height: 80, color: "#1a2530" },
+          { name: "Management", y: 160, height: 80, color: "#1e2a35" },
+          { name: "Server Room", y: 240, height: 60, color: "#1a2530" },
+        ],
+      };
+
+      const bots = {
+        ceo: new Bot("ceo", "CEO", "#60a5fa", 2, 350),
+        sparki: new Bot("sparki", "Sparki (Dev)", "#22d3ee", 1, 200),
+        hr: new Bot("hr", "HR Manager", "#10b981", 2, 250),
+        market: new Bot("market", "Market Oracle", "#eab308", 0, 150),
+      };
+
+      function resizeCanvas() {
+        const container = canvas.parentElement;
+        const rect = container.getBoundingClientRect();
+        canvas.width = rect.width - 24;
+        canvas.height = rect.height - 50;
+      }
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      function drawBuilding() {
+        const bx = BUILDING.x;
+        const bw = BUILDING.width;
+        ctx.fillStyle = "#0a0e14";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const baseY = canvas.height - 40;
+
+        BUILDING.floors.forEach((floor, i) => {
+          const prevH = BUILDING.floors
+            .slice(0, i)
+            .reduce((s, f) => s + f.height, 0);
+          const floorY = baseY - prevH;
+          const floorH = floor.height;
+          ctx.fillStyle = floor.color;
+          ctx.fillRect(bx, floorY - floorH, bw, floorH);
+          ctx.strokeStyle = "#2a3a4a";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(bx, floorY - floorH, bw, floorH);
+          ctx.fillStyle = "#5a6577";
+          ctx.font = "10px monospace";
+          ctx.fillText(floor.name, bx + 10, floorY - floorH + 15);
+
+          if (i === 0) {
+            ctx.fillStyle = "#2a3a4a";
+            ctx.fillRect(bx + 50, floorY - 30, 60, 20);
+            ctx.fillStyle = "#3a4a5a";
+            ctx.fillRect(bx + 5, floorY - 60, 20, 50);
+            ctx.fillStyle = "#10b981";
+            ctx.fillText("SILICON", bx + 60, floorY - 15);
+          } else if (i === 1) {
+            for (let d = 0; d < 3; d++) {
+              const dx = bx + 100 + d * 80;
+              ctx.fillStyle = "#2a3a4a";
+              ctx.fillRect(dx, floorY - 35, 40, 25);
+              ctx.fillStyle = "#22d3ee";
+              ctx.fillRect(dx + 5, floorY - 30, 30, 20);
+            }
+          } else if (i === 2) {
+            ctx.fillStyle = "#3a4a5a";
+            ctx.fillRect(bx + 300, floorY - 40, 60, 30);
+            ctx.fillRect(bx + 200, floorY - 35, 50, 25);
+          } else if (i === 3) {
+            for (let s = 0; s < 4; s++) {
+              const sx = bx + 50 + s * 70;
+              ctx.fillStyle = "#1e2a35";
+              ctx.fillRect(sx, floorY - 40, 30, 35);
+              ctx.fillStyle = animFrame % 30 < 15 ? "#10b981" : "#ef4444";
+              ctx.fillRect(sx + 5, floorY - 35, 4, 4);
+              ctx.fillRect(sx + 15, floorY - 35, 4, 4);
+            }
+            ctx.strokeStyle = "#5a6577";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(bx + bw - 30, floorY - floorH);
+            ctx.lineTo(bx + bw - 30, floorY - floorH - 30);
+            ctx.stroke();
+          }
+
+          for (let w = 0; w < 6; w++) {
+            ctx.fillStyle = "rgba(96, 165, 250, 0.3)";
+            ctx.fillRect(bx + bw + 10, floorY - floorH + 20 + w * 10, 8, 6);
+          }
+        });
+
+        BUILDING.floors.forEach((floor, i) => {
+          const prevH = BUILDING.floors
+            .slice(0, i)
+            .reduce((s, f) => s + f.height, 0);
+          const floorY = baseY - prevH - 2;
+          Object.values(bots).forEach((bot) => {
+            if (bot.floor === i) bot.draw(ctx, floorY);
+          });
+        });
+      }
+
+      function animate(timestamp) {
+        if (timestamp - lastFrameTime > 16) {
+          animFrame++;
+          Object.values(bots).forEach((bot) => bot.update(animFrame));
+          drawBuilding();
+          lastFrameTime = timestamp;
+        }
+        requestAnimationFrame(animate);
+      }
+      requestAnimationFrame(animate);
+
+      // ═══════════════════════════════════════════════════════
+      // ENTITY SELECTION (click on bots)
+      // ═══════════════════════════════════════════════════════
+      let selectedBot = null;
+
+      canvas.addEventListener("click", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+        let hit = null;
+        Object.values(bots).forEach((bot) => {
+          const h = bot.hitbox;
+          if (mx >= h.x && mx <= h.x + h.w && my >= h.y && my <= h.y + h.h) {
+            hit = bot;
+          }
+        });
+
+        Object.values(bots).forEach((b) => {
+          b.selected = false;
+        });
+        if (hit) {
+          hit.selected = true;
+          selectedBot = hit;
+          showEntityDetail(hit);
+        } else {
+          selectedBot = null;
+          document.getElementById("entity-detail").classList.remove("visible");
+        }
+      });
+
+      document.getElementById("ed-close").addEventListener("click", () => {
+        Object.values(bots).forEach((b) => {
+          b.selected = false;
+        });
+        selectedBot = null;
+        document.getElementById("entity-detail").classList.remove("visible");
+      });
+
+      const ENTITY_INFO = {
+        ceo: {
+          role: "Coordinator",
+          desc: "Decomposes goals into tasks, assigns work to the bot team.",
+        },
+        sparki: {
+          role: "Worker",
+          desc: "Executes assigned tasks via LLM provider.",
+        },
+        hr: {},
+        market: {},
+      };
+
+      function showEntityDetail(bot) {
+        const info = ENTITY_INFO[bot.id] || {};
+        document.getElementById("ed-name").textContent = `${bot.name}`;
+        document.getElementById("ed-name").style.color = bot.color;
+
+        const grid = document.getElementById("ed-grid");
+        grid.innerHTML = "";
+
+        const stats = [
+          { label: "Role", value: info.role || bot.id },
+          { label: "Status", value: bot.state },
+          { label: "Floor", value: BUILDING.floors[bot.floor]?.name || "?" },
+        ];
+
+        if (bot.id === "sparki") {
+          stats.push({ label: "Tasks Done", value: S.completed });
+          stats.push({ label: "Tasks Failed", value: S.failed });
+          if (S.currentTask)
+            stats.push({
+              label: "Current Task",
+              value: S.currentTask.substring(0, 40),
+            });
+          if (S.skillProfile) {
+            stats.push({
+              label: "Coding",
+              value: (S.skillProfile.coding || 0).toFixed(1),
+            });
+            stats.push({
+              label: "Architecture",
+              value: (S.skillProfile.architecture || 0).toFixed(1),
+            });
+            stats.push({
+              label: "Problem Solving",
+              value: (S.skillProfile.problem_solving || 0).toFixed(1),
+            });
+          }
+        } else if (bot.id === "ceo") {
+          stats.push({ label: "Tasks Done", value: S.completed });
+          stats.push({ label: "Tasks Failed", value: S.failed });
+          stats.push({
+            label: "Quality",
+            value: S.lastQuality > 0 ? S.lastQuality + "" : "-",
+          });
+        }
+
+        stats.forEach((st) => {
+          const div = document.createElement("div");
+          div.className = "entity-stat";
+          div.innerHTML = `<div class="entity-stat-label">${st.label}</div><div class="entity-stat-value">${st.value}</div>`;
+          grid.appendChild(div);
+        });
+
+        document.getElementById("entity-detail").classList.add("visible");
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // BOT ANIMATIONS
+      // ═══════════════════════════════════════════════════════
+
+      function handleSparkiExecute(data) {
+        bots.sparki.setState("working");
+        bots.sparki.showSpeech("💻 Coding");
+        setTimeout(() => {
+          const quality = data.quality_score || 0;
+          const q = quality <= 1 ? quality * 100 : quality;
+          if (q >= 70) {
+            bots.sparki.spawnParticles("#10b981", 10);
+            bots.sparki.showSpeech("✅ Done!");
+          } else if (q >= 50) {
+            bots.sparki.spawnParticles("#eab308", 5);
+            bots.sparki.showSpeech("⚠️ OK");
+          } else {
+            bots.sparki.spawnParticles("#ef4444", 8);
+            bots.sparki.showSpeech("❌ Bad");
+          }
+          bots.sparki.setState("idle");
+        }, 2000);
+      }
+
+      function handleRunFailed() {
+        Object.values(bots).forEach((bot) => {
+          bot.setState("idle");
+          bot.spawnParticles("#ef4444", 20);
+        });
+      }
+
+      function handleRunComplete() {
+        Object.values(bots).forEach((bot) => {
+          bot.setState("celebrating");
+          bot.spawnParticles("#10b981", 20);
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // UI UPDATE
+      // ═══════════════════════════════════════════════════════
+      function updateUI() {
+        document.getElementById("h-cycle").textContent =
+          S.cycle + "/" + S.maxCycles;
+        document.getElementById("h-gen").textContent = "Run " + S.gen;
+        document.getElementById("h-tasks").textContent =
+          S.completed + " / " + S.failed;
+        document.getElementById("h-quality").textContent =
+          S.lastQuality > 0 ? S.lastQuality + "" : "-";
+        const qVal = S.lastQuality <= 1 ? S.lastQuality * 100 : S.lastQuality;
+        setBar("bar-quality", Math.min(100, qVal), "var(--magenta)");
+        document.getElementById("t-quality").textContent =
+          S.lastQuality > 0 ? (S.lastQuality <= 1 ? (S.lastQuality * 100).toFixed(0) : S.lastQuality) + "" : "-";
+
+        if (selectedBot) showEntityDetail(selectedBot);
+      }
+
+      function barColor(val, t) {
+        if (t.invert)
+          return val < t.lo
+            ? "var(--green)"
+            : val < t.hi
+              ? "var(--yellow)"
+              : "var(--red)";
+        return val > t.hi
+          ? "var(--green)"
+          : val > t.lo
+            ? "var(--yellow)"
+            : "var(--red)";
+      }
+
+      function setBar(id, pct, color) {
+        const bar = document.getElementById(id);
+        if (!bar) return;
+        bar.style.width = Math.min(100, Math.max(0, pct)) + "%";
+        if (color) bar.style.background = color;
+      }
+
+      function updateKanban(taskQueue) {
+        const byStatus = { pending: [], in_progress: [], completed: [], failed: [] };
+        for (const t of taskQueue) {
+          const s = (t.status || "pending") + "";
+          if (byStatus[s]) byStatus[s].push(t);
+        }
+        const cols = ["pending", "in_progress", "completed", "failed"];
+        const ids = ["kanban-pending", "kanban-in-progress", "kanban-completed", "kanban-failed"];
+        for (let i = 0; i < cols.length; i++) {
+          const el = document.getElementById(ids[i]);
+          if (!el) continue;
+          const tasks = byStatus[cols[i]] || [];
+          el.innerHTML = tasks.map((t) => {
+            const desc = escapeHtml((t.description || "").slice(0, 60));
+            const id = escapeHtml(String(t.task_id || ""));
+            const who = escapeHtml(String(t.assigned_to || ""));
+            return `<div class="kanban-card" data-task-id="${id}">${desc}${(t.description || "").length > 60 ? "…" : ""}<br><span class="d" style="font-size:0.65rem">${id} → ${who}</span></div>`;
+          }).join("");
+        }
+      }
+
+      async function loadLessons() {
+        try {
+          const res = await fetch("/api/lessons");
+          const data = await res.json();
+          const list = document.getElementById("lessons-list");
+          if (!list) return;
+          const lessons = data.lessons || [];
+          list.innerHTML = lessons.length === 0
+            ? "<div class=\"d\" style=\"font-size:0.8rem\">No lessons yet. Run multiple sessions with failures to accumulate.</div>"
+            : lessons.map((l, i) => `<div class="lesson-item">${i + 1}. ${escapeHtml(l)}</div>`).join("");
+        } catch {
+          const list = document.getElementById("lessons-list");
+          if (list) list.innerHTML = "<div class=\"d\" style=\"font-size:0.8rem\">Could not load lessons.</div>";
+        }
+      }
+
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+          document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+          btn.classList.add("active");
+          const tab = btn.dataset.tab;
+          const target = tab === "feed" ? "feed" : tab === "kanban" ? "kanban" : "lessons";
+          document.getElementById(target).classList.add("active");
+          if (tab === "lessons") loadLessons();
+        });
+      });
+
+      document.getElementById("lessons-refresh")?.addEventListener("click", loadLessons);
+
+      // ═══════════════════════════════════════════════════════
+      // EVENT FEED
+      // ═══════════════════════════════════════════════════════
+      const feed = document.getElementById("feed");
+      const AGENT_COLORS = {
+        coordinator: "m",
+        approval: "y",
+        worker_execute: "c",
+        increment_cycle: "y",
+        run_failed: "r",
+        run_complete: "g",
+      };
+      const AGENT_NAMES = {
+        coordinator: "COORD",
+        approval: "APPROVAL",
+        worker_execute: "WORKER",
+        increment_cycle: "CYCLE",
+        run_failed: "FAIL",
+        run_complete: "SUCCESS",
+      };
+
+      function addEvent(node, msg, ts) {
+        const name = AGENT_NAMES[node] || node;
+        const color = AGENT_COLORS[node] || "d";
+        const now = new Date().toLocaleTimeString("en-GB", { hour12: false });
+        const el = document.createElement("div");
+        el.className = "ev";
+        el.innerHTML = `<span class="ev-time">[${escapeHtml(ts || now)}]</span> <span class="${color}">${escapeHtml(name)}:</span> ${escapeHtml(msg)}`;
+        feed.appendChild(el);
+        if (feed.children.length > 200) feed.removeChild(feed.firstChild);
+        feed.scrollTop = feed.scrollHeight;
+      }
+
+      function escapeHtml(s) {
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // STREAMING CHARTS (Chart.js)
+      // ═══════════════════════════════════════════════════════
+      let tasksQualityChart = null;
+      let chartsInitialized = false;
+
+      function initCharts() {
+        if (chartsInitialized) return;
+        chartsInitialized = true;
+
+        Chart.defaults.color = "#d4d4d4";
+        Chart.defaults.font.family = "'Courier New', monospace";
+        const gridColor = "#1e2a35";
+
+        tasksQualityChart = new Chart(document.getElementById("chart-tasks-quality"), {
+          type: "line",
+          data: {
+            labels: telemetry.cycles,
+            datasets: [
+              {
+                label: "Tasks Done",
+                data: telemetry.tasksCompleted,
+                borderColor: "#10b981",
+                backgroundColor: "rgba(16,185,129,.12)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointBackgroundColor: "#10b981",
+              },
+              {
+                label: "Tasks Failed",
+                data: telemetry.tasksFailed,
+                borderColor: "#ef4444",
+                backgroundColor: "rgba(239,68,68,.08)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointBackgroundColor: "#ef4444",
+              },
+              {
+                label: "Quality",
+                data: telemetry.quality,
+                borderColor: "#c084fc",
+                backgroundColor: "rgba(192,132,252,.08)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointBackgroundColor: "#c084fc",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { boxWidth: 10, font: { size: 9 } } },
+            },
+            scales: {
+              x: { grid: { color: gridColor }, ticks: { font: { size: 8 } } },
+              y: {
+                grid: { color: gridColor },
+                beginAtZero: true,
+                ticks: { font: { size: 8 } },
+              },
+            },
+          },
+        });
+      }
+
+      function pushTelemetry(snapshot) {
+        if (!chartsInitialized) initCharts();
+        const label = `R${S.gen}C${snapshot.cycle || S.cycle}`;
+        telemetry.cycles.push(label);
+        telemetry.tasksCompleted.push(Math.round(snapshot.tasks_completed || 0));
+        telemetry.tasksFailed.push(Math.round(snapshot.tasks_failed || 0));
+        const q = snapshot.last_quality_score ?? snapshot.quality;
+        telemetry.quality.push(Math.round((q ?? 0) * (q <= 1 && q > 0 ? 100 : 1)) || 0);
+        tasksQualityChart.update("none");
+      }
+
+      function addGenSummary(gen, summary) {
+        const tbody = document.getElementById("gen-table-body");
+        const tr = document.createElement("tr");
+        const outcome = summary.outcome || "unknown";
+        const fs = summary.final_state || {};
+        tr.innerHTML =
+          `<td>${escapeHtml(String(gen))}</td>` +
+          `<td class="outcome-${escapeHtml(outcome)}">${escapeHtml(outcome.toUpperCase())}</td>` +
+          `<td>${escapeHtml(String(fs.cycles_survived ?? summary.total_cycles ?? "-"))}</td>` +
+          `<td>${escapeHtml(String(fs.tasks_completed ?? "-"))}</td>` +
+          `<td>${escapeHtml(String(fs.tasks_failed ?? "-"))}</td>` +
+          `<td>${escapeHtml(String(summary.quality ?? "-"))}</td>`;
+        tbody.appendChild(tr);
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // CONFIG
+      // ═══════════════════════════════════════════════════════
+      const CONFIG_FIELDS = [
+        "creativity",
+        "max_cycles",
+        "max_generations",
+      ];
+
+      function collectConfigValues() {
+        const cfg = {};
+        CONFIG_FIELDS.forEach((f) => {
+          const el = document.getElementById("cfg-" + f);
+          if (el) cfg[f] = parseFloat(el.value);
+        });
+        return cfg;
+      }
+
+      function collectStartParams() {
+        const goalEl = document.getElementById("cfg-user_goal");
+        const templateEl = document.getElementById("cfg-team_template");
+        const workerEl = document.getElementById("cfg-worker_url");
+        return {
+          user_goal: goalEl ? goalEl.value.trim() : "Build a small 2D game",
+          team_template: templateEl ? templateEl.value : "game_dev",
+          worker_url: workerEl ? workerEl.value.trim() : "",
+        };
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // APPROVAL PANEL (Human-in-the-Loop)
+      // ═══════════════════════════════════════════════════════
+      let currentApprovalPending = null;
+
+      function showApprovalPanel(pending) {
+        currentApprovalPending = pending;
+        document.getElementById("approval-task-desc").textContent = pending?.description || "";
+        document.getElementById("approval-task-meta").textContent =
+          `Task: ${pending?.task_id || ""} | Assigned: ${pending?.assigned_to || ""} | Priority: ${pending?.priority || ""}`;
+        document.getElementById("approval-feedback-wrap").classList.add("hidden");
+        document.getElementById("approval-edit-wrap").classList.add("hidden");
+        document.getElementById("approval-secondary").classList.add("hidden");
+        document.getElementById("approval-feedback-input").value = "";
+        document.getElementById("approval-edit-input").value = pending?.description || "";
+        document.getElementById("approval-panel").classList.remove("hidden");
+      }
+
+      function hideApprovalPanel() {
+        document.getElementById("approval-panel").classList.add("hidden");
+        currentApprovalPending = null;
+      }
+
+      function sendApprovalResponse(payload) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ command: "approval_response", ...payload }));
+        }
+        hideApprovalPanel();
+      }
+
+      document.getElementById("approval-approve").addEventListener("click", () => {
+        sendApprovalResponse({ action: "approved" });
+      });
+
+      document.getElementById("approval-feedback").addEventListener("click", () => {
+        const actions = document.getElementById("approval-actions");
+        if (actions) actions.classList.add("hidden");
+        document.getElementById("approval-edit-wrap").classList.add("hidden");
+        document.getElementById("approval-feedback-wrap").classList.remove("hidden");
+        document.getElementById("approval-secondary").classList.remove("hidden");
+      });
+
+      document.getElementById("approval-edit").addEventListener("click", () => {
+        const actions = document.getElementById("approval-actions");
+        if (actions) actions.classList.add("hidden");
+        document.getElementById("approval-feedback-wrap").classList.add("hidden");
+        document.getElementById("approval-edit-wrap").classList.remove("hidden");
+        document.getElementById("approval-secondary").classList.remove("hidden");
+      });
+
+      document.getElementById("approval-submit").addEventListener("click", () => {
+        const fbWrap = document.getElementById("approval-feedback-wrap");
+        const edWrap = document.getElementById("approval-edit-wrap");
+        const fb = document.getElementById("approval-feedback-input").value.trim();
+        const ed = document.getElementById("approval-edit-input").value.trim();
+        if (!fbWrap.classList.contains("hidden") && fb) {
+          sendApprovalResponse({ action: "feedback", feedback: fb });
+        } else if (!edWrap.classList.contains("hidden") && ed) {
+          sendApprovalResponse({ action: "edited", edited_task: { description: ed } });
+        } else {
+          hideApprovalPanel();
+        }
+      });
+
+      document.getElementById("approval-cancel").addEventListener("click", () => {
+        const actions = document.getElementById("approval-actions");
+        if (actions) actions.classList.remove("hidden");
+        document.getElementById("approval-feedback-wrap").classList.add("hidden");
+        document.getElementById("approval-edit-wrap").classList.add("hidden");
+        document.getElementById("approval-secondary").classList.add("hidden");
+      });
+
+      // ═══════════════════════════════════════════════════════
+      // WEBSOCKET
+      // ═══════════════════════════════════════════════════════
+      function connect() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+        ws.onopen = () => addEvent("system", "Connected to server");
+
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "init" && !initReceived) {
+            initReceived = true;
+            handle(msg);
+            ws.send(
+              JSON.stringify({
+                command: "start",
+                config: collectConfigValues(),
+                ...collectStartParams(),
+              }),
+            );
+            return;
+          }
+          handle(msg);
+        };
+
+        ws.onerror = () => addEvent("system", "Connection error");
+        ws.onclose = () => addEvent("system", "Disconnected");
+      }
+
+      function handle(msg) {
+        switch (msg.type) {
+          case "init":
+            S.maxCycles = msg.config.max_cycles;
+            S.maxGen = msg.config.max_generations;
+            const workerEl = document.getElementById("cfg-worker_url");
+            const savedUrl = msg.config.saved_worker_url ?? msg.config.worker_url;
+            if (workerEl && savedUrl) workerEl.value = savedUrl;
+            const goalEl = document.getElementById("cfg-user_goal");
+            if (goalEl && msg.config.saved_goal) goalEl.value = msg.config.saved_goal;
+            const templateEl = document.getElementById("cfg-team_template");
+            if (templateEl && msg.config.saved_template) templateEl.value = msg.config.saved_template;
+            const creativityEl = document.getElementById("cfg-creativity");
+            if (creativityEl && msg.config.creativity != null) creativityEl.value = String(msg.config.creativity);
+            const maxCyclesEl = document.getElementById("cfg-max_cycles");
+            if (maxCyclesEl && msg.config.max_cycles != null) maxCyclesEl.value = String(msg.config.max_cycles);
+            const maxGenEl = document.getElementById("cfg-max_generations");
+            if (maxGenEl && msg.config.max_generations != null) maxGenEl.value = String(msg.config.max_generations);
+            updateUI();
+            break;
+
+          case "generation_start":
+            S.gen = msg.generation;
+            S.cycle = 0;
+            S.completed = 0;
+            S.failed = 0;
+            S.lastQuality = 0;
+            S.currentTask = "";
+            S.skillProfile = null;
+            updateUI();
+
+            document.getElementById("gen-banner-title").textContent =
+              `Run ${msg.generation}`;
+            document.getElementById("gen-banner-info").textContent =
+              msg.lessons_count > 0
+                ? `Using ${msg.lessons_count} prior run lessons`
+                : "Starting fresh";
+            document.getElementById("gen-banner").classList.remove("hidden");
+            setTimeout(
+              () =>
+                document.getElementById("gen-banner").classList.add("hidden"),
+              2000,
+            );
+            addEvent(
+              "system",
+              `Run ${msg.generation} / ${msg.max_generations}`,
+            );
+            break;
+
+          case "cycle_start":
+            addEvent("system", `Cycle ${msg.cycle}/${msg.max_cycles}`);
+            break;
+
+          case "approval_request":
+            showApprovalPanel(msg.pending);
+            addEvent("approval", `Task requires approval: ${msg.pending?.description?.slice(0, 50) || ""}…`);
+            break;
+
+          case "node_event":
+            handleNode(msg);
+            break;
+
+          case "telemetry_snapshot":
+            pushTelemetry(msg.snapshot);
+            break;
+
+          case "generation_end": {
+            const fs = msg.final_state;
+            const win = msg.outcome === "success";
+            addEvent(
+              win ? "run_complete" : "run_failed",
+              win
+                ? `Completed: ${fs.tasks_completed || 0} tasks`
+                : fs.death_reason || `Failed: ${fs.tasks_failed || 0} tasks`,
+            );
+            if (win) handleRunComplete();
+            else handleRunFailed();
+            if (msg.gen_summary) addGenSummary(msg.generation, msg.gen_summary);
+            break;
+          }
+
+          case "session_complete":
+            addEvent("system", "Work session finished.");
+            break;
+
+          case "session_cancelled":
+            addEvent("system", "Work session cancelled.");
+            break;
+
+          case "error": {
+            const errMsg = msg.message || "An error occurred.";
+            addEvent("system", "ERROR: " + errMsg);
+            const errBanner = document.getElementById("error-banner");
+            const errText = document.getElementById("error-banner-message");
+            if (errBanner && errText) {
+              errText.textContent = errMsg;
+              errBanner.classList.remove("hidden");
+            }
+            break;
+          }
+        }
+      }
+
+      function handleNode(msg) {
+        const node = msg.node;
+        const data = msg.data || {};
+        const st = msg.state || {};
+
+        if (st.cycle !== undefined) S.cycle = st.cycle;
+        if (st.tasks_completed !== undefined) S.completed = st.tasks_completed;
+        if (st.tasks_failed !== undefined) S.failed = st.tasks_failed;
+        if (st.last_quality_score !== undefined) S.lastQuality = st.last_quality_score;
+        if (st.agent_messages && st.agent_messages.length) {
+          const amEl = document.getElementById("agent-messages");
+          if (amEl) {
+            amEl.innerHTML = st.agent_messages.slice(-8).map((m) =>
+              `<div class="ev"><span class="d">[${escapeHtml(m.timestamp || "")}]</span> <span class="c">${escapeHtml(m.from_bot || "")}:</span> ${escapeHtml(m.content)}</div>`
+            ).join("");
+            amEl.scrollTop = amEl.scrollHeight;
+          }
+        }
+        if (st.task_queue && Array.isArray(st.task_queue)) {
+          updateKanban(st.task_queue);
+        }
+
+        switch (node) {
+          case "approval":
+            bots.ceo.setState("idle");
+            break;
+          case "coordinator":
+            bots.ceo.setState("working");
+            bots.ceo.showSpeech("🎯 Goals");
+            setTimeout(() => bots.ceo.setState("idle"), 1200);
+            break;
+          case "worker_execute":
+            handleSparkiExecute(data);
+            if (data.skill_profile) S.skillProfile = data.skill_profile;
+            if (data.bot_stats) S.botStats = data.bot_stats;
+            break;
+          case "run_failed":
+            handleRunFailed();
+            break;
+          case "run_complete":
+            handleRunComplete();
+            break;
+        }
+
+        addEvent(node, data.message || `${node} completed`, msg.timestamp);
+        if (node === "increment_cycle") pushTelemetry(st);
+        updateUI();
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // START
+      // ═══════════════════════════════════════════════════════
+      document.getElementById("start-btn").addEventListener("click", () => {
+        document.getElementById("splash").classList.add("hidden");
+        document.getElementById("app").style.opacity = "1";
+        connect();
+      });
+
+      document.getElementById("error-banner-dismiss")?.addEventListener("click", () => {
+        document.getElementById("error-banner")?.classList.add("hidden");
+      });
+
+      document.getElementById("save-config-btn")?.addEventListener("click", async () => {
+        const templateEl = document.getElementById("cfg-team_template");
+        const goalEl = document.getElementById("cfg-user_goal");
+        const workerEl = document.getElementById("cfg-worker_url");
+        const payload = {
+          template: templateEl?.value ?? "game_dev",
+          goal: goalEl?.value?.trim() ?? "",
+          worker_url: workerEl?.value?.trim() ?? "",
+        };
+        try {
+          const res = await fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            alert("Config saved to teamclaw.config.json");
+          } else {
+            alert("Failed to save: " + (data.error || res.status));
+          }
+        } catch (e) {
+          alert("Failed to save config: " + e);
+        }
+      });
+
+      document.getElementById("pause-btn").addEventListener("click", () => {
+        isPaused = !isPaused;
+        document.getElementById("pause-btn").textContent = isPaused
+          ? "RESUME"
+          : "PAUSE";
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ command: isPaused ? "pause" : "resume" }));
+        }
+      });
+    </script>
+  </body>
+</html>
