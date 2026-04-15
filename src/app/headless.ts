@@ -16,7 +16,7 @@
 
 import pc from "picocolors";
 import { ICONS } from "../tui/constants/icons.js";
-import { formatDuration } from "../utils/formatters.js";
+import { formatDuration, formatToolTarget } from "../utils/formatters.js";
 import { SprintEvent, ToolEvent } from "../router/event-types.js";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -352,13 +352,13 @@ async function runSprint(
     process.stdout.write(`  ${pc.cyan(`[${agentName}]`)} ${task.description.slice(0, 60)}`);
   });
 
-  runner.on(SprintEvent.AgentTool, ({ toolName, status, details }: { toolName: string; status: string; details?: { diff?: { added: number; removed: number } } }) => {
+  runner.on(SprintEvent.AgentTool, ({ toolName, status, details }: { toolName: string; status: string; details?: { inputSummary?: string } }) => {
     if (status === "running") {
-      process.stdout.write(`\n    ${pc.dim(`tool: ${toolName}`)}`);
+      const target = formatToolTarget(details?.inputSummary);
+      const label = target ? `${toolName} ${target}` : toolName;
+      process.stdout.write(`\n    ${pc.dim(label)}`);
     } else if (status === "completed") {
-      const diff = details?.diff;
-      const diffStr = diff ? ` ${pc.green(`+${diff.added}`)} ${pc.red(`-${diff.removed}`)}` : "";
-      process.stdout.write(pc.dim(` ${ICONS.success}`) + diffStr);
+      process.stdout.write(pc.dim(` ${ICONS.success}`));
     } else if (status === "failed") {
       process.stdout.write(pc.red(` ${ICONS.error}`));
     }
@@ -461,11 +461,11 @@ async function runSolo(
     },
     onToolCall: (_agentId, toolName, status, details) => {
       if (status === "running") {
-        process.stdout.write(`\n    ${pc.dim(`tool: ${toolName}`)}`);
+        const target = formatToolTarget(details?.inputSummary as string | undefined);
+        const label = target ? `${toolName} ${target}` : toolName;
+        process.stdout.write(`\n    ${pc.dim(label)}`);
       } else if (status === "completed") {
-        const diff = details?.diff as { added: number; removed: number } | undefined;
-        const diffStr = diff ? ` ${pc.green(`+${diff.added}`)} ${pc.red(`-${diff.removed}`)}` : "";
-        process.stdout.write(pc.dim(` ${ICONS.success}`) + diffStr);
+        process.stdout.write(pc.dim(` ${ICONS.success}`));
       } else if (status === "failed") {
         process.stdout.write(pc.red(` ${ICONS.error}`));
       }
@@ -590,11 +590,11 @@ async function runCollab(
     },
     onToolCall: (_agentId, toolName, status, details) => {
       if (status === "running") {
-        process.stdout.write(`\n    ${pc.dim(`tool: ${toolName}`)}`);
+        const target = formatToolTarget(details?.inputSummary as string | undefined);
+        const label = target ? `${toolName} ${target}` : toolName;
+        process.stdout.write(`\n    ${pc.dim(label)}`);
       } else if (status === "completed") {
-        const diff = details?.diff as { added: number; removed: number } | undefined;
-        const diffStr = diff ? ` ${pc.green(`+${diff.added}`)} ${pc.red(`-${diff.removed}`)}` : "";
-        process.stdout.write(pc.dim(` ${ICONS.success}`) + diffStr);
+        process.stdout.write(pc.dim(` ${ICONS.success}`));
       } else if (status === "failed") {
         process.stdout.write(pc.red(` ${ICONS.error}`));
       }

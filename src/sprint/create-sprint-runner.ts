@@ -9,6 +9,7 @@ import { getProjectContext } from "../context/project-context.js";
 import type { AgentRegistry } from "../router/agent-registry.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { ToolExecutor } from "../tools/executor.js";
+import { formatInputSummary } from "../utils/formatters.js";
 
 export interface CreateSprintRunnerOptions {
   agents: AgentRegistry;
@@ -69,7 +70,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
           if (!toolExecutor) return "Tool execution not available";
 
           const execId = `sprint_tc_${Date.now()}`;
-          const inputSummary = `${name}(${JSON.stringify(args).slice(0, 100)})`;
+          const inputSummary = formatInputSummary(name, args as Record<string, unknown>);
           const startTime = Date.now();
 
           this.recordToolCall(name);
