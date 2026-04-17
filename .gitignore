@@ -62,3 +62,11 @@ vite.config.ts
 /src/middleware/
 /src/routes/
 /tmp/
+
+# Local openpawl runtime state (crash logs, scratch sessions, etc.)
+.openpawl/
+
+# Benchmark run artifacts (raw JSONL logs, per-run workdirs).
+# Keep docs under docs/debug/ tracked; ignore only raw outputs.
+benchmarks/debug-reruns/
+benchmarks/benchmark-parent.jsonl

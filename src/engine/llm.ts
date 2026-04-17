@@ -43,7 +43,16 @@ export interface LLMCallOptions {
   temperature?: number;
   signal?: AbortSignal;
   onChunk?: (text: string) => void;
+  /**
+   * Optional caller tag ("sprint:planner", "sprint:task:coder", "collab:reviewer", …).
+   * Logged into llm:request / llm:response debug events when OPENPAWL_PROFILE is on
+   * so token usage can be attributed per-node instead of per-entryPoint.
+   */
+  source?: string;
 }
+
+/** Only attach `source` to debug logs when profiling is enabled. */
+const _profilingOn = !!process.env.OPENPAWL_PROFILE;
 
 export interface LLMResponse {
   text: string;
@@ -95,6 +104,7 @@ export async function callLLM(
     debugLog("info", "llm", "llm:request", {
       data: {
         entryPoint: "callLLM",
+        ...(_profilingOn && options?.source ? { source: options.source } : {}),
         model,
         temperature: options?.temperature,
         systemPrompt: truncateStr(effectiveSystemPrompt, TRUNCATION.systemPrompt),
@@ -141,6 +151,7 @@ export async function callLLM(
     debugLog("info", "llm", "llm:response", {
       data: {
         entryPoint: "callLLM",
+        ...(_profilingOn && options?.source ? { source: options.source } : {}),
         response: truncateStr(text, TRUNCATION.llmResponse),
         responseLength: text.length,
         inputTokens: usage.input,
@@ -261,6 +272,7 @@ export async function callLLMWithMessages(
     debugLog("info", "llm", "llm:request", {
       data: {
         entryPoint: "callLLMWithMessages",
+        ...(_profilingOn && options?.source ? { source: options.source } : {}),
         model,
         temperature: options?.temperature,
         messageCount: chatMessages.length,
@@ -330,6 +342,7 @@ export async function callLLMWithMessages(
     debugLog("info", "llm", "llm:response", {
       data: {
         entryPoint: "callLLMWithMessages",
+        ...(_profilingOn && options?.source ? { source: options.source } : {}),
         response: truncateStr(text, TRUNCATION.llmResponse),
         responseLength: text.length,
         inputTokens: usage.input,
@@ -371,6 +384,8 @@ export async function callLLMMultiTurn(opts: {
   priorMessages?: Message[];
   /** Hook called before each LLM turn. Can mutate messages (e.g., for context compaction). */
   beforeTurn?: (messages: Message[], turn: number) => Promise<void>;
+  /** Caller tag forwarded to the inner callLLMWithMessages (profiling-only). */
+  source?: string;
 }): Promise<LLMResponse> {
   const maxTurns = opts.maxTurns ?? 20;
   const messages: Message[] = [
@@ -419,6 +434,7 @@ export async function callLLMMultiTurn(opts: {
       onChunk: opts.onChunk,
       signal: opts.signal,
       temperature: opts.temperature,
+      source: opts.source,
     });
 
     totalUsage.input += response.usage.input;

@@ -16,6 +16,7 @@ import {
   writeFileSync,
   readdirSync,
   statSync,
+  appendFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 
@@ -150,16 +151,40 @@ function parseCliArgs(): BenchmarkConfig {
 const PROJECT_ROOT = resolve(join(import.meta.dirname, "..", ".."));
 const BENCH_BASE = join(homedir(), "personal", "openpawl-test-projects", "bench");
 const REPORT_PATH = join(homedir(), ".openpawl", "benchmark-report.md");
+const BENCHMARK_LOG_PATH =
+  process.env.OPENPAWL_BENCH_LOG ??
+  join(PROJECT_ROOT, "benchmarks", "benchmark-parent.jsonl");
 const DELAY_BETWEEN_RUNS_MS = 5_000;
+
+/** Per-mode kill timeout. Solo runs are I/O-light and stay tight; collab/sprint
+ *  get more headroom so a "slow but progressing" run doesn't get confused with
+ *  a genuine hang. The global --timeout flag still acts as the hard upper bound. */
+function killTimeoutFor(mode: RunMode, fallbackMs: number): number {
+  if (mode === "solo") return Math.min(fallbackMs, 10 * 60_000);
+  return Math.min(Math.max(fallbackMs, 15 * 60_000), 30 * 60_000);
+}
+
+function appendParentLog(entry: Record<string, unknown>): void {
+  try {
+    mkdirSync(join(PROJECT_ROOT, "benchmarks"), { recursive: true });
+    const line = JSON.stringify({ timestamp: new Date().toISOString(), ...entry });
+    appendFileSync(BENCHMARK_LOG_PATH, line + "\n");
+  } catch {
+    // benchmark log is best-effort; never crash the run
+  }
+}
 
 function runHeadlessSubprocess(
   goal: string,
   mode: RunMode,
   workdir: string,
   timeoutMs: number,
+  taskId?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string; durationMs: number }> {
   return new Promise((resolve) => {
     mkdirSync(workdir, { recursive: true });
+
+    const effectiveTimeoutMs = killTimeoutFor(mode, timeoutMs);
 
     // Use bun + built dist/cli.js — tsx+src/cli.ts fails due to .js imports
     const bunPath = join(homedir(), ".bun", "bin", "bun");
@@ -175,10 +200,24 @@ function runHeadlessSubprocess(
       ],
       {
         cwd: PROJECT_ROOT,
-        env: { ...process.env, FORCE_COLOR: "0" },
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          OPENPAWL_DEBUG: "true",
+          OPENPAWL_PROFILE: "true",
+        },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
+
+    appendParentLog({
+      event: "run:start",
+      task: taskId,
+      mode,
+      pid: child.pid,
+      killTimeoutMs: effectiveTimeoutMs,
+      workdir,
+    });
 
     let stdout = "";
     let stderr = "";
@@ -188,27 +227,64 @@ function runHeadlessSubprocess(
     child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 
     const timer = setTimeout(() => {
+      appendParentLog({
+        event: "run:pre_kill",
+        task: taskId,
+        mode,
+        pid: child.pid,
+        elapsedMs: Date.now() - start,
+        reason: "parent_timeout",
+      });
       child.kill("SIGTERM");
-      setTimeout(() => { if (!child.killed) child.kill("SIGKILL"); }, 2_000);
-    }, timeoutMs);
+      setTimeout(() => {
+        if (!child.killed) {
+          appendParentLog({
+            event: "run:sigkill",
+            task: taskId,
+            mode,
+            pid: child.pid,
+            elapsedMs: Date.now() - start,
+          });
+          child.kill("SIGKILL");
+        }
+      }, 2_000);
+    }, effectiveTimeoutMs);
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      const durationMs = Date.now() - start;
+      appendParentLog({
+        event: "run:close",
+        task: taskId,
+        mode,
+        pid: child.pid,
+        exitCode: code ?? -1,
+        durationMs,
+      });
       resolve({
         exitCode: code ?? -1,
         stdout,
         stderr,
-        durationMs: Date.now() - start,
+        durationMs,
       });
     });
 
     child.on("error", (err) => {
       clearTimeout(timer);
+      const durationMs = Date.now() - start;
+      appendParentLog({
+        event: "run:error",
+        task: taskId,
+        mode,
+        pid: child.pid,
+        error: err.message,
+        durationMs,
+      });
       resolve({
         exitCode: -1,
         stdout,
         stderr: stderr + "\n" + err.message,
-        durationMs: Date.now() - start,
+        durationMs,
       });
     });
   });
@@ -293,6 +369,7 @@ async function runOrchestrationSuite(config: BenchmarkConfig): Promise<RunResult
         mode,
         workdir,
         config.timeoutMs,
+        task.id,
       );
 
       // Parse metrics from stdout

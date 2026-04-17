@@ -74,6 +74,7 @@ let _sessionId = "unknown";
 let _fd: number | null = null;
 let _logPath = "";
 let _rotated = false;
+let _signalHookInstalled = false;
 
 // ── Sensitive key pattern ──────────────────────────────────────────────
 
@@ -108,7 +109,10 @@ function sanitizeValue(value: unknown, depth: number): unknown {
   if (typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_KEY.test(k)) {
+      // Only redact string values — numeric fields like `inputTokens`/`tokenCount`
+      // match the key regex but are never secret. Redacting numbers destroyed
+      // the token accounting we need for profiling.
+      if (SENSITIVE_KEY.test(k) && typeof v === "string" && v.length > 0) {
         result[k] = "[redacted]";
       } else if (k === "content" && typeof v === "string" && v.length > 200) {
         result[k] = `[content: ${v.length} chars]`;
@@ -176,6 +180,34 @@ function ensureOpen(): void {
 
   _logPath = join(debugDir, `${_sessionId}.jsonl`);
   _fd = openSync(_logPath, "a");
+  installSignalHook();
+}
+
+function installSignalHook(): void {
+  if (_signalHookInstalled) return;
+  _signalHookInstalled = true;
+
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (_fd !== null) {
+      try {
+        const entry: DebugLog = {
+          timestamp: new Date().toISOString(),
+          level: "warn",
+          source: "error",
+          event: "process:signal_received",
+          data: { signal },
+        };
+        appendFileSync(_fd, JSON.stringify(entry) + "\n");
+        closeSync(_fd);
+        _fd = null;
+      } catch {
+        // Must never crash during shutdown.
+      }
+    }
+  };
+
+  process.once("SIGTERM", onSignal);
+  process.once("SIGINT", onSignal);
 }
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -255,4 +287,18 @@ export function closeDebugLog(): void {
     // ignore
   }
   _fd = null;
+}
+
+/**
+ * Lightweight heartbeat event for call sites wrapping long-running I/O
+ * (e.g. LLM calls). A stall then manifests as a growing gap between
+ * heartbeats rather than pure silence. No-op when debug is disabled.
+ */
+export function debugHeartbeat(
+  source: DebugSource,
+  event: string,
+  data?: Record<string, unknown>,
+): void {
+  if (!_enabled) return;
+  debugLog("debug", source, event, { data });
 }
