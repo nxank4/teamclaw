@@ -68,6 +68,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
       const response = await callLLMMultiTurn({
         systemPrompt,
         userMessage: runOpts.prompt,
+        source: `sprint:${agentName}`,
         nativeTools: hasTools ? nativeTools : undefined,
         handleTool: async (name, args) => {
           if (!toolExecutor) return "Tool execution not available";
