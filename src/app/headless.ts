@@ -1,30 +1,31 @@
 /**
  * Headless mode — runs the agent pipeline without TUI rendering.
- * Supports four modes:
- *   --mode sprint  (default) — planner → coders → reviewer via SprintRunner
+ * Supports two modes:
+ *   --mode crew    (default for complex goals) — planner → coders → reviewer via CrewRunner
  *   --mode solo    — single agent via PromptRouter
- *   --mode collab  — multi-agent chain (coder → reviewer → coder, etc.)
- *   --mode auto    — sprint for multi-step goals, solo for simple ones
+ *   --mode auto    — crew for multi-step goals, solo for simple ones
+ *   --mode sprint  — deprecated alias for crew (removed in v0.5)
+ *   --mode collab  — removed in v0.4 (rejected with error)
  *   --mode chat    — alias for solo (backward compatibility)
  *
  * Agent tool calls write to a dedicated project directory (not cwd):
  *   ~/personal/openpawl-test-projects/<goal-slug>-<timestamp>/
  *   Override with --workdir <path>
  *
- * Usage: openpawl run --headless --goal "..." [--runs N] [--mode sprint|solo|collab|auto] [--workdir path]
+ * Usage: openpawl run --headless --goal "..." [--runs N] [--mode crew|solo|auto] [--workdir path]
  */
 
 import pc from "picocolors";
 import { ICONS } from "../tui/constants/icons.js";
 import { formatDuration, formatToolTarget } from "../utils/formatters.js";
-import { SprintEvent, ToolEvent } from "../router/event-types.js";
+import { CrewEvent, ToolEvent } from "../router/event-types.js";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { createSessionManager } from "../session/index.js";
 import { PromptRouter, AgentRegistry } from "../router/index.js";
 import { createLLMAgentRunner } from "../router/llm-agent-runner.js";
-import { createSprintRunner } from "../sprint/create-sprint-runner.js";
+import { createCrewRunner } from "../crew/create-crew-runner.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { PermissionResolver } from "../tools/permissions.js";
@@ -35,7 +36,7 @@ import {
   generateReport as generateProfileReport,
 } from "../telemetry/profiler.js";
 
-type RunMode = "sprint" | "solo" | "collab" | "auto";
+type RunMode = "crew" | "solo" | "auto";
 
 interface HeadlessOptions {
   goal: string;
@@ -60,9 +61,21 @@ function parseArgs(args: string[]): HeadlessOptions {
       runs = parseInt(args[++i]!, 10) || 1;
     } else if (arg === "--mode" && args[i + 1]) {
       const m = args[++i]!;
-      if (m === "sprint" || m === "solo" || m === "collab" || m === "auto") mode = m;
-      else if (m === "chat") mode = "solo"; // backward compatibility
-      else if (m === "team") mode = "collab"; // backward compatibility
+      if (m === "crew" || m === "solo" || m === "auto") {
+        mode = m;
+      } else if (m === "sprint") {
+        // Deprecated alias; remove in v0.5
+        console.warn("WARNING: --mode sprint is deprecated, use --mode crew. Sprint mode will be removed in v0.5.");
+        mode = "crew";
+      } else if (m === "collab") {
+        console.error("ERROR: --mode collab has been removed in v0.4. Use --mode crew with a suitable crew template (e.g., --crew full-stack).");
+        process.exit(1);
+      } else if (m === "chat") {
+        mode = "solo"; // backward compatibility
+      } else if (m === "team") {
+        console.warn("WARNING: --mode team is deprecated, use --mode crew.");
+        mode = "crew";
+      }
     } else if (arg === "--workdir" && args[i + 1]) {
       const raw = args[++i]!;
       // Expand ~ to home directory (Node doesn't do this automatically)
@@ -78,7 +91,7 @@ function parseArgs(args: string[]): HeadlessOptions {
   }
 
   if (!goal) {
-    console.error("Usage: openpawl run --headless --goal \"<prompt>\" [--runs N] [--mode sprint|solo|collab|auto] [--workdir path] [--template name]");
+    console.error("Usage: openpawl run --headless --goal \"<prompt>\" [--runs N] [--mode crew|solo|auto] [--workdir path] [--template name]");
     process.exit(1);
   }
 
@@ -109,8 +122,8 @@ export async function runHeadless(args: string[]): Promise<void> {
   const finishTotal = profileStart("total_pipeline", "headless");
 
   // Resolve mode
-  const effectiveMode: "sprint" | "solo" | "collab" = opts.mode === "auto"
-    ? (isComplexGoal(opts.goal) ? "sprint" : "solo")
+  const effectiveMode: "crew" | "solo" = opts.mode === "auto"
+    ? (isComplexGoal(opts.goal) ? "crew" : "solo")
     : opts.mode;
 
   // Resolve working directory for agent tool calls
@@ -124,7 +137,7 @@ export async function runHeadless(args: string[]): Promise<void> {
   const originalCwd = process.cwd();
 
   // Resolve team context
-  const { resolveTeamContext, resolveFromTemplate } = await import("../sprint/team-resolver.js");
+  const { resolveTeamContext, resolveFromTemplate } = await import("../crew/team-resolver.js");
   const teamContext = opts.template
     ? await resolveFromTemplate(opts.template)
     : await resolveTeamContext();
@@ -175,11 +188,11 @@ export async function runHeadless(args: string[]): Promise<void> {
     }
 
     // Show lessons being applied
-    if (accumulatedLessons.length > 0 && effectiveMode === "sprint") {
+    if (accumulatedLessons.length > 0 && effectiveMode === "crew") {
       console.log(pc.dim(`  [applying ${accumulatedLessons.length} lesson${accumulatedLessons.length === 1 ? "" : "s"} from previous run${accumulatedLessons.length === 1 ? "" : "s"}]`));
       if (process.env.OPENPAWL_DEBUG) {
         const { debugLog, truncateStr, TRUNCATION } = await import("../debug/logger.js");
-        debugLog("info", "sprint", "sprint:lesson_injection", {
+        debugLog("info", "crew", "crew:lesson_injection", {
           data: {
             run: run + 1,
             lessonCount: accumulatedLessons.length,
@@ -194,13 +207,13 @@ export async function runHeadless(args: string[]): Promise<void> {
 
     const runStart = Date.now();
 
-    if (effectiveMode === "sprint") {
-      let result: import("../sprint/types.js").SprintResult;
+    if (effectiveMode === "crew") {
+      let result: import("../crew/types.js").CrewResult;
       try {
-        result = await runSprint(opts.goal, toolReg, toolExec, teamContext, accumulatedLessons);
+        result = await runCrew(opts.goal, toolReg, toolExec, teamContext, accumulatedLessons);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`\n  ${pc.red(ICONS.error)} Sprint failed: ${msg}`);
+        console.error(`\n  ${pc.red(ICONS.error)} Crew failed: ${msg}`);
         console.log(pc.dim(`  Total: ${formatDuration(Date.now() - runStart)}`));
         break;
       }
@@ -235,7 +248,7 @@ export async function runHeadless(args: string[]): Promise<void> {
 
       // Post-mortem analysis — always run when there are failures (Item 5)
       if (result.failedTasks > 0) {
-        const { analyzeRunResult } = await import("../sprint/post-mortem.js");
+        const { analyzeRunResult } = await import("../crew/post-mortem.js");
         const postMortem = analyzeRunResult(result, accumulatedLessons);
         if (postMortem.lessons.length > 0) {
           console.log(`\n  ${pc.cyan("[post-mortem]")} ${postMortem.lessons.length} lesson${postMortem.lessons.length === 1 ? "" : "s"} extracted`);
@@ -248,11 +261,7 @@ export async function runHeadless(args: string[]): Promise<void> {
         }
       }
     } else {
-      if (effectiveMode === "collab") {
-        await runCollab(opts.goal, sessionMgr, toolReg, toolExec);
-      } else {
-        await runSolo(opts.goal, sessionMgr, toolReg, toolExec);
-      }
+      await runSolo(opts.goal, sessionMgr, toolReg, toolExec);
 
       const runDuration = Date.now() - runStart;
       console.log("");
@@ -290,27 +299,27 @@ export async function runHeadless(args: string[]): Promise<void> {
   await sessionMgr.shutdown();
 }
 
-// ── Sprint mode ───────────────────────────────────────────────────────
+// ── Crew mode ─────────────────────────────────────────────────────────
 
-async function runSprint(
+async function runCrew(
   goal: string,
   toolReg: ToolRegistry,
   toolExec: ToolExecutor,
-  teamContext?: import("../sprint/types.js").SprintTeamContext,
+  teamContext?: import("../crew/types.js").CrewTeamContext,
   lessons?: string[],
-): Promise<import("../sprint/types.js").SprintResult> {
+): Promise<import("../crew/types.js").CrewResult> {
   const agents = new AgentRegistry();
-  const runner = createSprintRunner({ agents, toolRegistry: toolReg, toolExecutor: toolExec });
+  const runner = createCrewRunner({ agents, toolRegistry: toolReg, toolExecutor: toolExec });
 
-  // Wire debug logging to sprint runner
+  // Wire debug logging to crew runner
   if (process.env.OPENPAWL_DEBUG) {
-    const { wireDebugToSprintRunner } = await import("../debug/wiring.js");
-    wireDebugToSprintRunner(runner);
+    const { wireDebugToCrewRunner } = await import("../debug/wiring.js");
+    wireDebugToCrewRunner(runner);
   }
 
   const taskStartMap = new Map<string, number>();
 
-  runner.on(SprintEvent.Composition, ({ entries }: { entries: Array<{ role: string; task: string; included: boolean; reason: string }> }) => {
+  runner.on(CrewEvent.Composition, ({ entries }: { entries: Array<{ role: string; task: string; included: boolean; reason: string }> }) => {
     console.log(`  ${pc.bold("Team composition (autonomous):")}`);
     for (const entry of entries) {
       const icon = entry.included ? pc.green(ICONS.success) : pc.dim(ICONS.error);
@@ -321,12 +330,12 @@ async function runSprint(
     console.log("");
   });
 
-  runner.on(SprintEvent.Planning, () => {
+  runner.on(CrewEvent.Planning, () => {
     process.stdout.write(`  ${pc.cyan("[planner]")} planning tasks...`);
     taskStartMap.set("__planner__", Date.now());
   });
 
-  runner.on(SprintEvent.Plan, ({ tasks }) => {
+  runner.on(CrewEvent.Plan, ({ tasks }) => {
     const elapsed = Date.now() - (taskStartMap.get("__planner__") ?? Date.now());
     process.stdout.write(` ${pc.dim("\u2192")} ${pc.green(`${tasks.length} tasks`)} (${formatDuration(elapsed)})\n`);
     console.log("");
@@ -336,23 +345,23 @@ async function runSprint(
     console.log("");
   });
 
-  runner.on(SprintEvent.RoundStart, ({ round, tasks }) => {
+  runner.on(CrewEvent.RoundStart, ({ round, tasks }) => {
     if (tasks.length > 1) {
       console.log(`  ${pc.bold(`[round ${round} \u2014 ${tasks.length} tasks in parallel]`)}`);
     }
   });
 
-  runner.on(SprintEvent.RoundComplete, ({ round, duration }) => {
+  runner.on(CrewEvent.RoundComplete, ({ round, duration }) => {
     console.log(`  ${pc.dim(`[round ${round} complete: ${formatDuration(duration)}]`)}`);
     console.log("");
   });
 
-  runner.on(SprintEvent.TaskStart, ({ task, agentName }) => {
+  runner.on(CrewEvent.TaskStart, ({ task, agentName }) => {
     taskStartMap.set(task.id, Date.now());
     process.stdout.write(`  ${pc.cyan(`[${agentName}]`)} ${task.description.slice(0, 60)}`);
   });
 
-  runner.on(SprintEvent.AgentTool, ({ toolName, status, details }: { toolName: string; status: string; details?: { inputSummary?: string } }) => {
+  runner.on(CrewEvent.AgentTool, ({ toolName, status, details }: { toolName: string; status: string; details?: { inputSummary?: string } }) => {
     if (status === "running") {
       const target = formatToolTarget(details?.inputSummary);
       const label = target ? `${toolName} ${target}` : toolName;
@@ -364,7 +373,7 @@ async function runSprint(
     }
   });
 
-  runner.on(SprintEvent.TaskComplete, ({ task, taskIndex, totalTasks }: { task: import("../sprint/types.js").SprintTask; taskIndex?: number; totalTasks?: number }) => {
+  runner.on(CrewEvent.TaskComplete, ({ task, taskIndex, totalTasks }: { task: import("../crew/types.js").CrewTask; taskIndex?: number; totalTasks?: number }) => {
     const elapsed = Date.now() - (taskStartMap.get(task.id) ?? Date.now());
     const status = task.status === "completed" ? pc.green("done")
       : task.status === "failed" ? pc.red("failed")
@@ -376,7 +385,7 @@ async function runSprint(
     }
   });
 
-  runner.on(SprintEvent.NeedsClarification, ({ questions }: { questions: string[] }) => {
+  runner.on(CrewEvent.NeedsClarification, ({ questions }: { questions: string[] }) => {
     console.log("");
     console.log(`  ${pc.yellow(ICONS.warning)} Goal needs clarification:`);
     for (const q of questions) {
@@ -387,11 +396,11 @@ async function runSprint(
     process.exitCode = 2;
   });
 
-  runner.on(SprintEvent.Warning, ({ warning }) => {
+  runner.on(CrewEvent.Warning, ({ warning }) => {
     console.log(`  ${pc.yellow(ICONS.warning)} ${warning}`);
   });
 
-  runner.on(SprintEvent.Error, ({ error }) => {
+  runner.on(CrewEvent.Error, ({ error }) => {
     console.error(`  ${pc.red(ICONS.error)} ${error.message}`);
   });
 
@@ -404,7 +413,7 @@ async function runSprint(
   try {
     const { buildHandoffData, renderContextMarkdown } = await import("../handoff/index.js");
     const md = renderContextMarkdown(buildHandoffData({
-      sessionId: `sprint-${Date.now()}`,
+      sessionId: `crew-${Date.now()}`,
       projectPath: process.cwd(),
       goal,
       taskQueue: result.tasks.map((t) => ({ ...t })),
@@ -549,138 +558,3 @@ async function runSolo(
   await sessionMgr.delete(session.id);
 }
 
-// ── Collab mode (multi-agent chain via PromptRouter) ──────────────────
-
-async function runCollab(
-  goal: string,
-  sessionMgr: ReturnType<typeof createSessionManager>,
-  toolReg: ToolRegistry,
-  toolExec: ToolExecutor,
-): Promise<void> {
-  const { buildCollabChain } = await import("../router/collab-dispatch.js");
-  const chain = buildCollabChain(goal, { force: true });
-
-  if (!chain) {
-    console.log(pc.dim("No collab chain detected — falling back to solo mode"));
-    return runSolo(goal, sessionMgr, toolReg, toolExec);
-  }
-
-  console.log(pc.bold("Collab chain:"), chain.steps.map((s) => s.agentId).join(" → "));
-  console.log("");
-
-  const sessionResult = await sessionMgr.create(process.cwd());
-  if (sessionResult.isErr()) {
-    console.error(`Failed to create session: ${sessionResult.error.type}`);
-    process.exit(1);
-  }
-  const session = sessionResult.value;
-
-  let currentAgent = "";
-  let tokenCount = 0;
-  const agentStartTimes = new Map<string, number>();
-
-  const agentRunner = createLLMAgentRunner({
-    onToken: (agentId, _token) => {
-      if (agentId !== currentAgent) {
-        if (currentAgent) {
-          const elapsed = Date.now() - (agentStartTimes.get(currentAgent) ?? Date.now());
-          process.stdout.write(
-            ` ${pc.dim("\u2192")} ${pc.green("done")} (${formatDuration(elapsed)}, ${tokenCount} tokens)\n`,
-          );
-        }
-        currentAgent = agentId;
-        tokenCount = 0;
-        agentStartTimes.set(agentId, Date.now());
-        process.stdout.write(`  ${pc.cyan(`[${agentId}]`)} started`);
-      }
-      tokenCount++;
-    },
-    onToolCall: (_agentId, toolName, status, details) => {
-      if (status === "running") {
-        const target = formatToolTarget(details?.inputSummary as string | undefined);
-        const label = target ? `${toolName} ${target}` : toolName;
-        process.stdout.write(`\n    ${pc.dim(label)}`);
-      } else if (status === "completed") {
-        process.stdout.write(pc.dim(` ${ICONS.success}`));
-      } else if (status === "failed") {
-        process.stdout.write(pc.red(` ${ICONS.error}`));
-      }
-    },
-    getToolSchemas: (toolNames) => toolReg.exportForLLM(toolNames),
-    getNativeTools: (toolNames) => toolReg.exportForAPI(toolNames),
-    executeTool: async (toolName, args) => {
-      const result = await toolExec.execute(toolName, args, {
-        sessionId: session.id,
-        agentId: "agent",
-        workingDirectory: process.cwd(),
-      });
-      if (result.isOk()) {
-        const text = result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
-        const data = result.value.data as Record<string, unknown> | undefined;
-        const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
-        const shell = toolName === "shell_exec" && data
-          ? { exitCode: data.exitCode as number | undefined, stderrHead: typeof data.stderr === "string" ? (data.stderr as string).slice(0, 200) : undefined }
-          : undefined;
-        const success = result.value.success;
-        if (diff || shell) {
-          return { text, diff, success, exitCode: shell?.exitCode, stderrHead: shell?.stderrHead };
-        }
-        return text;
-      }
-      const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
-      throw new Error(`${result.error.type}${cause}`);
-    },
-  });
-
-  const router = new PromptRouter(
-    { defaultAgent: "assistant" },
-    sessionMgr,
-    null,
-    agentRunner,
-  );
-
-  // Wire debug logging to router
-  if (process.env.OPENPAWL_DEBUG) {
-    const { wireDebugToRouter } = await import("../debug/wiring.js");
-    wireDebugToRouter(router);
-  }
-
-  const result = await router.route(session.id, goal, { appMode: "collab" });
-
-  // Finish last agent line
-  if (currentAgent) {
-    const elapsed = Date.now() - (agentStartTimes.get(currentAgent) ?? Date.now());
-    process.stdout.write(
-      ` ${pc.dim("\u2192")} ${pc.green("done")} (${formatDuration(elapsed)}, ${tokenCount} tokens)\n`,
-    );
-  }
-
-  if (result.isErr()) {
-    console.error(`\n${pc.red("Error:")} ${result.error.type}`);
-    if ("message" in result.error) {
-      console.error(`  ${(result.error as { message: string }).message}`);
-    }
-    process.exit(1);
-  }
-
-  const dispatch = result.value;
-  console.log("");
-  for (const agentResult of dispatch.agentResults) {
-    if (agentResult.error) {
-      console.log(pc.dim("\u2500".repeat(60)));
-      console.log(`${pc.bold(`[${agentResult.agentId}]`)} ${pc.red("error")}`);
-      console.log(pc.red(agentResult.error));
-    } else if (agentResult.response) {
-      console.log(pc.dim("\u2500".repeat(60)));
-      console.log(pc.bold(`[${agentResult.agentId}]`));
-      console.log(agentResult.response);
-    }
-  }
-
-  const totalIn = dispatch.totalInputTokens;
-  const totalOut = dispatch.totalOutputTokens;
-  const cost = (totalIn * 3 + totalOut * 15) / 1_000_000;
-  console.log(pc.dim(`Tokens: ${totalIn}in/${totalOut}out | Cost: $${cost.toFixed(4)}`));
-
-  await sessionMgr.delete(session.id);
-}

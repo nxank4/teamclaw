@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { SprintRunner } from "../sprint-runner.js";
-import type { SprintTask } from "../types.js";
+import { CrewRunner } from "../crew-runner.js";
+import type { CrewTask } from "../types.js";
 
 function mockRegistry() {
   return {
@@ -18,10 +18,10 @@ function mockRegistry() {
     getAll: () => [],
     getIds: () => [],
     has: () => true,
-  } as unknown as ConstructorParameters<typeof SprintRunner>[0];
+  } as unknown as ConstructorParameters<typeof CrewRunner>[0];
 }
 
-function makeTask(overrides: Partial<SprintTask> = {}): SprintTask {
+function makeTask(overrides: Partial<CrewTask> = {}): CrewTask {
   return {
     id: "t1",
     description: "do stuff",
@@ -31,12 +31,12 @@ function makeTask(overrides: Partial<SprintTask> = {}): SprintTask {
 }
 
 /** Expose the private isRetriable for direct testing. */
-function isRetriable(task: SprintTask): boolean {
-  const runner = new SprintRunner(mockRegistry());
-  return (runner as unknown as { isRetriable(t: SprintTask): boolean }).isRetriable(task);
+function isRetriable(task: CrewTask): boolean {
+  const runner = new CrewRunner(mockRegistry());
+  return (runner as unknown as { isRetriable(t: CrewTask): boolean }).isRetriable(task);
 }
 
-describe("SprintRunner.isRetriable", () => {
+describe("CrewRunner.isRetriable", () => {
   it("does not retry when last shell_exec call failed with exit 127", () => {
     const task = makeTask({
       error: "generic error",

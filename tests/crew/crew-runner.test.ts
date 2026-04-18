@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { SprintRunner } from "../../src/sprint/sprint-runner.js";
-import type { SprintTask } from "../../src/sprint/types.js";
+import { CrewRunner } from "../../src/crew/crew-runner.js";
+import type { CrewTask } from "../../src/crew/types.js";
 
 // Minimal mock agent registry
 function mockRegistry() {
@@ -22,9 +22,9 @@ function mockRegistry() {
   } as any;
 }
 
-describe("SprintRunner", () => {
+describe("CrewRunner", () => {
   it("runs a sprint with 3 tasks", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -37,11 +37,11 @@ describe("SprintRunner", () => {
     });
 
     const events: string[] = [];
-    runner.on("sprint:start", () => events.push("start"));
-    runner.on("sprint:plan", () => events.push("plan"));
-    runner.on("sprint:task:start", () => events.push("task:start"));
-    runner.on("sprint:task:complete", () => events.push("task:complete"));
-    runner.on("sprint:done", () => events.push("done"));
+    runner.on("crew:start", () => events.push("start"));
+    runner.on("crew:plan", () => events.push("plan"));
+    runner.on("crew:task:start", () => events.push("task:start"));
+    runner.on("crew:task:complete", () => events.push("task:complete"));
+    runner.on("crew:done", () => events.push("done"));
 
     const result = await runner.run("Build a REST API");
 
@@ -59,7 +59,7 @@ describe("SprintRunner", () => {
   });
 
   it("marks write tasks as incomplete when agent only reads", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -78,7 +78,7 @@ describe("SprintRunner", () => {
   });
 
   it("records structured tool-call results (exitCode, stderrHead)", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -98,7 +98,7 @@ describe("SprintRunner", () => {
   });
 
   it("appends last shell exit code to thrown error message", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -114,7 +114,7 @@ describe("SprintRunner", () => {
   });
 
   it("handles task failure gracefully", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -131,7 +131,7 @@ describe("SprintRunner", () => {
   });
 
   it("can be stopped mid-sprint", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -152,7 +152,7 @@ describe("SprintRunner", () => {
   });
 
   it("emits warnings for plans without setup or test tasks", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -164,7 +164,7 @@ describe("SprintRunner", () => {
     });
 
     const warnings: string[] = [];
-    runner.on("sprint:warning", ({ warning }: { warning: string }) => {
+    runner.on("crew:warning", ({ warning }: { warning: string }) => {
       warnings.push(warning);
     });
 
@@ -175,7 +175,7 @@ describe("SprintRunner", () => {
   });
 
   it("emits over-engineering warning when plan includes unrequested features", async () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     let callCount = 0;
     (runner as any).runAgent = vi.fn(async (): Promise<string> => {
       callCount++;
@@ -186,7 +186,7 @@ describe("SprintRunner", () => {
     });
 
     const warnings: string[] = [];
-    runner.on("sprint:warning", ({ warning }: { warning: string }) => {
+    runner.on("crew:warning", ({ warning }: { warning: string }) => {
       warnings.push(warning);
     });
 
@@ -196,13 +196,13 @@ describe("SprintRunner", () => {
   });
 
   it("assigns agents based on task description keywords", () => {
-    const runner = new SprintRunner(mockRegistry());
+    const runner = new CrewRunner(mockRegistry());
     const assign = (runner as any).assignAgent.bind(runner);
 
-    const testTask: SprintTask = { id: "1", description: "Write unit tests for auth", status: "pending" };
-    const codeTask: SprintTask = { id: "2", description: "Create user model", status: "pending" };
-    const reviewTask: SprintTask = { id: "3", description: "Review the pull request", status: "pending" };
-    const debugTask: SprintTask = { id: "4", description: "Debug the login bug", status: "pending" };
+    const testTask: CrewTask = { id: "1", description: "Write unit tests for auth", status: "pending" };
+    const codeTask: CrewTask = { id: "2", description: "Create user model", status: "pending" };
+    const reviewTask: CrewTask = { id: "3", description: "Review the pull request", status: "pending" };
+    const debugTask: CrewTask = { id: "4", description: "Debug the login bug", status: "pending" };
 
     expect(assign(testTask)).toBe("tester");
     expect(assign(codeTask)).toBe("coder");

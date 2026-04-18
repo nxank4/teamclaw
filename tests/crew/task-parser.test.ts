@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseTasks } from "../../src/sprint/task-parser.js";
+import { parseTasks } from "../../src/crew/task-parser.js";
 
 describe("parseTasks", () => {
   it("parses a JSON array in a fenced code block", () => {

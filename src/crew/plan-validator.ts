@@ -3,7 +3,7 @@
  * Checks dependency ordering, over-engineering, missing setup/test tasks,
  * and assumed libraries not mentioned in the goal.
  */
-import type { SprintTask } from "./types.js";
+import type { CrewTask } from "./types.js";
 
 export interface PlanWarning {
   type: "dependency_order" | "over_engineering" | "missing_setup" | "missing_test" | "assumed_library" | "goal_coverage";
@@ -45,7 +45,7 @@ const TEST_KEYWORDS = ["test", "spec", "verify", "coverage"];
  * Validate a parsed task plan against quality rules.
  * Returns warnings (non-blocking) that can be emitted to the TUI.
  */
-export function validatePlan(tasks: SprintTask[], goal: string): PlanWarning[] {
+export function validatePlan(tasks: CrewTask[], goal: string): PlanWarning[] {
   const warnings: PlanWarning[] = [];
   const goalLower = goal.toLowerCase();
 
@@ -163,7 +163,7 @@ function extractDomainKeywords(goal: string): string[] {
  * Auto-fix: move a setup task to position 0 if it exists but isn't first.
  * Mutates the array in place. Re-assigns task IDs after reorder.
  */
-export function reorderSetupFirst(tasks: SprintTask[]): boolean {
+export function reorderSetupFirst(tasks: CrewTask[]): boolean {
   if (tasks.length === 0) return false;
   const firstDesc = tasks[0]!.description.toLowerCase();
   if (SETUP_KEYWORDS.some(kw => firstDesc.includes(kw))) return false;

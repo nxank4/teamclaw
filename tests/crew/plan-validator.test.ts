@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { validatePlan, reorderSetupFirst } from "../../src/sprint/plan-validator.js";
-import type { SprintTask } from "../../src/sprint/types.js";
+import { validatePlan, reorderSetupFirst } from "../../src/crew/plan-validator.js";
+import type { CrewTask } from "../../src/crew/types.js";
 
-function task(desc: string, dependsOn?: number[]): SprintTask {
+function task(desc: string, dependsOn?: number[]): CrewTask {
   return { id: "task-1", description: desc, status: "pending", dependsOn };
 }
 
@@ -32,7 +32,7 @@ describe("validatePlan", () => {
   });
 
   it("detects backward dependency ordering", () => {
-    const tasks: SprintTask[] = [
+    const tasks: CrewTask[] = [
       { id: "task-1", description: "Task A", status: "pending", dependsOn: [2] },
       { id: "task-2", description: "Task B", status: "pending" },
     ];
@@ -43,7 +43,7 @@ describe("validatePlan", () => {
   });
 
   it("detects out-of-range dependency", () => {
-    const tasks: SprintTask[] = [
+    const tasks: CrewTask[] = [
       { id: "task-1", description: "Setup", status: "pending", dependsOn: [99] },
     ];
     const warnings = validatePlan(tasks, "Build an app");
@@ -53,7 +53,7 @@ describe("validatePlan", () => {
   });
 
   it("no dependency warning for valid ordering", () => {
-    const tasks: SprintTask[] = [
+    const tasks: CrewTask[] = [
       { id: "task-1", description: "Setup project", status: "pending" },
       { id: "task-2", description: "Create DB schema", status: "pending", dependsOn: [1] },
       { id: "task-3", description: "Write tests", status: "pending", dependsOn: [1, 2] },
@@ -95,7 +95,7 @@ describe("validatePlan", () => {
 
 describe("reorderSetupFirst", () => {
   it("moves setup task to front", () => {
-    const tasks: SprintTask[] = [
+    const tasks: CrewTask[] = [
       { id: "task-1", description: "Create user model", status: "pending" },
       { id: "task-2", description: "Initialize project and install dependencies", status: "pending" },
       { id: "task-3", description: "Write tests", status: "pending" },
@@ -108,7 +108,7 @@ describe("reorderSetupFirst", () => {
   });
 
   it("does nothing when setup is already first", () => {
-    const tasks: SprintTask[] = [
+    const tasks: CrewTask[] = [
       { id: "task-1", description: "Setup project structure", status: "pending" },
       { id: "task-2", description: "Create API", status: "pending" },
     ];
@@ -118,7 +118,7 @@ describe("reorderSetupFirst", () => {
   });
 
   it("does nothing for empty tasks", () => {
-    const tasks: SprintTask[] = [];
+    const tasks: CrewTask[] = [];
     expect(reorderSetupFirst(tasks)).toBe(false);
   });
 });

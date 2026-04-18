@@ -4,7 +4,7 @@
  * for injection into subsequent runs.
  */
 
-import type { SprintResult, SprintTask } from "./types.js";
+import type { CrewResult, CrewTask } from "./types.js";
 import { debugLog, isDebugEnabled, truncateStr, TRUNCATION } from "../debug/logger.js";
 import { matchFailureRule } from "./error-classify.js";
 
@@ -18,7 +18,7 @@ export interface PostMortemResult {
 const MAX_LESSONS_PER_RUN = 3;
 const MAX_TOTAL_LESSONS = 10;
 
-function classifyFailure(task: SprintTask): { lesson: string; fix: string } | null {
+function classifyFailure(task: CrewTask): { lesson: string; fix: string } | null {
   const errorText = `${task.error ?? ""} ${task.result ?? ""}`;
   if (!errorText.trim()) return null;
 
@@ -41,7 +41,7 @@ function classifyFailure(task: SprintTask): { lesson: string; fix: string } | nu
  * Pure rule-based — no LLM calls.
  */
 export function analyzeRunResult(
-  result: SprintResult,
+  result: CrewResult,
   previousLessons?: string[],
 ): PostMortemResult {
   const failedTasks: PostMortemResult["failedTasks"] = [];
@@ -103,7 +103,7 @@ export function analyzeRunResult(
 
   // Debug: log post-mortem results
   if (isDebugEnabled()) {
-    debugLog("info", "sprint", "sprint:post_mortem", {
+    debugLog("info", "crew", "sprint:post_mortem", {
       data: {
         failedCount: failedTasks.length,
         lessonCount: finalLessons.length,

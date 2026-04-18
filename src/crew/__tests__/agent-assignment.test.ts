@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { SprintRunner } from "../sprint-runner.js";
-import type { SprintTask } from "../types.js";
+import { CrewRunner } from "../crew-runner.js";
+import type { CrewTask } from "../types.js";
 
 function mockRegistry() {
   return {
@@ -18,20 +18,20 @@ function mockRegistry() {
     getAll: () => [],
     getIds: () => [],
     has: () => true,
-  } as unknown as ConstructorParameters<typeof SprintRunner>[0];
+  } as unknown as ConstructorParameters<typeof CrewRunner>[0];
 }
 
 /**
  * Expose the protected `assignAgent` for direct testing.
  */
-function assignAgent(runner: SprintRunner, task: SprintTask): string {
-  return (runner as unknown as { assignAgent(t: SprintTask): string }).assignAgent(task);
+function assignAgent(runner: CrewRunner, task: CrewTask): string {
+  return (runner as unknown as { assignAgent(t: CrewTask): string }).assignAgent(task);
 }
 
-describe("SprintRunner.assignAgent — planner self-misassignment guard", () => {
+describe("CrewRunner.assignAgent — planner self-misassignment guard", () => {
   it("downgrades planner → coder when task description has write intent", () => {
-    const runner = new SprintRunner(mockRegistry());
-    const task: SprintTask = {
+    const runner = new CrewRunner(mockRegistry());
+    const task: CrewTask = {
       id: "t1",
       description: "Create src/foo.ts with a greet function",
       status: "pending",
@@ -44,8 +44,8 @@ describe("SprintRunner.assignAgent — planner self-misassignment guard", () => 
   });
 
   it("leaves planner alone for read-only descriptions (no write keywords)", () => {
-    const runner = new SprintRunner(mockRegistry());
-    const task: SprintTask = {
+    const runner = new CrewRunner(mockRegistry());
+    const task: CrewTask = {
       id: "t1",
       description: "Analyze the codebase structure and report findings",
       status: "pending",
@@ -62,8 +62,8 @@ describe("SprintRunner.assignAgent — planner self-misassignment guard", () => 
   });
 
   it("leaves coder alone for write-intent task (no change)", () => {
-    const runner = new SprintRunner(mockRegistry());
-    const task: SprintTask = {
+    const runner = new CrewRunner(mockRegistry());
+    const task: CrewTask = {
       id: "t1",
       description: "Create src/foo.ts with a greet function",
       status: "pending",
@@ -77,8 +77,8 @@ describe("SprintRunner.assignAgent — planner self-misassignment guard", () => 
   });
 
   it("leaves tester alone for a test-write task", () => {
-    const runner = new SprintRunner(mockRegistry());
-    const task: SprintTask = {
+    const runner = new CrewRunner(mockRegistry());
+    const task: CrewTask = {
       id: "t1",
       description: "Write tests in src/foo.test.ts",
       status: "pending",
@@ -89,8 +89,8 @@ describe("SprintRunner.assignAgent — planner self-misassignment guard", () => 
   });
 
   it("falls back to keyword rules when no assignedAgent is set (e.g. 'Run the tests' → tester)", () => {
-    const runner = new SprintRunner(mockRegistry());
-    const task: SprintTask = {
+    const runner = new CrewRunner(mockRegistry());
+    const task: CrewTask = {
       id: "t1",
       description: "Run the test suite and verify all pass",
       status: "pending",
@@ -100,8 +100,8 @@ describe("SprintRunner.assignAgent — planner self-misassignment guard", () => 
   });
 
   it("honors a planner tag when the task is genuinely read-only (has no write keywords)", () => {
-    const runner = new SprintRunner(mockRegistry());
-    const task: SprintTask = {
+    const runner = new CrewRunner(mockRegistry());
+    const task: CrewTask = {
       id: "t1",
       description: "Outline the architecture for a service", // "outline" matches planner keyword rule
       status: "pending",

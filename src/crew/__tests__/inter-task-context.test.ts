@@ -2,16 +2,16 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildKnownFilesBlock } from "../sprint-runner.js";
-import type { SprintState, SprintTask } from "../types.js";
+import { buildKnownFilesBlock } from "../crew-runner.js";
+import type { CrewState, CrewTask } from "../types.js";
 
 let cwd: string;
 
-function task(id: string, description: string, status: SprintTask["status"] = "completed"): SprintTask {
+function task(id: string, description: string, status: CrewTask["status"] = "completed"): CrewTask {
   return { id, description, status };
 }
 
-function state(tasks: SprintTask[]): SprintState {
+function state(tasks: CrewTask[]): CrewState {
   return {
     goal: "build",
     tasks,

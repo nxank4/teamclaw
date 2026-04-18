@@ -13,13 +13,13 @@ import type { AppLayout } from "../layout.js";
 import type { AgentRegistry } from "../../router/agent-registry.js";
 import type { ToolRegistry } from "../../tools/registry.js";
 import type { ToolExecutor } from "../../tools/executor.js";
-import type { SprintRunner } from "../../sprint/sprint-runner.js";
-import type { SprintTask, SprintResult, SprintState } from "../../sprint/types.js";
-import { createSprintRunner } from "../../sprint/create-sprint-runner.js";
+import type { CrewRunner } from "../../crew/crew-runner.js";
+import type { CrewTask, CrewResult, CrewState } from "../../crew/types.js";
+import { createCrewRunner } from "../../crew/create-crew-runner.js";
 import { renderPanel, panelSection } from "../../tui/components/panel.js";
 import { defaultTheme } from "../../tui/themes/default.js";
 import { formatDuration } from "../../utils/formatters.js";
-import { SprintEvent } from "../../router/event-types.js";
+import { CrewEvent } from "../../router/event-types.js";
 import { ICONS } from "../../tui/constants/icons.js";
 
 export interface SprintCommandDeps {
@@ -29,7 +29,7 @@ export interface SprintCommandDeps {
   layout: AppLayout;
 }
 
-let activeRunner: SprintRunner | null = null;
+let activeRunner: CrewRunner | null = null;
 let sessionLessons: string[] = [];
 
 /** Capitalize first letter of an agent id for display. */
@@ -38,7 +38,7 @@ function agentDisplayName(id: string): string {
 }
 
 /** Status icon for a task. */
-function taskIcon(status: SprintTask["status"]): string {
+function taskIcon(status: CrewTask["status"]): string {
   switch (status) {
     case "completed": return "+";
     case "failed": return "x";
@@ -49,7 +49,7 @@ function taskIcon(status: SprintTask["status"]): string {
 }
 
 /** Format a task list with status icons. */
-function formatTaskList(tasks: SprintTask[]): string {
+function formatTaskList(tasks: CrewTask[]): string {
   return tasks
     .map((t, i) => {
       const icon = taskIcon(t.status);
@@ -66,7 +66,7 @@ function sprintPanelOpts(title: string): { title: string; termWidth: number; max
 }
 
 /** Build a summary panel for a finished sprint. */
-function buildSummaryPanel(result: SprintResult): string {
+function buildSummaryPanel(result: CrewResult): string {
   const lines = [
     ...panelSection("Result"),
     `  Goal:      ${result.goal}`,
@@ -81,7 +81,7 @@ function buildSummaryPanel(result: SprintResult): string {
 }
 
 /** Build a status panel from current sprint state. */
-function buildStatusPanel(state: SprintState): string {
+function buildStatusPanel(state: CrewState): string {
   const total = state.tasks.length;
   const progress = total > 0
     ? `${state.completedTasks}/${total} (${Math.round((state.completedTasks / total) * 100)}%)`
@@ -188,7 +188,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
       }
 
       const goal = sub;
-      const runner = createSprintRunner({
+      const runner = createCrewRunner({
         agents: deps.agents,
         toolRegistry: deps.toolRegistry,
         toolExecutor: deps.toolExecutor,
@@ -197,14 +197,14 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
 
       // Wire debug logging to sprint runner
       if (process.env.OPENPAWL_DEBUG) {
-        import("../../debug/wiring.js").then(({ wireDebugToSprintRunner }) => {
-          wireDebugToSprintRunner(runner);
+        import("../../debug/wiring.js").then(({ wireDebugToCrewRunner }) => {
+          wireDebugToCrewRunner(runner);
         }).catch(() => {});
       }
 
       // ── Wire sprint events to TUI ────────────────────────────────
 
-      runner.on(SprintEvent.Start, ({ goal: g }: { goal: string }) => {
+      runner.on(CrewEvent.Start, ({ goal: g }: { goal: string }) => {
         ctx.addMessage("system", `**Sprint started:** ${g}`);
         ctx.requestRender();
 
@@ -237,7 +237,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         })();
       });
 
-      runner.on(SprintEvent.Composition, ({ entries }: { entries: Array<{ role: string; task: string; included: boolean; reason: string }> }) => {
+      runner.on(CrewEvent.Composition, ({ entries }: { entries: Array<{ role: string; task: string; included: boolean; reason: string }> }) => {
         const lines = entries.map((e) => {
           const icon = e.included ? ICONS.success : ICONS.error;
           return `${icon} **${e.role}** — ${e.reason}`;
@@ -246,14 +246,14 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.NeedsClarification, ({ questions }: { questions: string[] }) => {
+      runner.on(CrewEvent.NeedsClarification, ({ questions }: { questions: string[] }) => {
         const lines = questions.map((q) => `? ${q}`);
         ctx.addMessage("system", `**Goal needs clarification:**\n${lines.join("\n")}\n\nProvide a more specific goal with \`/sprint <goal>\`.`);
         layout.statusBar.updateSegment(3, "Needs clarification", defaultTheme.warning);
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.Planning, () => {
+      runner.on(CrewEvent.Planning, () => {
         layout.messages.addMessage({
           role: "agent",
           agentName: agentDisplayName("planner"),
@@ -264,7 +264,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.Plan, ({ tasks }: { tasks: SprintTask[] }) => {
+      runner.on(CrewEvent.Plan, ({ tasks }: { tasks: CrewTask[] }) => {
         const lines = [
           ...panelSection("Task Plan"),
           formatTaskList(tasks),
@@ -274,7 +274,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.TaskStart, ({ task, agentName }: { task: SprintTask; agentName: string }) => {
+      runner.on(CrewEvent.TaskStart, ({ task, agentName }: { task: CrewTask; agentName: string }) => {
         layout.messages.addMessage({
           role: "agent",
           agentName: agentDisplayName(agentName),
@@ -284,12 +284,12 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.AgentToken, ({ token }: { agentName: string; token: string }) => {
+      runner.on(CrewEvent.AgentToken, ({ token }: { agentName: string; token: string }) => {
         layout.messages.appendToLast(token);
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.AgentTool, (data: {
+      runner.on(CrewEvent.AgentTool, (data: {
         agentName: string;
         toolName: string;
         status: string;
@@ -304,7 +304,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.TaskComplete, ({ task }: { task: SprintTask }) => {
+      runner.on(CrewEvent.TaskComplete, ({ task }: { task: CrewTask }) => {
         const icon = task.status === "completed" ? "+" : "x";
         const statusText = task.status === "completed" ? "completed" : `failed: ${task.error ?? "unknown"}`;
         ctx.addMessage("system", `${icon} Task "${task.description}" ${statusText}`);
@@ -340,7 +340,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         }
       });
 
-      runner.on(SprintEvent.Done, ({ result }: { result: SprintResult }) => {
+      runner.on(CrewEvent.Done, ({ result }: { result: CrewResult }) => {
         ctx.addMessage("system", buildSummaryPanel(result));
         layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
         ctx.requestRender();
@@ -349,7 +349,7 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         if (result.failedTasks > 0) {
           void (async () => {
             try {
-              const { analyzeRunResult } = await import("../../sprint/post-mortem.js");
+              const { analyzeRunResult } = await import("../../crew/post-mortem.js");
               const postMortem = analyzeRunResult(result, sessionLessons);
               if (postMortem.failedTasks.length > 0) {
                 const lines = [
@@ -400,29 +400,29 @@ export function createSprintCommand(deps: SprintCommandDeps): SlashCommand {
         })();
       });
 
-      runner.on(SprintEvent.Error, ({ error, task }: { error: Error; task?: SprintTask }) => {
+      runner.on(CrewEvent.Error, ({ error, task }: { error: Error; task?: CrewTask }) => {
         const taskInfo = task ? ` (task: ${task.description})` : "";
         ctx.addMessage("error", `Sprint error${taskInfo}: ${error.message}`);
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.Warning, ({ warning, type }: { warning: string; type: string; taskIndex?: number }) => {
+      runner.on(CrewEvent.Warning, ({ warning, type }: { warning: string; type: string; taskIndex?: number }) => {
         ctx.addMessage("system", `[${type}] ${warning}`);
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.Paused, () => {
+      runner.on(CrewEvent.Paused, () => {
         ctx.addMessage("system", "Sprint paused. Use `/sprint resume` to continue.");
         ctx.requestRender();
       });
 
-      runner.on(SprintEvent.Resumed, () => {
+      runner.on(CrewEvent.Resumed, () => {
         ctx.addMessage("system", "Sprint resumed.");
         ctx.requestRender();
       });
 
       // ── Resolve team context from config ────────────────────────
-      const { resolveTeamContext } = await import("../../sprint/team-resolver.js");
+      const { resolveTeamContext } = await import("../../crew/team-resolver.js");
       const teamContext = await resolveTeamContext();
 
       // ── Auto-approve tool calls during sprint ───────────────────

@@ -10,7 +10,7 @@ import { ICONS } from "../../tui/constants/icons.js";
 export function createTeamCommand(): SlashCommand {
   return {
     name: "team",
-    aliases: ["t", "collab"],
+    aliases: ["t"],
     description: "View and configure team composition",
     args: "[list|info|install|remove] [args]",
     async execute(args, ctx) {

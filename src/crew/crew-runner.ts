@@ -1,5 +1,5 @@
 /**
- * SprintRunner — lightweight autonomous task orchestrator.
+ * CrewRunner — lightweight autonomous task orchestrator.
  * Plans tasks from a goal, executes them sequentially using agents
  * from the registry, and emits events for TUI rendering.
  */
@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { AgentRegistry } from "../router/agent-registry.js";
-import type { SprintTask, SprintState, SprintResult, SprintOptions, SprintEventMap, SprintTeamContext } from "./types.js";
+import type { CrewTask, CrewState, CrewResult, CrewOptions, CrewEventMap, CrewTeamContext } from "./types.js";
 import { mapTemplateRoleToAgent } from "./team-resolver.js";
 import { analyzeGoal } from "./goal-analyzer.js";
 import { parseTasks } from "./task-parser.js";
@@ -17,7 +17,7 @@ import { resolveModelForAgent } from "../core/model-config.js";
 import { debugLog, isDebugEnabled, truncateStr, TRUNCATION } from "../debug/logger.js";
 import { classifyTask, type ErrorKind } from "./error-classify.js";
 
-const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeamContext, lessons?: string[]) => {
+const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: CrewTeamContext, lessons?: string[]) => {
   let prompt =
     `You are planning a sprint to accomplish this goal: "${goal}"\n\n` +
     `STEP 1 — GOAL ANALYSIS:\n` +
@@ -107,7 +107,7 @@ const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeam
  */
 const KNOWN_FILES_BUDGET = 500;
 
-export function buildKnownFilesBlock(state: SprintState, cwd: string = process.cwd()): string {
+export function buildKnownFilesBlock(state: CrewState, cwd: string = process.cwd()): string {
   const entries: Array<{ path: string; hint: string }> = [];
   const seen = new Set<string>();
   for (const t of state.tasks) {
@@ -140,7 +140,7 @@ export function buildKnownFilesBlock(state: SprintState, cwd: string = process.c
   return "\n\n" + header + lines.join("");
 }
 
-const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
+const TASK_PROMPT = (task: CrewTask, state: CrewState) => {
   const context = state.tasks
     .filter((t) => (t.status === "completed" || (t.status === "failed" && t.result)) && t.result)
     .map((t) => {
@@ -215,7 +215,7 @@ function extractClarification(response: string): string[] | null {
 const QUESTION_PREFIXES = /^(what|which|how\s+should|do\s+you|should\s+we|can\s+you|where|when|why|is\s+there|are\s+there|would)/i;
 
 /** Filter out tasks that are questions or otherwise non-actionable. */
-function filterInvalidTasks(tasks: SprintTask[]): SprintTask[] {
+function filterInvalidTasks(tasks: CrewTask[]): CrewTask[] {
   return tasks.filter((task) => {
     const desc = task.description.trim();
     // Reject questions
@@ -233,8 +233,8 @@ const KEYWORD_RULES: Array<{ keywords: string[]; agent: string }> = [
   { keywords: ["plan", "design", "architect", "outline"], agent: "planner" },
 ];
 
-export class SprintRunner extends EventEmitter {
-  private state: SprintState = {
+export class CrewRunner extends EventEmitter {
+  private state: CrewState = {
     goal: "",
     tasks: [],
     currentTaskIndex: 0,
@@ -248,13 +248,13 @@ export class SprintRunner extends EventEmitter {
   private abortController: AbortController | null = null;
   private paused = false;
   private pauseResolve: (() => void) | null = null;
-  private teamContext: SprintTeamContext | undefined;
+  private teamContext: CrewTeamContext | undefined;
 
   constructor(protected agents: AgentRegistry) {
     super();
   }
 
-  async run(goal: string, options?: SprintOptions): Promise<SprintResult> {
+  async run(goal: string, options?: CrewOptions): Promise<CrewResult> {
     const startTime = Date.now();
     this.abortController = new AbortController();
     this.teamContext = options?.teamContext;
@@ -269,12 +269,12 @@ export class SprintRunner extends EventEmitter {
       inputTokens: 0,
       outputTokens: 0,
     };
-    this.emitTyped("sprint:start", { goal });
+    this.emitTyped("crew:start", { goal });
 
     // Check model capability — warn if model appears too small for multi-step tasks
     const activeModel = resolveModelForAgent("default");
     if (isSmallModel(activeModel)) {
-      this.emitTyped("sprint:error", {
+      this.emitTyped("crew:error", {
         error: new Error(
           `Model "${activeModel}" may be too small for sprint mode. ` +
           `Multi-step autonomous tasks require stronger reasoning (recommended: 70B+ params or equivalent). ` +
@@ -286,14 +286,14 @@ export class SprintRunner extends EventEmitter {
     // Autonomous composition: analyze goal and emit team composition
     if (!this.teamContext) {
       const analysis = analyzeGoal(goal);
-      this.emitTyped("sprint:composition", {
+      this.emitTyped("crew:composition", {
         entries: analysis.entries,
         estimatedTasks: analysis.estimatedTasks,
       });
     }
 
     // Phase 1: Planning
-    this.emitTyped("sprint:planning", undefined);
+    this.emitTyped("crew:planning", undefined);
     let planResponse: string;
     try {
       const raw = await profileMeasure("sprint_planning", goal.slice(0, 40), () =>
@@ -312,14 +312,14 @@ export class SprintRunner extends EventEmitter {
     } catch (err) {
       this.state.phase = "stopped";
       const error = err instanceof Error ? err : new Error(String(err));
-      this.emitTyped("sprint:error", { error });
+      this.emitTyped("crew:error", { error });
       throw err;
     }
     // Check for NEEDS_CLARIFICATION response
     const clarification = extractClarification(planResponse);
     if (clarification) {
       this.state.phase = "stopped";
-      this.emitTyped("sprint:needs_clarification", { questions: clarification });
+      this.emitTyped("crew:needs_clarification", { questions: clarification });
       return this.buildResult(startTime);
     }
 
@@ -329,7 +329,7 @@ export class SprintRunner extends EventEmitter {
     const _preFilterCount = this.state.tasks.length;
     this.state.tasks = filterInvalidTasks(this.state.tasks);
     if (isDebugEnabled() && _preFilterCount !== this.state.tasks.length) {
-      debugLog("info", "sprint", "sprint:task_validation", {
+      debugLog("info", "crew", "sprint:task_validation", {
         data: {
           beforeCount: _preFilterCount,
           afterCount: this.state.tasks.length,
@@ -340,7 +340,7 @@ export class SprintRunner extends EventEmitter {
     if (this.state.tasks.length === 0) {
       // All tasks were invalid (likely all questions) — treat as needs clarification
       this.state.phase = "stopped";
-      this.emitTyped("sprint:needs_clarification", {
+      this.emitTyped("crew:needs_clarification", {
         questions: ["The goal is too vague to decompose into actionable tasks. Please provide more detail."],
       });
       return this.buildResult(startTime);
@@ -349,7 +349,7 @@ export class SprintRunner extends EventEmitter {
     // Validate plan and emit warnings
     const warnings = validatePlan(this.state.tasks, goal);
     for (const w of warnings) {
-      this.emitTyped("sprint:warning", { warning: w.message, type: w.type, taskIndex: w.taskIndex });
+      this.emitTyped("crew:warning", { warning: w.message, type: w.type, taskIndex: w.taskIndex });
     }
 
     // Auto-fix: move setup task to front if it exists but isn't first
@@ -358,7 +358,7 @@ export class SprintRunner extends EventEmitter {
     }
 
     this.state.phase = "executing";
-    this.emitTyped("sprint:plan", { tasks: this.state.tasks });
+    this.emitTyped("crew:plan", { tasks: this.state.tasks });
 
     // Phase 2: Dependency-aware execution (parallel when possible)
     const maxConcurrency = options?.maxConcurrency ?? 3;
@@ -371,7 +371,7 @@ export class SprintRunner extends EventEmitter {
       for (const t of tasks) {
         depGraph[t.id] = t.dependsOn ?? [];
       }
-      debugLog("info", "sprint", "sprint:dependency_graph", {
+      debugLog("info", "crew", "sprint:dependency_graph", {
         data: { depGraph, executionMode: useParallel ? "parallel" : "sequential", maxConcurrency },
       });
     }
@@ -385,7 +385,7 @@ export class SprintRunner extends EventEmitter {
     // Phase 3: Done
     this.state.phase = "done";
     const result = this.buildResult(startTime);
-    this.emitTyped("sprint:done", { result });
+    this.emitTyped("crew:done", { result });
     return result;
   }
 
@@ -393,14 +393,14 @@ export class SprintRunner extends EventEmitter {
     if (this.state.phase !== "executing") return;
     this.paused = true;
     this.state.phase = "paused";
-    this.emitTyped("sprint:paused", undefined);
+    this.emitTyped("crew:paused", undefined);
   }
 
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
     this.state.phase = "executing";
-    this.emitTyped("sprint:resumed", undefined);
+    this.emitTyped("crew:resumed", undefined);
     this.pauseResolve?.();
     this.pauseResolve = null;
   }
@@ -414,13 +414,13 @@ export class SprintRunner extends EventEmitter {
     this.abortController?.abort();
   }
 
-  getState(): SprintState {
+  getState(): CrewState {
     return { ...this.state };
   }
 
   // ── Sequential execution (fallback / small plans) ───────────────────
 
-  private async executeSequential(tasks: SprintTask[]): Promise<void> {
+  private async executeSequential(tasks: CrewTask[]): Promise<void> {
     for (let i = 0; i < tasks.length; i++) {
       await this.checkPaused();
       if (this.abortController!.signal.aborted) break;
@@ -436,7 +436,7 @@ export class SprintRunner extends EventEmitter {
         task.status = "failed";
         task.error = "Skipped: dependency produced no output";
         this.state.failedTasks++;
-        this.emitTyped("sprint:task:complete", { task, taskIndex: i + 1, totalTasks: this.state.tasks.length });
+        this.emitTyped("crew:task:complete", { task, taskIndex: i + 1, totalTasks: this.state.tasks.length });
         continue;
       }
 
@@ -451,7 +451,7 @@ export class SprintRunner extends EventEmitter {
 
   // ── Parallel execution (dependency-aware rounds) ───────────────────
 
-  private async executeParallel(tasks: SprintTask[], maxConcurrency: number): Promise<void> {
+  private async executeParallel(tasks: CrewTask[], maxConcurrency: number): Promise<void> {
     // Build completed set (1-based indices)
     const completed = new Set<number>();
     const failed = new Set<number>();
@@ -479,7 +479,7 @@ export class SprintRunner extends EventEmitter {
             task.status = "failed";
             task.error = "Skipped: dependency produced no output";
             this.state.failedTasks++;
-            this.emitTyped("sprint:task:complete", { task, taskIndex: i + 1, totalTasks: tasks.length });
+            this.emitTyped("crew:task:complete", { task, taskIndex: i + 1, totalTasks: tasks.length });
             continue;
           }
           // Dep failed but produced partial output — allow this task to attempt
@@ -500,7 +500,7 @@ export class SprintRunner extends EventEmitter {
       // Limit concurrency
       const batch = ready.slice(0, maxConcurrency);
       const batchTasks = batch.map((i) => tasks[i]!);
-      this.emitTyped("sprint:round:start", { round, tasks: batchTasks });
+      this.emitTyped("crew:round:start", { round, tasks: batchTasks });
       const roundStart = Date.now();
 
       // Execute batch in parallel
@@ -530,20 +530,20 @@ export class SprintRunner extends EventEmitter {
         }
       }
 
-      this.emitTyped("sprint:round:complete", { round, duration: Date.now() - roundStart });
+      this.emitTyped("crew:round:complete", { round, duration: Date.now() - roundStart });
     }
   }
 
   // ── Single task execution ──────────────────────────────────────────
 
-  private async executeTask(task: SprintTask, index: number): Promise<void> {
+  private async executeTask(task: CrewTask, index: number): Promise<void> {
     this.state.currentTaskIndex = index;
     const agentName = this.assignAgent(task);
     task.assignedAgent = agentName;
 
     // Debug: log task assignment
     if (isDebugEnabled()) {
-      debugLog("info", "sprint", "sprint:task_assignment", {
+      debugLog("info", "crew", "sprint:task_assignment", {
         data: {
           taskId: task.id,
           agent: agentName,
@@ -555,7 +555,7 @@ export class SprintRunner extends EventEmitter {
     task.status = "in_progress";
     task.toolsCalled = [];
     task.toolCallResults = [];
-    this.emitTyped("sprint:task:start", { task, agentName });
+    this.emitTyped("crew:task:start", { task, agentName });
 
     try {
       const raw = await profileMeasure("sprint_task", `task_${index + 1}_${agentName}`, () =>
@@ -606,7 +606,7 @@ export class SprintRunner extends EventEmitter {
       task.error = shellFail ? `${base} (last shell exit ${shellFail.exitCode})` : base;
       this.state.failedTasks++;
     }
-    this.emitTyped("sprint:task:complete", { task, taskIndex: index + 1, totalTasks: this.state.tasks.length });
+    this.emitTyped("crew:task:complete", { task, taskIndex: index + 1, totalTasks: this.state.tasks.length });
   }
 
   /**
@@ -615,7 +615,7 @@ export class SprintRunner extends EventEmitter {
    * retry because the same agent in the same environment cannot recover.
    * Falls back to string-based exclusions for pre-PR-#76 edge cases.
    */
-  private isRetriable(task: SprintTask): boolean {
+  private isRetriable(task: CrewTask): boolean {
     const err = task.error ?? "";
 
     // Hard exclusions — abort and dependency-skip are terminal regardless of kind
@@ -632,7 +632,7 @@ export class SprintRunner extends EventEmitter {
     const willRetry = !nonRetriableKinds.includes(kind);
 
     if (isDebugEnabled()) {
-      debugLog("info", "sprint", "sprint:retry_gate", {
+      debugLog("info", "crew", "sprint:retry_gate", {
         data: {
           taskId: task.id,
           kind,
@@ -653,13 +653,13 @@ export class SprintRunner extends EventEmitter {
   }
 
   /** Retry a failed task once with error context appended. */
-  private async retryTask(task: SprintTask, index: number): Promise<void> {
+  private async retryTask(task: CrewTask, index: number): Promise<void> {
     const origError = task.error ?? "unknown";
     const origDesc = task.description;
 
     // Debug: log retry attempt
     if (isDebugEnabled()) {
-      debugLog("info", "sprint", "sprint:task_retry", {
+      debugLog("info", "crew", "crew:task_retry", {
         data: {
           taskId: task.id,
           originalError: truncateStr(origError, TRUNCATION.goalText),
@@ -676,7 +676,7 @@ export class SprintRunner extends EventEmitter {
     task.toolCallResults = [];
     this.state.failedTasks--;
 
-    this.emitTyped("sprint:warning", {
+    this.emitTyped("crew:warning", {
       warning: `Retrying task ${index + 1}: "${origDesc.slice(0, 50)}..."`,
       type: "retry",
     });
@@ -724,13 +724,13 @@ export class SprintRunner extends EventEmitter {
   }
 
   /** Check if a task description implies file creation/modification. */
-  private taskExpectsWrite(task: SprintTask): boolean {
+  private taskExpectsWrite(task: CrewTask): boolean {
     const lower = task.description.toLowerCase();
     return WRITE_INTENT_KEYWORDS.some((kw) => lower.includes(kw));
   }
 
   /** Check if any write tools were called during this task. */
-  private taskDidWrite(task: SprintTask): boolean {
+  private taskDidWrite(task: CrewTask): boolean {
     return (task.toolsCalled ?? []).some((t) => WRITE_TOOLS.has(t));
   }
 
@@ -740,7 +740,7 @@ export class SprintRunner extends EventEmitter {
    * exist. Used as a final gate after `taskDidWrite` — catches agents that
    * wrote to the wrong location.
    */
-  private missingDescribedFiles(task: SprintTask): string[] {
+  private missingDescribedFiles(task: CrewTask): string[] {
     const matches = task.description.match(FILE_PATH_REGEX);
     if (!matches || matches.length === 0) return [];
     const cwd = process.cwd();
@@ -756,7 +756,7 @@ export class SprintRunner extends EventEmitter {
   }
 
   /** Find the last shell_exec call that returned a non-zero exit code, if any. */
-  private lastShellFailure(task: SprintTask): { exitCode: number; stderrHead?: string } | undefined {
+  private lastShellFailure(task: CrewTask): { exitCode: number; stderrHead?: string } | undefined {
     const results = task.toolCallResults ?? [];
     for (let i = results.length - 1; i >= 0; i--) {
       const r = results[i]!;
@@ -774,10 +774,10 @@ export class SprintRunner extends EventEmitter {
    * Downgrade to coder and log a warning. See
    * docs/debug/planner-misassignment-diagnosis.md for the post-PR-82 trace.
    */
-  private downgradePlannerOnWrite(task: SprintTask): void {
+  private downgradePlannerOnWrite(task: CrewTask): void {
     if (task.assignedAgent === "planner" && this.taskExpectsWrite(task)) {
       if (isDebugEnabled()) {
-        debugLog("warn", "sprint", "sprint:agent_downgrade", {
+        debugLog("warn", "crew", "sprint:agent_downgrade", {
           data: {
             taskId: task.id,
             from: "planner",
@@ -791,7 +791,7 @@ export class SprintRunner extends EventEmitter {
     }
   }
 
-  protected assignAgent(task: SprintTask): string {
+  protected assignAgent(task: CrewTask): string {
     this.downgradePlannerOnWrite(task);
     // Template mode: use planner-assigned role or map template roles
     if (this.teamContext) {
@@ -820,7 +820,7 @@ export class SprintRunner extends EventEmitter {
     }
   }
 
-  private buildResult(startTime: number): SprintResult {
+  private buildResult(startTime: number): CrewResult {
     return {
       goal: this.state.goal,
       tasks: this.state.tasks,
@@ -832,9 +832,9 @@ export class SprintRunner extends EventEmitter {
     };
   }
 
-  private emitTyped<K extends keyof SprintEventMap>(
+  private emitTyped<K extends keyof CrewEventMap>(
     event: K,
-    data: SprintEventMap[K],
+    data: CrewEventMap[K],
   ): void {
     this.emit(event, data);
   }

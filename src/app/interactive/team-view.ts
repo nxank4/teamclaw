@@ -375,11 +375,11 @@ export class TeamView extends InteractiveView {
       lines.push("");
     }
 
-    // ── Collab toggle ──
+    // ── Chat collaboration toggle ──
     const collabIcon = this.chatCollaboration ? ICONS.success : "\u25cb";
     const collabLabel = this.chatCollaboration ? "enabled" : "disabled";
     lines.push(`  ${t.dim("Chat collaboration:")} ${collabIcon} ${collabLabel}`);
-    lines.push(`  ${t.dim("When enabled, auto-detect collab-worthy prompts in solo mode.")}`);
+    lines.push(`  ${t.dim("When enabled, auto-detect multi-step prompts in solo mode.")}`);
     lines.push("");
 
     // ── Templates section (template mode) ──

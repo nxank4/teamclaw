@@ -78,7 +78,7 @@ export function setupInputHandler(
               ctx.chatSession.setTitle(generateSessionName(parsed.args));
             }
             const prevMode = appModeSystem.getMode();
-            appModeSystem.setMode("sprint");
+            appModeSystem.setMode("crew");
             updateModeDisplay();
             await result.command.execute(result.args, msgCtx);
             appModeSystem.setMode(prevMode);

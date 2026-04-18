@@ -44,7 +44,7 @@ export interface LLMCallOptions {
   signal?: AbortSignal;
   onChunk?: (text: string) => void;
   /**
-   * Optional caller tag ("sprint:planner", "sprint:task:coder", "collab:reviewer", …).
+   * Optional caller tag ("crew:planner", "crew:task:coder", …).
    * Logged into llm:request / llm:response debug events when OPENPAWL_PROFILE is on
    * so token usage can be attributed per-node instead of per-entryPoint.
    */

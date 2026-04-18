@@ -1,9 +1,9 @@
 /**
- * Factory that creates a SprintRunner subclass wired to the real LLM
- * via callLLMMultiTurn. Keeps SprintRunner itself testable (no LLM dep).
+ * Factory that creates a CrewRunner subclass wired to the real LLM
+ * via callLLMMultiTurn. Keeps CrewRunner itself testable (no LLM dep).
  */
-import { SprintRunner } from "./sprint-runner.js";
-import { SprintEvent } from "../router/event-types.js";
+import { CrewRunner } from "./crew-runner.js";
+import { CrewEvent } from "../router/event-types.js";
 import { callLLMMultiTurn } from "../engine/llm.js";
 import { getProjectContext } from "../context/project-context.js";
 import type { AgentRegistry } from "../router/agent-registry.js";
@@ -11,16 +11,16 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import { formatInputSummary } from "../utils/formatters.js";
 
-export interface CreateSprintRunnerOptions {
+export interface CreateCrewRunnerOptions {
   agents: AgentRegistry;
   toolRegistry?: ToolRegistry;
   toolExecutor?: ToolExecutor;
 }
 
-export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunner {
+export function createCrewRunner(opts: CreateCrewRunnerOptions): CrewRunner {
   const { agents, toolRegistry, toolExecutor } = opts;
 
-  return new (class extends SprintRunner {
+  return new (class extends CrewRunner {
     protected override async runAgent(
       agentName: string,
       runOpts: { prompt: string; signal: AbortSignal; taskIndex?: number },
@@ -77,7 +77,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
           const inputSummary = formatInputSummary(name, args as Record<string, unknown>);
           const startTime = Date.now();
 
-          this.emit(SprintEvent.AgentTool, {
+          this.emit(CrewEvent.AgentTool, {
             agentName,
             toolName: name,
             status: "running",
@@ -101,7 +101,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
               : undefined;
             const callSuccess = result.value.success;
             this.recordToolCall(name, shell ? { exitCode: shell.exitCode, stderrHead: shell.stderrHead } : undefined, capturedTaskIndex);
-            this.emit(SprintEvent.AgentTool, {
+            this.emit(CrewEvent.AgentTool, {
               agentName,
               toolName: name,
               status: callSuccess ? "completed" : "failed",
@@ -112,7 +112,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
           this.recordToolCall(name);
 
           const errMsg = `${result.error.type} — ${result.error.toolName}`;
-          this.emit(SprintEvent.AgentTool, {
+          this.emit(CrewEvent.AgentTool, {
             agentName,
             toolName: name,
             status: "failed",
@@ -121,7 +121,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
           return `Error: ${errMsg}`;
         },
         onChunk: (token) => {
-          this.emit(SprintEvent.AgentToken, { agentName, token });
+          this.emit(CrewEvent.AgentToken, { agentName, token });
         },
         signal: runOpts.signal,
         maxTurns: 10,

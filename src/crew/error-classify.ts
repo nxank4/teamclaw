@@ -9,7 +9,7 @@
  * Prefers structured fields (exitCode, stderr) over regex when available.
  */
 
-import type { SprintTask } from "./types.js";
+import type { CrewTask } from "./types.js";
 
 export type ErrorKind =
   | "env_command_not_found"
@@ -37,7 +37,7 @@ interface Rule {
   kind: ErrorKind;
   pattern: RegExp;
   signal: (match: RegExpMatchArray) => string;
-  lesson: (task: SprintTask, match: RegExpMatchArray) => string;
+  lesson: (task: CrewTask, match: RegExpMatchArray) => string;
   fix: string;
 }
 
@@ -145,10 +145,10 @@ export function matchFailureRule(errorText: string): Rule | null {
 }
 
 /**
- * Build a classifier input from a SprintTask. Prefers the last shell_exec
+ * Build a classifier input from a CrewTask. Prefers the last shell_exec
  * failure (structured) over task.error (text).
  */
-export function classifyTask(task: SprintTask): Classification {
+export function classifyTask(task: CrewTask): Classification {
   const results = task.toolCallResults ?? [];
   for (let i = results.length - 1; i >= 0; i--) {
     const r = results[i]!;

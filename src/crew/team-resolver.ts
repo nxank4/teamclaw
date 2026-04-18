@@ -1,7 +1,7 @@
 /**
  * Resolve team context from config or template override for sprint mode.
  */
-import type { SprintTeamContext } from "./types.js";
+import type { CrewTeamContext } from "./types.js";
 import { readGlobalConfigWithDefaults } from "../core/global-config.js";
 import { getTemplate } from "../templates/template-store.js";
 
@@ -38,7 +38,7 @@ export function mapTemplateRoleToAgent(role: string): string {
  * Resolve team context from global config.
  * Returns undefined for autonomous mode (default behavior).
  */
-export async function resolveTeamContext(): Promise<SprintTeamContext | undefined> {
+export async function resolveTeamContext(): Promise<CrewTeamContext | undefined> {
   const config = readGlobalConfigWithDefaults();
   const team = config.team;
   if (!team) return undefined;
@@ -67,7 +67,7 @@ export async function resolveTeamContext(): Promise<SprintTeamContext | undefine
  * Build team context from a specific template ID.
  * Used for --template flag override.
  */
-export async function resolveFromTemplate(templateId: string): Promise<SprintTeamContext | undefined> {
+export async function resolveFromTemplate(templateId: string): Promise<CrewTeamContext | undefined> {
   const template = await getTemplate(templateId);
   if (!template) return undefined;
 

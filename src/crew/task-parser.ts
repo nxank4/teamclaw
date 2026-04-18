@@ -2,16 +2,16 @@
  * Task parser — extracts structured tasks from planner LLM output.
  * Uses defensive JSON parsing with multiple fallback layers.
  */
-import type { SprintTask } from "./types.js";
+import type { CrewTask } from "./types.js";
 import { safeJsonParse } from "../utils/safe-json-parse.js";
 
-export function parseTasks(plannerOutput: string): SprintTask[] {
+export function parseTasks(plannerOutput: string): CrewTask[] {
   if (!plannerOutput.trim()) return [];
 
   // Try defensive JSON parse (handles fences, XML tags, truncated JSON)
   const result = safeJsonParse<unknown[]>(plannerOutput);
   if (result.parsed && Array.isArray(result.data)) {
-    const tasks = toSprintTasks(result.data);
+    const tasks = toCrewTasks(result.data);
     if (tasks.length > 0) return tasks;
   }
 
@@ -19,11 +19,11 @@ export function parseTasks(plannerOutput: string): SprintTask[] {
   return parseNumberedList(plannerOutput);
 }
 
-function toSprintTasks(arr: unknown[]): SprintTask[] {
+function toCrewTasks(arr: unknown[]): CrewTask[] {
   return arr
     .filter((item: unknown) => typeof item === "object" && item !== null && "description" in item)
     .map((item: Record<string, unknown>, i: number) => {
-      const task: SprintTask = {
+      const task: CrewTask = {
         id: `task-${i + 1}`,
         description: String(item["description"]),
         status: "pending" as const,
@@ -39,8 +39,8 @@ function toSprintTasks(arr: unknown[]): SprintTask[] {
     });
 }
 
-function parseNumberedList(text: string): SprintTask[] {
-  const tasks: SprintTask[] = [];
+function parseNumberedList(text: string): CrewTask[] {
+  const tasks: CrewTask[] = [];
   const lines = text.split("\n");
 
   for (const line of lines) {

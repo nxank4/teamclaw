@@ -1,11 +1,11 @@
 /**
- * Debug logger wiring — attaches event listeners to router, sprint, and tool systems.
+ * Debug logger wiring — attaches event listeners to router, crew, and tool systems.
  * Each function returns a cleanup callback that removes all listeners.
  * No-op when OPENPAWL_DEBUG is not set.
  */
 
 import { debugLog, isDebugEnabled, truncateStr, TRUNCATION } from "./logger.js";
-import { RouterEvent, SprintEvent, ToolEvent, SessionEvent } from "../router/event-types.js";
+import { RouterEvent, CrewEvent, ToolEvent, SessionEvent } from "../router/event-types.js";
 import type { EventEmitter } from "node:events";
 import { platform, release, arch } from "node:os";
 
@@ -215,21 +215,21 @@ export function wireDebugToToolExecutor(executor: EventEmitter): () => void {
   };
 }
 
-// ── Sprint runner wiring ───────────────────────────────────────────────
+// ── Crew runner wiring ─────────────────────────────────────────────────
 
 /**
- * Wire debug logging to a SprintRunner.
- * Listens to all sprint lifecycle events.
+ * Wire debug logging to a CrewRunner.
+ * Listens to all crew lifecycle events.
  */
-export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
+export function wireDebugToCrewRunner(runner: EventEmitter): () => void {
   if (!isDebugEnabled()) return noop;
 
   const taskStartTimes = new Map<string, number>();
   const cleanups: Array<() => void> = [];
 
   cleanups.push(
-    attach(runner, SprintEvent.Start, (payload: { goal: string }) => {
-      debugLog("info", "sprint", "sprint:start", {
+    attach(runner, CrewEvent.Start, (payload: { goal: string }) => {
+      debugLog("info", "crew", "crew:start", {
         data: { goal: truncateStr(payload.goal, TRUNCATION.goalText) },
       });
     }),
@@ -238,9 +238,9 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.Composition,
+      CrewEvent.Composition,
       (payload: { entries: Array<{ role: string; included: boolean }>; estimatedTasks: number }) => {
-        debugLog("info", "sprint", "sprint:composition", {
+        debugLog("info", "crew", "crew:composition", {
           data: {
             estimatedTasks: payload.estimatedTasks,
             includedRoles: payload.entries
@@ -256,14 +256,14 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Planning, () => {
-      debugLog("info", "sprint", "sprint:planning", {});
+    attach(runner, CrewEvent.Planning, () => {
+      debugLog("info", "crew", "crew:planning", {});
     }),
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Plan, (payload: { tasks: Array<{ id: string; description: string; assignedAgent?: string }> }) => {
-      debugLog("info", "sprint", "sprint:plan", {
+    attach(runner, CrewEvent.Plan, (payload: { tasks: Array<{ id: string; description: string; assignedAgent?: string }> }) => {
+      debugLog("info", "crew", "crew:plan", {
         data: {
           taskCount: payload.tasks.length,
           tasks: payload.tasks.map((t) => ({
@@ -279,9 +279,9 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.RoundStart,
+      CrewEvent.RoundStart,
       (payload: { round: number; tasks: unknown[] }) => {
-        debugLog("info", "sprint", "sprint:round:start", {
+        debugLog("info", "crew", "crew:round:start", {
           data: { round: payload.round, taskCount: payload.tasks.length },
         });
       },
@@ -291,9 +291,9 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.RoundComplete,
+      CrewEvent.RoundComplete,
       (payload: { round: number; duration: number }) => {
-        debugLog("info", "sprint", "sprint:round:complete", {
+        debugLog("info", "crew", "crew:round:complete", {
           data: { round: payload.round },
           duration: payload.duration,
         });
@@ -304,10 +304,10 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.TaskStart,
+      CrewEvent.TaskStart,
       (payload: { task: { id: string; description: string }; agentName: string }) => {
         taskStartTimes.set(payload.task.id, Date.now());
-        debugLog("info", "sprint", "sprint:task:start", {
+        debugLog("info", "crew", "crew:task:start", {
           data: {
             taskId: payload.task.id,
             agent: payload.agentName,
@@ -321,12 +321,12 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.TaskComplete,
+      CrewEvent.TaskComplete,
       (payload: { task: { id: string; status: string; error?: string } }) => {
         const start = taskStartTimes.get(payload.task.id);
         const duration = start ? Date.now() - start : undefined;
         taskStartTimes.delete(payload.task.id);
-        debugLog("info", "sprint", "sprint:task:complete", {
+        debugLog("info", "crew", "crew:task:complete", {
           data: {
             taskId: payload.task.id,
             status: payload.task.status,
@@ -341,9 +341,9 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.AgentTool,
+      CrewEvent.AgentTool,
       (payload: { agentName: string; toolName: string; status: string }) => {
-        debugLog("debug", "sprint", "sprint:agent:tool", {
+        debugLog("debug", "crew", "crew:agent:tool", {
           data: {
             agentName: payload.agentName,
             toolName: payload.toolName,
@@ -355,16 +355,16 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Error, (payload: { error: Error }) => {
-      debugLog("error", "sprint", "sprint:error", {
+    attach(runner, CrewEvent.Error, (payload: { error: Error }) => {
+      debugLog("error", "crew", "crew:error", {
         error: payload.error.message,
       });
     }),
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Warning, (payload: { warning: string; type?: string }) => {
-      debugLog("warn", "sprint", "sprint:warning", {
+    attach(runner, CrewEvent.Warning, (payload: { warning: string; type?: string }) => {
+      debugLog("warn", "crew", "crew:warning", {
         data: { type: payload.type },
         error: payload.warning,
       });
@@ -372,9 +372,9 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Done, (payload: { result: Record<string, unknown> }) => {
+    attach(runner, CrewEvent.Done, (payload: { result: Record<string, unknown> }) => {
       const r = payload.result;
-      debugLog("info", "sprint", "sprint:done", {
+      debugLog("info", "crew", "crew:done", {
         data: {
           completedTasks: r.completedTasks,
           failedTasks: r.failedTasks,
@@ -388,9 +388,9 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   cleanups.push(
     attach(
       runner,
-      SprintEvent.NeedsClarification,
+      CrewEvent.NeedsClarification,
       (payload: { questions: string[] }) => {
-        debugLog("warn", "sprint", "sprint:needs_clarification", {
+        debugLog("warn", "crew", "crew:needs_clarification", {
           data: { questions: payload.questions },
         });
       },
@@ -398,14 +398,14 @@ export function wireDebugToSprintRunner(runner: EventEmitter): () => void {
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Paused, () => {
-      debugLog("info", "sprint", "sprint:paused", {});
+    attach(runner, CrewEvent.Paused, () => {
+      debugLog("info", "crew", "crew:paused", {});
     }),
   );
 
   cleanups.push(
-    attach(runner, SprintEvent.Resumed, () => {
-      debugLog("info", "sprint", "sprint:resumed", {});
+    attach(runner, CrewEvent.Resumed, () => {
+      debugLog("info", "crew", "crew:resumed", {});
     }),
   );
 

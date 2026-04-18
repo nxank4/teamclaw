@@ -35,23 +35,23 @@ export const DISPATCH_EVENTS = [
 
 // ── Sprint events ───────────────────────────────────────────────────────────
 
-export enum SprintEvent {
-  Start = "sprint:start",
-  Composition = "sprint:composition",
-  Planning = "sprint:planning",
-  Plan = "sprint:plan",
-  RoundStart = "sprint:round:start",
-  RoundComplete = "sprint:round:complete",
-  TaskStart = "sprint:task:start",
-  TaskComplete = "sprint:task:complete",
-  AgentToken = "sprint:agent:token",
-  AgentTool = "sprint:agent:tool",
-  Done = "sprint:done",
-  NeedsClarification = "sprint:needs_clarification",
-  Error = "sprint:error",
-  Warning = "sprint:warning",
-  Paused = "sprint:paused",
-  Resumed = "sprint:resumed",
+export enum CrewEvent {
+  Start = "crew:start",
+  Composition = "crew:composition",
+  Planning = "crew:planning",
+  Plan = "crew:plan",
+  RoundStart = "crew:round:start",
+  RoundComplete = "crew:round:complete",
+  TaskStart = "crew:task:start",
+  TaskComplete = "crew:task:complete",
+  AgentToken = "crew:agent:token",
+  AgentTool = "crew:agent:tool",
+  Done = "crew:done",
+  NeedsClarification = "crew:needs_clarification",
+  Error = "crew:error",
+  Warning = "crew:warning",
+  Paused = "crew:paused",
+  Resumed = "crew:resumed",
 }
 
 // ── Tool events ─────────────────────────────────────────────────────────────

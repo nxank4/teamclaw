@@ -22,7 +22,7 @@ import { homedir } from "node:os";
 
 export type DebugSource =
   | "router"
-  | "sprint"
+  | "crew"
   | "tool"
   | "llm"
   | "memory"
@@ -220,7 +220,7 @@ export function isDebugEnabled(): boolean {
 /**
  * Set the session ID used for the log filename. Call once per session.
  * Naming convention: <mode>-<ISO-timestamp>
- * e.g. sprint-2026-04-13T14-23-05
+ * e.g. crew-2026-04-13T14-23-05
  */
 export function setDebugSessionId(mode: string): void {
   if (!_enabled) return;
