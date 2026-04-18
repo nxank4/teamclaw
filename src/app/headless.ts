@@ -16,9 +16,9 @@
 
 import pc from "picocolors";
 import { ICONS } from "../tui/constants/icons.js";
-import { formatDuration } from "../utils/formatters.js";
+import { formatDuration, formatToolTarget } from "../utils/formatters.js";
 import { SprintEvent, ToolEvent } from "../router/event-types.js";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { createSessionManager } from "../session/index.js";
@@ -64,7 +64,10 @@ function parseArgs(args: string[]): HeadlessOptions {
       else if (m === "chat") mode = "solo"; // backward compatibility
       else if (m === "team") mode = "collab"; // backward compatibility
     } else if (arg === "--workdir" && args[i + 1]) {
-      workdir = args[++i]!;
+      const raw = args[++i]!;
+      // Expand ~ to home directory (Node doesn't do this automatically)
+      const expanded = raw.startsWith("~") ? raw.replace(/^~/, homedir()) : raw;
+      workdir = resolve(expanded);
     } else if (arg === "--template" && args[i + 1]) {
       template = args[++i]!;
     } else if (arg === "--headless") {
@@ -149,6 +152,21 @@ export async function runHeadless(args: string[]): Promise<void> {
     approve();
   });
 
+  // Wire debug logging (opt-in via OPENPAWL_DEBUG=true)
+  if (process.env.OPENPAWL_DEBUG) {
+    const { setDebugSessionId } = await import("../debug/logger.js");
+    const { wireDebugToToolExecutor, logStartupInfo } = await import("../debug/wiring.js");
+    setDebugSessionId(effectiveMode);
+    wireDebugToToolExecutor(toolExec);
+    logStartupInfo({
+      mode: effectiveMode,
+      template: opts.template ?? undefined,
+      goal: opts.goal,
+      workdir: projectDir,
+      runs: opts.runs,
+    });
+  }
+
   let accumulatedLessons: string[] = [];
 
   for (let run = 0; run < opts.runs; run++) {
@@ -159,6 +177,16 @@ export async function runHeadless(args: string[]): Promise<void> {
     // Show lessons being applied
     if (accumulatedLessons.length > 0 && effectiveMode === "sprint") {
       console.log(pc.dim(`  [applying ${accumulatedLessons.length} lesson${accumulatedLessons.length === 1 ? "" : "s"} from previous run${accumulatedLessons.length === 1 ? "" : "s"}]`));
+      if (process.env.OPENPAWL_DEBUG) {
+        const { debugLog, truncateStr, TRUNCATION } = await import("../debug/logger.js");
+        debugLog("info", "sprint", "sprint:lesson_injection", {
+          data: {
+            run: run + 1,
+            lessonCount: accumulatedLessons.length,
+            lessons: accumulatedLessons.map((l) => truncateStr(l, TRUNCATION.lessonText)),
+          },
+        });
+      }
     }
 
     // Switch to the project directory for agent tool calls
@@ -167,12 +195,35 @@ export async function runHeadless(args: string[]): Promise<void> {
     const runStart = Date.now();
 
     if (effectiveMode === "sprint") {
-      const result = await runSprint(opts.goal, toolReg, toolExec, teamContext, accumulatedLessons);
+      let result: import("../sprint/types.js").SprintResult;
+      try {
+        result = await runSprint(opts.goal, toolReg, toolExec, teamContext, accumulatedLessons);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`\n  ${pc.red(ICONS.error)} Sprint failed: ${msg}`);
+        console.log(pc.dim(`  Total: ${formatDuration(Date.now() - runStart)}`));
+        break;
+      }
 
-      const runDuration = Date.now() - runStart;
       console.log("");
       console.log(pc.dim("─".repeat(60)));
-      console.log(`Total: ${pc.bold(formatDuration(runDuration))}`);
+
+      // Per-task failure summary
+      const failedTasks = result.tasks.filter((t) => t.status !== "completed");
+      if (failedTasks.length > 0) {
+        for (const t of failedTasks) {
+          console.log(`  ${pc.red(ICONS.error)} ${t.description.slice(0, 70)} — ${pc.dim(t.error?.slice(0, 80) ?? t.status)}`);
+        }
+      }
+
+      const tokenStr = (result.inputTokens > 0 || result.outputTokens > 0)
+        ? ` | Tokens: ${result.inputTokens}in/${result.outputTokens}out`
+        : "";
+      console.log(
+        `Tasks: ${result.completedTasks}/${result.tasks.length} completed | ` +
+        `Failed: ${result.failedTasks} | ` +
+        `Duration: ${formatDuration(result.duration)}${tokenStr}`,
+      );
 
       // Early exit if all tasks completed successfully (no failures, no incomplete)
       if (result.failedTasks === 0 && result.completedTasks === result.tasks.length) {
@@ -182,8 +233,8 @@ export async function runHeadless(args: string[]): Promise<void> {
         break;
       }
 
-      // Post-mortem analysis between runs
-      if (run < opts.runs - 1) {
+      // Post-mortem analysis — always run when there are failures (Item 5)
+      if (result.failedTasks > 0) {
         const { analyzeRunResult } = await import("../sprint/post-mortem.js");
         const postMortem = analyzeRunResult(result, accumulatedLessons);
         if (postMortem.lessons.length > 0) {
@@ -192,7 +243,9 @@ export async function runHeadless(args: string[]): Promise<void> {
             console.log(`    ${pc.dim("-")} ${lesson}`);
           }
         }
-        accumulatedLessons = [...accumulatedLessons, ...postMortem.lessons].slice(0, 10);
+        if (run < opts.runs - 1) {
+          accumulatedLessons = [...accumulatedLessons, ...postMortem.lessons].slice(0, 10);
+        }
       }
     } else {
       if (effectiveMode === "collab") {
@@ -222,6 +275,16 @@ export async function runHeadless(args: string[]): Promise<void> {
     console.log(`\n${pc.dim(`Profile report: ${reportPath}`)}`);
   }
 
+  // Close debug log
+  if (process.env.OPENPAWL_DEBUG) {
+    const { closeDebugLog, getDebugLogPath } = await import("../debug/logger.js");
+    const logPath = getDebugLogPath();
+    closeDebugLog();
+    if (logPath) {
+      console.log(`\n${pc.dim(`Debug log: ${logPath}`)}`);
+    }
+  }
+
   console.log(`\n${pc.dim(`Project files: ${projectDir}`)}`);
 
   await sessionMgr.shutdown();
@@ -239,8 +302,13 @@ async function runSprint(
   const agents = new AgentRegistry();
   const runner = createSprintRunner({ agents, toolRegistry: toolReg, toolExecutor: toolExec });
 
-  let taskTokens = 0;
-  let taskStart = 0;
+  // Wire debug logging to sprint runner
+  if (process.env.OPENPAWL_DEBUG) {
+    const { wireDebugToSprintRunner } = await import("../debug/wiring.js");
+    wireDebugToSprintRunner(runner);
+  }
+
+  const taskStartMap = new Map<string, number>();
 
   runner.on(SprintEvent.Composition, ({ entries }: { entries: Array<{ role: string; task: string; included: boolean; reason: string }> }) => {
     console.log(`  ${pc.bold("Team composition (autonomous):")}`);
@@ -255,12 +323,11 @@ async function runSprint(
 
   runner.on(SprintEvent.Planning, () => {
     process.stdout.write(`  ${pc.cyan("[planner]")} planning tasks...`);
-    taskStart = Date.now();
-    taskTokens = 0;
+    taskStartMap.set("__planner__", Date.now());
   });
 
   runner.on(SprintEvent.Plan, ({ tasks }) => {
-    const elapsed = Date.now() - taskStart;
+    const elapsed = Date.now() - (taskStartMap.get("__planner__") ?? Date.now());
     process.stdout.write(` ${pc.dim("\u2192")} ${pc.green(`${tasks.length} tasks`)} (${formatDuration(elapsed)})\n`);
     console.log("");
     for (let i = 0; i < tasks.length; i++) {
@@ -281,33 +348,32 @@ async function runSprint(
   });
 
   runner.on(SprintEvent.TaskStart, ({ task, agentName }) => {
-    taskTokens = 0;
-    taskStart = Date.now();
+    taskStartMap.set(task.id, Date.now());
     process.stdout.write(`  ${pc.cyan(`[${agentName}]`)} ${task.description.slice(0, 60)}`);
   });
 
-  runner.on(SprintEvent.AgentToken, () => {
-    taskTokens++;
-  });
-
-  runner.on(SprintEvent.AgentTool, ({ toolName, status, details }: { toolName: string; status: string; details?: { diff?: { added: number; removed: number } } }) => {
+  runner.on(SprintEvent.AgentTool, ({ toolName, status, details }: { toolName: string; status: string; details?: { inputSummary?: string } }) => {
     if (status === "running") {
-      process.stdout.write(`\n    ${pc.dim(`tool: ${toolName}`)}`);
+      const target = formatToolTarget(details?.inputSummary);
+      const label = target ? `${toolName} ${target}` : toolName;
+      process.stdout.write(`\n    ${pc.dim(label)}`);
     } else if (status === "completed") {
-      const diff = details?.diff;
-      const diffStr = diff ? ` ${pc.green(`+${diff.added}`)} ${pc.red(`-${diff.removed}`)}` : "";
-      process.stdout.write(pc.dim(` ${ICONS.success}`) + diffStr);
+      process.stdout.write(pc.dim(` ${ICONS.success}`));
     } else if (status === "failed") {
       process.stdout.write(pc.red(` ${ICONS.error}`));
     }
   });
 
-  runner.on(SprintEvent.TaskComplete, ({ task }) => {
-    const elapsed = Date.now() - taskStart;
+  runner.on(SprintEvent.TaskComplete, ({ task, taskIndex, totalTasks }: { task: import("../sprint/types.js").SprintTask; taskIndex?: number; totalTasks?: number }) => {
+    const elapsed = Date.now() - (taskStartMap.get(task.id) ?? Date.now());
     const status = task.status === "completed" ? pc.green("done")
       : task.status === "failed" ? pc.red("failed")
       : pc.yellow("incomplete");
-    process.stdout.write(` ${pc.dim(ICONS.arrow)} ${status} (${formatDuration(elapsed)}, ${taskTokens} tokens)\n`);
+    const progress = (taskIndex != null && totalTasks != null) ? ` ${pc.dim(`[${taskIndex}/${totalTasks}]`)}` : "";
+    process.stdout.write(` ${pc.dim(ICONS.arrow)} ${status} (${formatDuration(elapsed)})${progress}\n`);
+    if (task.status !== "completed" && task.error) {
+      console.log(`    ${pc.red(task.error.slice(0, 120))}`);
+    }
   });
 
   runner.on(SprintEvent.NeedsClarification, ({ questions }: { questions: string[] }) => {
@@ -333,14 +399,6 @@ async function runSprint(
     ...(teamContext ? { teamContext } : {}),
     ...(lessons && lessons.length > 0 ? { lessons } : {}),
   });
-
-  console.log("");
-  console.log(pc.dim("─".repeat(60)));
-  console.log(
-    `Tasks: ${result.completedTasks}/${result.tasks.length} completed | ` +
-    `Failed: ${result.failedTasks} | ` +
-    `Duration: ${formatDuration(result.duration)}`,
-  );
 
   // Generate CONTEXT.md handoff
   try {
@@ -403,11 +461,11 @@ async function runSolo(
     },
     onToolCall: (_agentId, toolName, status, details) => {
       if (status === "running") {
-        process.stdout.write(`\n    ${pc.dim(`tool: ${toolName}`)}`);
+        const target = formatToolTarget(details?.inputSummary as string | undefined);
+        const label = target ? `${toolName} ${target}` : toolName;
+        process.stdout.write(`\n    ${pc.dim(label)}`);
       } else if (status === "completed") {
-        const diff = details?.diff as { added: number; removed: number } | undefined;
-        const diffStr = diff ? ` ${pc.green(`+${diff.added}`)} ${pc.red(`-${diff.removed}`)}` : "";
-        process.stdout.write(pc.dim(` ${ICONS.success}`) + diffStr);
+        process.stdout.write(pc.dim(` ${ICONS.success}`));
       } else if (status === "failed") {
         process.stdout.write(pc.red(` ${ICONS.error}`));
       }
@@ -421,11 +479,17 @@ async function runSolo(
         workingDirectory: process.cwd(),
       });
       if (result.isOk()) {
+        const text = result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
         const data = result.value.data as Record<string, unknown> | undefined;
         const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
-        const dataForLLM = Object.fromEntries(Object.entries(data ?? {}).filter(([k]) => k !== "diff"));
-        const text = result.value.fullOutput || JSON.stringify(dataForLLM) || result.value.summary;
-        return diff ? { text, diff } : text;
+        const shell = toolName === "shell_exec" && data
+          ? { exitCode: data.exitCode as number | undefined, stderrHead: typeof data.stderr === "string" ? (data.stderr as string).slice(0, 200) : undefined }
+          : undefined;
+        const success = result.value.success;
+        if (diff || shell) {
+          return { text, diff, success, exitCode: shell?.exitCode, stderrHead: shell?.stderrHead };
+        }
+        return text;
       }
       const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
       throw new Error(`${result.error.type}${cause}`);
@@ -438,6 +502,12 @@ async function runSolo(
     null,
     agentRunner,
   );
+
+  // Wire debug logging to router
+  if (process.env.OPENPAWL_DEBUG) {
+    const { wireDebugToRouter } = await import("../debug/wiring.js");
+    wireDebugToRouter(router);
+  }
 
   const result = await router.route(session.id, goal);
 
@@ -488,7 +558,7 @@ async function runCollab(
   toolExec: ToolExecutor,
 ): Promise<void> {
   const { buildCollabChain } = await import("../router/collab-dispatch.js");
-  const chain = buildCollabChain(goal);
+  const chain = buildCollabChain(goal, { force: true });
 
   if (!chain) {
     console.log(pc.dim("No collab chain detected — falling back to solo mode"));
@@ -527,11 +597,11 @@ async function runCollab(
     },
     onToolCall: (_agentId, toolName, status, details) => {
       if (status === "running") {
-        process.stdout.write(`\n    ${pc.dim(`tool: ${toolName}`)}`);
+        const target = formatToolTarget(details?.inputSummary as string | undefined);
+        const label = target ? `${toolName} ${target}` : toolName;
+        process.stdout.write(`\n    ${pc.dim(label)}`);
       } else if (status === "completed") {
-        const diff = details?.diff as { added: number; removed: number } | undefined;
-        const diffStr = diff ? ` ${pc.green(`+${diff.added}`)} ${pc.red(`-${diff.removed}`)}` : "";
-        process.stdout.write(pc.dim(` ${ICONS.success}`) + diffStr);
+        process.stdout.write(pc.dim(` ${ICONS.success}`));
       } else if (status === "failed") {
         process.stdout.write(pc.red(` ${ICONS.error}`));
       }
@@ -545,11 +615,17 @@ async function runCollab(
         workingDirectory: process.cwd(),
       });
       if (result.isOk()) {
+        const text = result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
         const data = result.value.data as Record<string, unknown> | undefined;
         const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
-        const dataForLLM = Object.fromEntries(Object.entries(data ?? {}).filter(([k]) => k !== "diff"));
-        const text = result.value.fullOutput || JSON.stringify(dataForLLM) || result.value.summary;
-        return diff ? { text, diff } : text;
+        const shell = toolName === "shell_exec" && data
+          ? { exitCode: data.exitCode as number | undefined, stderrHead: typeof data.stderr === "string" ? (data.stderr as string).slice(0, 200) : undefined }
+          : undefined;
+        const success = result.value.success;
+        if (diff || shell) {
+          return { text, diff, success, exitCode: shell?.exitCode, stderrHead: shell?.stderrHead };
+        }
+        return text;
       }
       const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
       throw new Error(`${result.error.type}${cause}`);
@@ -562,6 +638,12 @@ async function runCollab(
     null,
     agentRunner,
   );
+
+  // Wire debug logging to router
+  if (process.env.OPENPAWL_DEBUG) {
+    const { wireDebugToRouter } = await import("../debug/wiring.js");
+    wireDebugToRouter(router);
+  }
 
   const result = await router.route(session.id, goal, { appMode: "collab" });
 

@@ -7,6 +7,13 @@ import { z } from "zod";
 import { ok, err } from "neverthrow";
 import type { ToolDefinition, ToolOutput } from "../types.js";
 
+/** Structured payload stored in ToolOutput.data for shell_exec. */
+export interface ShellExecData {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 const BLOCKED_PATTERNS = [
   /rm\s+-rf\s+\//,
   /sudo\s+rm/,
@@ -46,15 +53,27 @@ export function createShellExecTool(): ToolDefinition {
         }
       }
 
-      const workDir = cwd ?? context.workingDirectory;
+      // Resolve LLM-supplied cwd through sandbox to prevent path nesting
+      let workDir = context.workingDirectory;
+      if (cwd) {
+        const { resolveSafePath } = await import("../../core/sandbox.js");
+        workDir = resolveSafePath(cwd, context.workingDirectory);
+      }
+
+      // Rewrite absolute workspace paths embedded in the command string
+      // so agents can't create nested dirs like workdir/home/user/project/...
+      const escaped = workDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const sanitizedCommand = command
+        .replace(new RegExp(escaped + "/", "g"), "")
+        .replace(new RegExp(escaped + "(?=[\\s;|&]|$)", "g"), ".");
 
       try {
         const { executeShell } = await import("../../app/shell.js");
 
         const chunks: string[] = [];
-        const result = await executeShell(command, (chunk) => {
+        const result = await executeShell(sanitizedCommand, (chunk) => {
           chunks.push(chunk);
-          context.onProgress?.(`Running: ${command.slice(0, 40)}...`);
+          context.onProgress?.(`Running: ${sanitizedCommand.slice(0, 40)}...`);
         }, {
           cwd: workDir,
           timeout,
@@ -62,10 +81,15 @@ export function createShellExecTool(): ToolDefinition {
         });
 
         const fullOutput = chunks.join("");
+        const data: ShellExecData = {
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        };
         const output: ToolOutput = {
           success: result.exitCode === 0,
-          data: { exitCode: result.exitCode, stdout: fullOutput },
-          summary: `Ran \`${command.slice(0, 60)}\` → exit ${result.exitCode} (${Date.now() - start}ms)`,
+          data,
+          summary: `Ran \`${sanitizedCommand.slice(0, 60)}\` → exit ${result.exitCode} (${Date.now() - start}ms)`,
           fullOutput,
           duration: Date.now() - start,
         };

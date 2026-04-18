@@ -4,7 +4,7 @@
 
 # OpenPawl
 
-**Your AI team for vibe coding. Stop prompting alone.**
+**Terminal AI coding with a team of agents, not just one. Chat-based, keyboard-first, open source.**
 
 [![CI](https://github.com/codepawl/openpawl/actions/workflows/ci.yml/badge.svg)](https://github.com/codepawl/openpawl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
@@ -14,8 +14,6 @@
 [![LOC](https://img.shields.io/badge/source-437_files%20·%2063.5k_LOC-informational)](#)
 
 OpenPawl orchestrates a team of specialized AI agents toward your goals — with memory, learning, and structure that persists across sessions.
-
----
 
 ## The Problem
 
@@ -35,13 +33,45 @@ No structure                    →   Sprint cadence with standup
 
 OpenPawl replaces that friction with a team that remembers, learns, and holds itself accountable.
 
-<p align="center">
-  <img src="./docs/demo.gif" width="800" alt="OpenPawl Demo" />
-</p>
+## Screenshots
 
+> All screenshots from real sessions using **opencode-go** provider with **minimax-m2.7** model.
 
+### Welcome
 
----
+<img src="./docs/screenshots/welcome.png" width="800" alt="OpenPawl Welcome Screen" />
+
+*Interactive TUI with slash commands, agent mentions, and status bar.*
+
+### Model & Provider Selection
+
+<img src="./docs/screenshots/model.png" width="800" alt="Model Selection" />
+
+*Switch providers and models on the fly. 15+ providers supported.*
+
+### Team Templates
+
+<img src="./docs/screenshots/team.png" width="800" alt="Team Templates" />
+
+*5 built-in team templates. Pick a team or let OpenPawl compose autonomously.*
+
+### Collab Mode (coder -> reviewer -> revision)
+
+<img src="./docs/screenshots/collab.png" width="800" alt="Collab Mode" />
+
+*Multi-agent collaboration: coder writes, reviewer catches issues, coder revises.*
+
+### Sprint Mode (full pipeline)
+
+<img src="./docs/screenshots/sprint.png" width="800" alt="Sprint Mode" />
+
+*Planner decomposes goal, parallel coders execute, post-mortem extracts lessons. Template: indie-hacker.*
+
+### Escape to Cancel
+
+<img src="./docs/screenshots/cancel.png" width="800" alt="Cancel Streaming" />
+
+*Press Escape to stop any response mid-stream. Partial output preserved.*
 
 ## Install
 
@@ -50,8 +80,6 @@ curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/install.sh |
 ```
 
 **Requirements:** Node.js >= 20, bun, and an LLM API key (Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, or local Ollama).
-
----
 
 ## Quickstart
 
@@ -68,8 +96,6 @@ The bare `openpawl` command launches the interactive TUI with chat, sprint, and 
 openpawl run --headless --goal "Build auth" --mode sprint --runs 2
 ```
 
----
-
 ## Features
 
 ### Three Execution Modes
@@ -82,19 +108,11 @@ openpawl run --headless --goal "Build auth" --mode sprint --runs 2
 
 Switch modes with `Shift+Tab` in the TUI or `--mode` in headless.
 
-<img src="./docs/screenshots/modes.png" width="800" alt="Execution Modes" />
-
-
-
 ### Team Orchestration
 
 7 built-in agents (coder, reviewer, planner, tester, debugger, researcher, assistant) collaborate via native API tool calling. The planner decomposes goals into tasks, workers execute in parallel, and a post-mortem loop extracts lessons for future runs. Agents use keyword-based routing and confidence-gated delivery.
 
 Team composition is flexible: pick agents manually, let the system compose autonomously based on your goal, or use one of 5 built-in templates. Custom agents can be created and configured via `/agents` in the TUI. Agent profiles track performance across runs.
-
-<img src="./docs/screenshots/sprint.png" width="800" alt="Sprint Mode" />
-
-
 
 ### Memory and Learning
 
@@ -131,8 +149,6 @@ The team remembers across sessions. Success patterns get stored in LanceDB — f
 - **Headless mode** — `openpawl run --headless` with `--mode`, `--template`, `--workdir`, `--runs`
 - **Provider/model sync** — single source of truth across agents and modes
 
----
-
 ## Team Templates
 
 Pre-built teams you can install and use immediately:
@@ -155,8 +171,6 @@ Or use `/team` in the TUI to browse and switch templates interactively.
 | `full-stack-sprint` | Frontend, Backend, DevOps, Lead |
 
 Five seed templates ship offline. Community templates at [openpawl-templates](https://github.com/codepawl/openpawl-templates).
-
----
 
 ## CLI Reference
 
@@ -236,8 +250,6 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 | `/compact` | Toggle compact/expanded view |
 | `/setup` | Re-run setup wizard |
 
----
-
 ## Architecture
 
 ```mermaid
@@ -271,8 +283,6 @@ graph TD
 
 Three execution modes share a common LLM multi-turn loop with native tool calling. Sprint mode parallelizes independent tasks. Post-mortem extracts lessons into LanceDB vector memory for future runs. Context compression keeps long conversations within token limits.
 
----
-
 ## Comparison
 
 | Feature | OpenPawl | Claude Code | OpenCode | Aider |
@@ -288,13 +298,7 @@ Three execution modes share a common LLM multi-turn loop with native tool callin
 | Headless mode | `--mode`, `--template`, `--runs` | Non-interactive | CLI only | CLI only |
 | Agent heatmap | Utilization + bottleneck | None | None | None |
 
-<img src="./docs/screenshots/comparison.png" width="800" alt="Feature Comparison" />
-
-
-
 OpenPawl focuses on multi-agent workflows and persistent learning. For single-agent coding tasks, Claude Code and Aider are more mature. For a detailed feature comparison, see [docs/comparison.md](./docs/comparison.md).
-
----
 
 ## Tech Stack
 
@@ -313,8 +317,6 @@ OpenPawl focuses on multi-agent workflows and persistent learning. For single-ag
 
 Pure TypeScript (ESM). No Python. 437 source files, ~63.5k LOC.
 
----
-
 ## Development
 
 ```bash
@@ -328,8 +330,6 @@ bun run lint         # lint (eslint src/)
 
 Pre-commit hook runs typecheck → lint → tests automatically.
 
----
-
 ## Security
 
 - Config at `~/.openpawl/config.json` may contain API tokens
@@ -338,17 +338,13 @@ Pre-commit hook runs typecheck → lint → tests automatically.
 
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
----
-
 ## Documentation
 
 | Document | Contents |
 |----------|----------|
-| [AGENTS.md](./docs/AGENTS.md) | Agent guidelines and team culture |
+| [AGENTS.md](./docs/AGENTS.md) | Team culture and RFC policy |
 | [WEBHOOKS.md](./docs/WEBHOOKS.md) | Webhook event schemas |
 | [comparison.md](./docs/comparison.md) | Feature comparison with other tools |
-
----
 
 ## License
 

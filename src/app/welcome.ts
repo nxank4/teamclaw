@@ -3,6 +3,7 @@
  */
 
 import { VERSION } from "../version.js";
+import { PRODUCT_TAGLINE_LONG } from "../meta/product.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { bold } from "../tui/core/ansi.js";
 import { visibleWidth } from "../tui/utils/text-width.js";
@@ -17,7 +18,7 @@ export function buildWelcomeContent(): string {
   lines.push("");
   lines.push(" ".repeat(titlePad) + bold(defaultTheme.primary(title)));
 
-  const tagline = "Your AI team, one prompt away.";
+  const tagline = PRODUCT_TAGLINE_LONG;
   const tagPad = Math.max(0, Math.floor((termWidth - tagline.length) / 2));
   lines.push(defaultTheme.dim(" ".repeat(tagPad) + tagline));
   lines.push("");
@@ -53,7 +54,7 @@ export function buildWelcomeContent(): string {
   }
 
   lines.push("");
-  const tip = "Use /sessions to view previous conversations.";
+  const tip = "Type a prompt to get started. Shift+Tab to switch modes.";
   const tipPad = Math.max(0, Math.floor((termWidth - tip.length) / 2));
   lines.push(" ".repeat(tipPad) + defaultTheme.dim(tip));
   lines.push("");

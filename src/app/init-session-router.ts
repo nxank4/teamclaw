@@ -3,12 +3,9 @@
  */
 
 import { mark, printStartupTimings } from "./startup.js";
-import {
-  formatToolPermissionPrompt, formatToolPermissionResolved,
-  rebuildPromptWithSelection, CONFIRM_CHOICES, SAFE_AUTO_APPROVE, sessionAutoApproved,
-} from "./tool-permission.js";
+import { formatToolPermissionPrompt, formatToolPermissionResolved } from "./tool-permission.js";
 import { wireRouterEvents, wireSessionEvents, type RouterEventWiring } from "./router-wiring.js";
-import { registerSessionCommands, replaySessionHistory } from "./session-helpers.js";
+import { registerSessionCommands } from "./session-helpers.js";
 import { createAutocompleteProvider } from "./autocomplete.js";
 import { ICONS } from "../tui/constants/icons.js";
 import { defaultTheme } from "../tui/themes/default.js";
@@ -76,12 +73,6 @@ export async function initSessionRouter(
       toolName: string; input: unknown; riskLevel: string; category: string;
       approve: (always?: boolean) => void; reject: () => void;
     }) => {
-      // Smart auto-approve: read-only tools and session-approved tools
-      if (SAFE_AUTO_APPROVE.has(toolName) || sessionAutoApproved.has(toolName)) {
-        approve();
-        return;
-      }
-
       const prompt = formatToolPermissionPrompt(toolName, input, riskLevel);
       layout.messages.addMessage({
         role: "system",
@@ -90,8 +81,6 @@ export async function initSessionRouter(
         tag: "tool-approval",
       });
       layout.tui.requestRender();
-
-      let selectedIndex = 0;
 
       const resolve = (result: string, color: (s: string) => string, action: () => void) => {
         layout.tui.popKeyHandler();
@@ -102,58 +91,13 @@ export async function initSessionRouter(
         action();
       };
 
-      const updateSelection = () => {
-        layout.messages.replaceLast(
-          rebuildPromptWithSelection(toolName, input, riskLevel, selectedIndex),
-        );
-        layout.tui.requestRender();
-      };
-
       layout.tui.pushKeyHandler({
         handleKey: (event) => {
-          // Arrow navigation
-          if (event.type === "arrow" && event.direction === "right") {
-            selectedIndex = Math.min(selectedIndex + 1, CONFIRM_CHOICES.length - 1);
-            updateSelection();
-            return true;
-          }
-          if (event.type === "arrow" && event.direction === "left") {
-            selectedIndex = Math.max(selectedIndex - 1, 0);
-            updateSelection();
-            return true;
-          }
-          if (event.type === "tab") {
-            selectedIndex = (selectedIndex + 1) % CONFIRM_CHOICES.length;
-            updateSelection();
-            return true;
-          }
-
-          // Enter confirms current selection
-          if (event.type === "enter") {
-            const choice = CONFIRM_CHOICES[selectedIndex]!;
-            if (choice.value === "allow") {
-              resolve(`${ICONS.success} Approved`, defaultTheme.success, () => approve());
-            } else if (choice.value === "skip") {
-              resolve(`${ICONS.error} Skipped`, defaultTheme.dim, () => reject());
-            } else if (choice.value === "always") {
-              sessionAutoApproved.add(toolName);
-              resolve(`${ICONS.success} Always approved`, defaultTheme.success, () => approve(true));
-            } else {
-              resolve(`${ICONS.error} Denied`, defaultTheme.error, () => reject());
-            }
-            return true;
-          }
-
-          // Legacy single-key shortcuts
           if (event.type === "char" && !event.ctrl) {
             const ch = event.char.toLowerCase();
             if (ch === "y") { resolve(`${ICONS.success} Approved`, defaultTheme.success, () => approve()); return true; }
             if (ch === "n") { resolve(`${ICONS.error} Denied`, defaultTheme.error, () => reject()); return true; }
-            if (ch === "!") {
-              sessionAutoApproved.add(toolName);
-              resolve(`${ICONS.success} Always approved`, defaultTheme.success, () => approve(true));
-              return true;
-            }
+            if (ch === "!") { resolve(`${ICONS.success} Always approved for session`, defaultTheme.success, () => approve(true)); return true; }
           }
           if (event.type === "escape") { resolve(`${ICONS.error} Denied`, defaultTheme.error, () => reject()); return true; }
           return true;
@@ -304,12 +248,17 @@ export async function initSessionRouter(
             workingDirectory: process.cwd(),
           });
           if (result.isOk()) {
+            const text = result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
             const data = result.value.data as Record<string, unknown> | undefined;
             const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
-            // Strip diff from data before serializing for LLM (diff is display-only)
-            const dataForLLM = Object.fromEntries(Object.entries(data ?? {}).filter(([k]) => k !== "diff"));
-            const text = result.value.fullOutput || JSON.stringify(dataForLLM) || result.value.summary;
-            return diff ? { text, diff } : text;
+            const shell = toolName === "shell_exec" && data
+              ? { exitCode: data.exitCode as number | undefined, stderrHead: typeof data.stderr === "string" ? (data.stderr as string).slice(0, 200) : undefined }
+              : undefined;
+            const success = result.value.success;
+            if (diff || shell) {
+              return { text, diff, success, exitCode: shell?.exitCode, stderrHead: shell?.stderrHead };
+            }
+            return text;
           }
           const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
           throw new Error(`${result.error.type}${cause}`);
@@ -399,19 +348,32 @@ export async function initSessionRouter(
     // ErrorPresenter not available
   }
 
-  // Try to resume latest session, fall back to creating a new one
+  // ── Wire Debug Logger — structured JSONL debug logs ─────────────
+  if (process.env.OPENPAWL_DEBUG) {
+    try {
+      const { setDebugSessionId } = await import("../debug/logger.js");
+      const { wireDebugToRouter, wireDebugToToolExecutor } = await import("../debug/wiring.js");
+      setDebugSessionId("tui");
+      wireDebugToRouter(ctx.router);
+      if (toolExecutor) {
+        wireDebugToToolExecutor(toolExecutor);
+      }
+    } catch {
+      // Debug logger not available
+    }
+  }
+
+  // Try to resume latest session in this workspace, fall back to creating fresh
   {
     const resumeResult = await ctx.sessionMgr.resumeLatest();
     if (resumeResult.isOk() && resumeResult.value) {
       ctx.chatSession = resumeResult.value;
-      layout.messages.clear();
-      replaySessionHistory(ctx.chatSession, layout);
     } else {
       const createResult = await ctx.sessionMgr.create(process.cwd());
       ctx.chatSession = createResult.isOk() ? createResult.value : null;
     }
   }
-  mark("[bg] session loaded");
+  mark("[bg] session created");
 
   // Wire events
   ctx.cleanupRouter = wireRouterEvents(ctx.router, layout, (agentId, content) => {

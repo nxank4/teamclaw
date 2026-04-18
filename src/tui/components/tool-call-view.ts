@@ -38,7 +38,7 @@ const TOOL_VERBS: Record<string, [string, string]> = {
   list_dir:     ["Listed", "Listing"],
 };
 
-const BRAILLE_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const BRAILLE_SPINNER = ICONS.brailleFrames;
 
 export class ToolCallView {
   private state: ToolCallViewState;
@@ -135,6 +135,10 @@ export class ToolCallView {
     this.state.expanded = !this.state.expanded;
   }
 
+  setExpanded(state: boolean): void {
+    this.state.expanded = state;
+  }
+
   advanceSpinner(): void {
     this.spinnerFrame++;
   }
@@ -165,7 +169,7 @@ export class ToolCallView {
       case "running": return BRAILLE_SPINNER[this.spinnerFrame % BRAILLE_SPINNER.length]!;
       case "completed": return defaultTheme.symbols.success;
       case "failed": return defaultTheme.symbols.error;
-      case "aborted": return "◼";
+      case "aborted": return ICONS.aborted;
     }
   }
 

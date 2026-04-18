@@ -4,11 +4,12 @@
  * highlighting, bullet/numbered lists, blockquotes, links, horizontal rules.
  */
 import type { Component } from "../core/component.js";
-import { bold, italic, dim, bgRgb } from "../core/ansi.js";
+import { bold, italic, dim, strikethrough, bgRgb, link as hyperlink } from "../core/ansi.js";
 import { wrapText } from "../utils/wrap.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
 import { defaultTheme, ctp } from "../themes/default.js";
+import { ICONS } from "../constants/icons.js";
 import { highlight } from "cli-highlight";
 
 // Code block background — Catppuccin mantle (#181825)
@@ -40,19 +41,10 @@ export function renderMarkdown(md: string, width: number): string[] {
   let codeBlockLang = "";
   let codeBlockLines: string[] = [];
   let tableLines: string[] = [];
-  let paragraphBuffer: string[] = [];
-
-  const flushParagraph = () => {
-    if (paragraphBuffer.length === 0) return;
-    const joined = paragraphBuffer.join(" ");
-    result.push(...wrapText(joined, width));
-    paragraphBuffer = [];
-  };
 
   for (const line of lines) {
     // Code block toggle
     if (line.trimStart().startsWith("```")) {
-      flushParagraph();
       if (!inCodeBlock) {
         inCodeBlock = true;
         codeBlockLang = line.trimStart().slice(3).trim();
@@ -79,7 +71,6 @@ export function renderMarkdown(md: string, width: number): string[] {
 
     // Horizontal rule — single blank line (headings provide enough structure)
     if (/^[-*_]{3,}\s*$/.test(line.trim())) {
-      flushParagraph();
       ensureBlankLine(result);
       continue;
     }
@@ -87,7 +78,6 @@ export function renderMarkdown(md: string, width: number): string[] {
     // Headers
     const headerMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (headerMatch) {
-      flushParagraph();
       const level = headerMatch[1]!.length;
       const text = processInline(headerMatch[2]!);
       // Blank line before heading (unless first line)
@@ -104,7 +94,6 @@ export function renderMarkdown(md: string, width: number): string[] {
 
     // Blockquote
     if (line.startsWith("> ") || line === ">") {
-      flushParagraph();
       const content = line.slice(2);
       const wrapped = wrapText(processInline(content), width - 4);
       for (const wl of wrapped) {
@@ -116,13 +105,12 @@ export function renderMarkdown(md: string, width: number): string[] {
     // Bullet list
     const bulletMatch = line.match(/^(\s*)[-*+]\s+(.+)/);
     if (bulletMatch) {
-      flushParagraph();
       const indent = bulletMatch[1]!;
       const text = bulletMatch[2]!;
       const bulletIndent = indent + "  ";
       const wrapped = wrapText(processInline(text), width - bulletIndent.length - 2);
       wrapped.forEach((wl, i) => {
-        const prefix = i === 0 ? bulletIndent + ctp.overlay0("• ") : bulletIndent + "  ";
+        const prefix = i === 0 ? bulletIndent + ctp.overlay0(ICONS.bullet + " ") : bulletIndent + "  ";
         result.push(prefix + wl);
       });
       continue;
@@ -131,7 +119,6 @@ export function renderMarkdown(md: string, width: number): string[] {
     // Numbered list
     const numMatch = line.match(/^(\s*)(\d+)\.\s+(.+)/);
     if (numMatch) {
-      flushParagraph();
       const indent = numMatch[1]!;
       const num = numMatch[2]!;
       const text = numMatch[3]!;
@@ -146,7 +133,6 @@ export function renderMarkdown(md: string, width: number): string[] {
 
     // Table row — collect consecutive pipe-delimited lines
     if (/^\|.+\|$/.test(line.trim())) {
-      flushParagraph();
       tableLines.push(line.trim());
       continue;
     }
@@ -158,19 +144,16 @@ export function renderMarkdown(md: string, width: number): string[] {
       // Fall through to process current line normally
     }
 
-    // Empty line — flush paragraph buffer and collapse blanks
+    // Empty line — collapse consecutive blanks to a single blank
     if (line.trim() === "") {
-      flushParagraph();
       ensureBlankLine(result);
       continue;
     }
 
-    // Regular paragraph — buffer consecutive lines for reflow
-    paragraphBuffer.push(processInline(line));
+    // Regular paragraph
+    const processed = processInline(line);
+    result.push(...wrapText(processed, width));
   }
-
-  // Flush any remaining paragraph text
-  flushParagraph();
 
   // Flush remaining table lines
   if (tableLines.length > 0) {
@@ -331,11 +314,11 @@ function processInline(text: string): string {
   result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_match, t: string) => italic(t));
 
   // Strikethrough: ~~text~~
-  result = result.replace(/~~(.+?)~~/g, (_match, t: string) => `\x1b[9m${t}\x1b[29m`);
+  result = result.replace(/~~(.+?)~~/g, (_match, t: string) => strikethrough(t));
 
   // Links: [text](url)
   result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text: string, url: string) => {
-    return `\x1b]8;;${url}\x1b\\${defaultTheme.markdown.link(text)}\x1b]8;;\x1b\\`;
+    return hyperlink(url, defaultTheme.markdown.link(text));
   });
 
   return result;

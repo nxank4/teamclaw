@@ -95,6 +95,10 @@ export class TUI {
   onModeAction?: (action: string) => void;
   /** Called to jump scroll to a prompt boundary. Returns the total content lines at that prompt. */
   onScrollToPrompt?: (direction: "prev" | "next") => number | null;
+  /** Called when Ctrl+, or app.settings is triggered. */
+  onOpenSettings?: () => void;
+  /** Called when Ctrl+t toggles all tool call details. */
+  onToggleAllToolCalls?: () => boolean;
   /** Called to toggle collapse on the message currently in view. */
   onToggleCollapse?: () => boolean;
   /** Called when scroll position changes. */
@@ -757,6 +761,7 @@ export class TUI {
   private handleAppAction(action: ActionId, _event: KeyEvent): boolean {
     if (action === "app.quit") { this.gracefulExit(); return true; }
     if (action === "app.abort") { this.handleCtrlC(); return true; }
+    if (action === "app.settings") { this.onOpenSettings?.(); return true; }
     if (action === "app.cancel" && this.keyHandlerStack.length > 0) {
       this.keyHandlerStack[this.keyHandlerStack.length - 1]!.handleKey({ type: "escape" });
       this.requestRender();
@@ -818,6 +823,12 @@ export class TUI {
     }
     if (action === "messages.collapse.toggle") {
       if (this.onToggleCollapse?.()) {
+        this.requestRender();
+      }
+      return true;
+    }
+    if (action === "messages.toolCalls.toggleAll") {
+      if (this.onToggleAllToolCalls?.()) {
         this.requestRender();
       }
       return true;

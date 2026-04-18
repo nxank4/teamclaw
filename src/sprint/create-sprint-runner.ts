@@ -9,6 +9,7 @@ import { getProjectContext } from "../context/project-context.js";
 import type { AgentRegistry } from "../router/agent-registry.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { ToolExecutor } from "../tools/executor.js";
+import { formatInputSummary } from "../utils/formatters.js";
 
 export interface CreateSprintRunnerOptions {
   agents: AgentRegistry;
@@ -22,8 +23,13 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
   return new (class extends SprintRunner {
     protected override async runAgent(
       agentName: string,
-      runOpts: { prompt: string; signal: AbortSignal },
-    ): Promise<string> {
+      runOpts: { prompt: string; signal: AbortSignal; taskIndex?: number },
+    ): Promise<{ text: string; usage: { input: number; output: number } }> {
+      // Capture cwd once at entry — avoids stale/racy process.cwd() in callbacks
+      const workingDirectory = process.cwd();
+      // Capture taskIndex so handleTool attributes to the correct task under
+      // parallel execution (see recordToolCall in sprint-runner.ts).
+      const capturedTaskIndex = runOpts.taskIndex;
       const agent = this.agents.get(agentName);
       if (!agent) {
         throw new Error(`Unknown agent: ${agentName}`);
@@ -56,21 +62,21 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
         const toolList = nativeTools
           .map((t) => `- ${t.function.name}: ${t.function.description}`)
           .join("\n");
-        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands.\nWhen you need multiple independent operations (reading files, listing directories, writing files that don't depend on each other), request them all in a single response.`;
+        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${workingDirectory}\nUse tools directly. Never ask the user to paste code or run commands.\nWhen you need multiple independent operations (reading files, listing directories, writing files that don't depend on each other), request them all in a single response.`;
       }
 
       const response = await callLLMMultiTurn({
         systemPrompt,
         userMessage: runOpts.prompt,
+        source: `sprint:${agentName}`,
         nativeTools: hasTools ? nativeTools : undefined,
         handleTool: async (name, args) => {
           if (!toolExecutor) return "Tool execution not available";
 
           const execId = `sprint_tc_${Date.now()}`;
-          const inputSummary = `${name}(${JSON.stringify(args).slice(0, 100)})`;
+          const inputSummary = formatInputSummary(name, args as Record<string, unknown>);
           const startTime = Date.now();
 
-          this.recordToolCall(name);
           this.emit(SprintEvent.AgentTool, {
             agentName,
             toolName: name,
@@ -81,7 +87,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
           const result = await toolExecutor.execute(name, args, {
             agentId: agentName,
             sessionId: "sprint",
-            workingDirectory: process.cwd(),
+            workingDirectory,
             abortSignal: runOpts.signal,
           });
 
@@ -90,14 +96,20 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
           if (result.isOk()) {
             const data = result.value.data as Record<string, unknown> | undefined;
             const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
+            const shell = name === "shell_exec" && data
+              ? { exitCode: data.exitCode as number | undefined, stderrHead: typeof data.stderr === "string" ? (data.stderr as string).slice(0, 200) : undefined }
+              : undefined;
+            const callSuccess = result.value.success;
+            this.recordToolCall(name, shell ? { exitCode: shell.exitCode, stderrHead: shell.stderrHead } : undefined, capturedTaskIndex);
             this.emit(SprintEvent.AgentTool, {
               agentName,
               toolName: name,
-              status: "completed",
-              details: { executionId: execId, duration, outputSummary: result.value.summary.slice(0, 200), success: true, diff },
+              status: callSuccess ? "completed" : "failed",
+              details: { executionId: execId, duration, outputSummary: result.value.summary.slice(0, 200), success: callSuccess, diff, exitCode: shell?.exitCode, stderrHead: shell?.stderrHead },
             });
             return result.value.summary;
           }
+          this.recordToolCall(name);
 
           const errMsg = `${result.error.type} — ${result.error.toolName}`;
           this.emit(SprintEvent.AgentTool, {
@@ -115,7 +127,7 @@ export function createSprintRunner(opts: CreateSprintRunnerOptions): SprintRunne
         maxTurns: 10,
       });
 
-      return response.text;
+      return { text: response.text, usage: response.usage };
     }
   })(agents);
 }

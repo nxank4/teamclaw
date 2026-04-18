@@ -4,6 +4,8 @@
  * from the registry, and emits events for TUI rendering.
  */
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import type { AgentRegistry } from "../router/agent-registry.js";
 import type { SprintTask, SprintState, SprintResult, SprintOptions, SprintEventMap, SprintTeamContext } from "./types.js";
 import { mapTemplateRoleToAgent } from "./team-resolver.js";
@@ -12,6 +14,8 @@ import { parseTasks } from "./task-parser.js";
 import { validatePlan, reorderSetupFirst } from "./plan-validator.js";
 import { profileMeasure } from "../telemetry/profiler.js";
 import { resolveModelForAgent } from "../core/model-config.js";
+import { debugLog, isDebugEnabled, truncateStr, TRUNCATION } from "../debug/logger.js";
+import { classifyTask, type ErrorKind } from "./error-classify.js";
 
 const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeamContext, lessons?: string[]) => {
   let prompt =
@@ -39,7 +43,8 @@ const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeam
     `4. NO ASSUMED LIBRARIES: Only use technologies explicitly mentioned in the goal. ` +
     `If the goal says PostgreSQL, use pg driver directly, not an ORM unless specified. ` +
     `If the goal doesn't specify a library for something, use the simplest built-in approach.\n` +
-    `5. SPECIFICITY: Each task must name the exact file path, what it should contain, and the technology to use.\n` +
+    `5. SPECIFICITY: Each task must name the exact file path relative to the working directory root, what it should contain, and the technology to use. ` +
+    `File paths must NOT include the project folder name — the agent's cwd is already inside it. Use "src/index.ts" NOT "my-project/src/index.ts".\n` +
     `6. TECH CONSTRAINTS: Every task description MUST repeat the specific technologies from the goal (database, framework, language, libraries). ` +
     `Example: "Implement auth routes using PostgreSQL for user storage, bcrypt for passwords, Zod for validation" — NOT just "Implement auth routes".\n` +
     `7. WORKER-READY: Each task must include enough detail for a coder to implement without re-reading the full plan: ` +
@@ -49,7 +54,15 @@ const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeam
     `9. NO QUESTIONS AS TASKS: NEVER output clarification questions as tasks. Every task description must start with an action verb ` +
     `(Create, Implement, Write, Set up, Configure, Build, Add, Install, Test, Deploy). ` +
     `If the goal is too vague to decompose into actionable tasks, respond with EXACTLY:\n` +
-    `NEEDS_CLARIFICATION: followed by your questions, one per line. Do NOT wrap questions in JSON or task format.\n\n`;
+    `NEEDS_CLARIFICATION: followed by your questions, one per line. Do NOT wrap questions in JSON or task format.\n\n` +
+    `AGENT ASSIGNMENT:\n` +
+    `Tag each task with the "agent" field. Valid values: coder, reviewer, tester, debugger, researcher. ` +
+    `NEVER assign a task to "planner" — planner decomposes goals, it does not execute them. ` +
+    `Use "coder" by default for write/implementation tasks (most tasks). ` +
+    `Use "tester" for tasks that only write tests. ` +
+    `Use "researcher" for tasks that only read/search. ` +
+    `Use "reviewer" for tasks that only read existing code and report. ` +
+    `Use "debugger" only for tasks that explicitly diagnose a failure.\n\n`;
 
   if (teamContext) {
     const agentList = teamContext.agents
@@ -67,7 +80,7 @@ const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeam
   } else {
     prompt +=
       `Output as a JSON array:\n` +
-      `[{"description": "...", "dependsOn": []}, {"description": "...", "dependsOn": [1]}]\n\n`;
+      `[{"description": "...", "agent": "coder", "dependsOn": []}, {"description": "...", "agent": "tester", "dependsOn": [1]}]\n\n`;
   }
 
   if (lessons && lessons.length > 0) {
@@ -82,6 +95,51 @@ const PLANNER_PROMPT = (goal: string, maxTasks: number, teamContext?: SprintTeam
   return prompt;
 };
 
+/**
+ * Build the "Files already created" block for the task prompt. Cold-starts
+ * between coder tasks previously caused the same file (e.g. `src/types.ts`)
+ * to be re-read on every task; injecting a compact known-paths digest
+ * lets later tasks reference prior files without re-discovery.
+ *
+ * Contract: empty string when no prior task produced an on-disk file;
+ * otherwise a block bounded by `KNOWN_FILES_BUDGET` chars regardless of
+ * prior task count (tail summarized with "…+N more").
+ */
+const KNOWN_FILES_BUDGET = 500;
+
+export function buildKnownFilesBlock(state: SprintState, cwd: string = process.cwd()): string {
+  const entries: Array<{ path: string; hint: string }> = [];
+  const seen = new Set<string>();
+  for (const t of state.tasks) {
+    if (t.status !== "completed") continue;
+    const matches = t.description.match(FILE_PATH_REGEX);
+    if (!matches) continue;
+    for (const rel of matches) {
+      if (seen.has(rel)) continue;
+      const abs = isAbsolute(rel) ? rel : join(cwd, rel);
+      if (!existsSync(abs)) continue;
+      seen.add(rel);
+      entries.push({ path: rel, hint: t.description.slice(0, 100).replace(/\s+/g, " ").trim() });
+    }
+  }
+  if (entries.length === 0) return "";
+
+  const header = "Files already created (use these — do not re-read unless you must):\n";
+  const lines: string[] = [];
+  let bytes = header.length;
+  let idx = 0;
+  for (; idx < entries.length; idx++) {
+    const e = entries[idx]!;
+    const line = `- ${e.path} — ${e.hint}\n`;
+    if (bytes + line.length > KNOWN_FILES_BUDGET) break;
+    lines.push(line);
+    bytes += line.length;
+  }
+  const remaining = entries.length - idx;
+  if (remaining > 0) lines.push(`- …+${remaining} more\n`);
+  return "\n\n" + header + lines.join("");
+}
+
 const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
   const context = state.tasks
     .filter((t) => (t.status === "completed" || (t.status === "failed" && t.result)) && t.result)
@@ -91,7 +149,8 @@ const TASK_PROMPT = (task: SprintTask, state: SprintState) => {
     })
     .join("\n");
   const prior = context ? `\n\nPrior work:\n${context}` : "";
-  return `Goal: ${state.goal}\n\nYour task: ${task.description}${prior}\n\nWorking directory: ${process.cwd()}`;
+  const knownFiles = buildKnownFilesBlock(state);
+  return `Goal: ${state.goal}\n\nYour task: ${task.description}${prior}${knownFiles}\n\nWorking directory: ${process.cwd()}`;
 };
 
 /**
@@ -109,10 +168,31 @@ function isSmallModel(modelId: string): boolean {
   return SMALL_MODEL_PATTERNS.some((p) => p.test(modelId));
 }
 
-/** Keywords in task descriptions that imply the agent must write/modify files. */
-const WRITE_INTENT_KEYWORDS = ["create", "build", "implement", "write", "add", "generate", "set up", "setup", "configure", "install"];
-/** Tools that constitute a write action. */
-const WRITE_TOOLS = new Set(["file_write", "file_edit", "shell_exec"]);
+/**
+ * Keywords in task descriptions that imply the agent must write/modify files.
+ * Ambiguous words ("install", "setup", "configure") previously lived here but
+ * triggered validation on no-op tasks like `npm install`, so they are dropped.
+ * False negatives (missing a write-intent task) are preferred over false
+ * positives (retrying a no-op task).
+ */
+const WRITE_INTENT_KEYWORDS = ["create", "build", "implement", "write", "add", "generate"];
+
+/**
+ * Tools that constitute a write action. `shell_exec` is intentionally excluded
+ * because it has too many non-write uses (`ls`, `cat`, `which`, test runners)
+ * and counting it previously let tasks pass validation without producing any
+ * file. Tasks that legitimately only need shell (e.g. "run tests") should
+ * have descriptions without WRITE_INTENT_KEYWORDS, causing `taskExpectsWrite`
+ * to return false.
+ */
+const WRITE_TOOLS = new Set(["file_write", "file_edit"]);
+
+/**
+ * Match file paths mentioned in task descriptions. Covers relative paths
+ * (`src/foo.ts`), bare filenames with extensions (`package.json`,
+ * `README.md`), and nested paths (`src/__tests__/bar.test.ts`).
+ */
+const FILE_PATH_REGEX = /\b[\w.-]+(?:\/[\w.-]+)+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|sh|py|rs|go|html|css|txt|lock)\b|\b(?:package\.json|tsconfig\.json|README\.md|CHANGELOG\.md|\.gitignore|LICENSE|[\w-]+\.(?:ts|tsx|js|jsx|md|yml|yaml|toml|sh|py|rs|go))\b/g;
 
 /** Extract clarification questions if planner responded with NEEDS_CLARIFICATION. */
 function extractClarification(response: string): string[] | null {
@@ -162,6 +242,8 @@ export class SprintRunner extends EventEmitter {
     startedAt: new Date().toISOString(),
     completedTasks: 0,
     failedTasks: 0,
+    inputTokens: 0,
+    outputTokens: 0,
   };
   private abortController: AbortController | null = null;
   private paused = false;
@@ -184,6 +266,8 @@ export class SprintRunner extends EventEmitter {
       startedAt: new Date().toISOString(),
       completedTasks: 0,
       failedTasks: 0,
+      inputTokens: 0,
+      outputTokens: 0,
     };
     this.emitTyped("sprint:start", { goal });
 
@@ -212,12 +296,19 @@ export class SprintRunner extends EventEmitter {
     this.emitTyped("sprint:planning", undefined);
     let planResponse: string;
     try {
-      planResponse = await profileMeasure("sprint_planning", goal.slice(0, 40), () =>
+      const raw = await profileMeasure("sprint_planning", goal.slice(0, 40), () =>
         this.runAgent("planner", {
           prompt: PLANNER_PROMPT(goal, options?.maxTasks ?? 10, this.teamContext, options?.lessons),
           signal: this.abortController!.signal,
         }),
       );
+      if (typeof raw === "string") {
+        planResponse = raw;
+      } else {
+        planResponse = raw.text;
+        this.state.inputTokens += raw.usage.input;
+        this.state.outputTokens += raw.usage.output;
+      }
     } catch (err) {
       this.state.phase = "stopped";
       const error = err instanceof Error ? err : new Error(String(err));
@@ -235,7 +326,17 @@ export class SprintRunner extends EventEmitter {
     this.state.tasks = parseTasks(planResponse);
 
     // Validate tasks — filter out questions and invalid entries
+    const _preFilterCount = this.state.tasks.length;
     this.state.tasks = filterInvalidTasks(this.state.tasks);
+    if (isDebugEnabled() && _preFilterCount !== this.state.tasks.length) {
+      debugLog("info", "sprint", "sprint:task_validation", {
+        data: {
+          beforeCount: _preFilterCount,
+          afterCount: this.state.tasks.length,
+          filtered: _preFilterCount - this.state.tasks.length,
+        },
+      });
+    }
     if (this.state.tasks.length === 0) {
       // All tasks were invalid (likely all questions) — treat as needs clarification
       this.state.phase = "stopped";
@@ -263,6 +364,17 @@ export class SprintRunner extends EventEmitter {
     const maxConcurrency = options?.maxConcurrency ?? 3;
     const tasks = this.state.tasks;
     const useParallel = tasks.length >= 3 && tasks.some((t) => t.dependsOn && t.dependsOn.length > 0);
+
+    // Debug: log task dependency graph and execution mode
+    if (isDebugEnabled()) {
+      const depGraph: Record<string, number[]> = {};
+      for (const t of tasks) {
+        depGraph[t.id] = t.dependsOn ?? [];
+      }
+      debugLog("info", "sprint", "sprint:dependency_graph", {
+        data: { depGraph, executionMode: useParallel ? "parallel" : "sequential", maxConcurrency },
+      });
+    }
 
     if (useParallel) {
       await this.executeParallel(tasks, maxConcurrency);
@@ -324,7 +436,7 @@ export class SprintRunner extends EventEmitter {
         task.status = "failed";
         task.error = "Skipped: dependency produced no output";
         this.state.failedTasks++;
-        this.emitTyped("sprint:task:complete", { task });
+        this.emitTyped("sprint:task:complete", { task, taskIndex: i + 1, totalTasks: this.state.tasks.length });
         continue;
       }
 
@@ -367,7 +479,7 @@ export class SprintRunner extends EventEmitter {
             task.status = "failed";
             task.error = "Skipped: dependency produced no output";
             this.state.failedTasks++;
-            this.emitTyped("sprint:task:complete", { task });
+            this.emitTyped("sprint:task:complete", { task, taskIndex: i + 1, totalTasks: tasks.length });
             continue;
           }
           // Dep failed but produced partial output — allow this task to attempt
@@ -428,40 +540,116 @@ export class SprintRunner extends EventEmitter {
     this.state.currentTaskIndex = index;
     const agentName = this.assignAgent(task);
     task.assignedAgent = agentName;
+
+    // Debug: log task assignment
+    if (isDebugEnabled()) {
+      debugLog("info", "sprint", "sprint:task_assignment", {
+        data: {
+          taskId: task.id,
+          agent: agentName,
+          description: truncateStr(task.description, 100),
+          hasTemplate: !!this.teamContext,
+        },
+      });
+    }
     task.status = "in_progress";
     task.toolsCalled = [];
+    task.toolCallResults = [];
     this.emitTyped("sprint:task:start", { task, agentName });
 
     try {
-      const result = await profileMeasure("sprint_task", `task_${index + 1}_${agentName}`, () =>
+      const raw = await profileMeasure("sprint_task", `task_${index + 1}_${agentName}`, () =>
         this.runAgent(agentName, {
           prompt: TASK_PROMPT(task, this.state),
           signal: this.abortController!.signal,
+          taskIndex: index,
         }),
       );
-      task.result = result;
+
+      // Extract text + usage from new return shape (backward-compat with plain string)
+      if (typeof raw === "string") {
+        task.result = raw;
+      } else {
+        task.result = raw.text;
+        this.state.inputTokens += raw.usage.input;
+        this.state.outputTokens += raw.usage.output;
+      }
 
       if (this.taskExpectsWrite(task) && !this.taskDidWrite(task)) {
         task.status = "incomplete";
-        task.error = "Task expects file creation/modification but agent only performed read operations";
+        const shellFail = this.lastShellFailure(task);
+        task.error = shellFail
+          ? `Task expects file creation/modification but last shell_exec failed with exit ${shellFail.exitCode}${shellFail.stderrHead ? `: ${shellFail.stderrHead}` : ""}`
+          : "Task expects file creation/modification but agent only performed read operations";
         this.state.failedTasks++;
+      } else if (this.taskExpectsWrite(task)) {
+        // Belt-and-suspenders: task says "create src/foo.ts" and the agent
+        // called a write tool, but did the file actually land? Catches cases
+        // where the agent wrote to the wrong path.
+        const missing = this.missingDescribedFiles(task);
+        if (missing.length > 0) {
+          task.status = "incomplete";
+          task.error = `Task described creating ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ` (+${missing.length - 3} more)` : ""} but file${missing.length === 1 ? " does" : "s do"} not exist`;
+          this.state.failedTasks++;
+        } else {
+          task.status = "completed";
+          this.state.completedTasks++;
+        }
       } else {
         task.status = "completed";
         this.state.completedTasks++;
       }
     } catch (err) {
       task.status = "failed";
-      task.error = err instanceof Error ? err.message : String(err);
+      const base = err instanceof Error ? err.message : String(err);
+      const shellFail = this.lastShellFailure(task);
+      task.error = shellFail ? `${base} (last shell exit ${shellFail.exitCode})` : base;
       this.state.failedTasks++;
     }
-    this.emitTyped("sprint:task:complete", { task });
+    this.emitTyped("sprint:task:complete", { task, taskIndex: index + 1, totalTasks: this.state.tasks.length });
   }
 
-  /** Check if a failed task is worth retrying (not timeout, not skip, not abort). */
+  /**
+   * Decide whether a failed task should be retried. Structured classifier
+   * (error-classify.ts) is consulted first — env_* and timeout kinds skip
+   * retry because the same agent in the same environment cannot recover.
+   * Falls back to string-based exclusions for pre-PR-#76 edge cases.
+   */
   private isRetriable(task: SprintTask): boolean {
     const err = task.error ?? "";
-    return !err.includes("timeout") && !err.includes("Timed out")
-      && !err.includes("Skipped:") && !err.includes("aborted");
+
+    // Hard exclusions — abort and dependency-skip are terminal regardless of kind
+    if (err.includes("Skipped:") || err.includes("aborted")) return false;
+
+    const { kind, signal } = classifyTask(task);
+    const nonRetriableKinds: ErrorKind[] = [
+      "env_command_not_found",
+      "env_missing_dep",
+      "env_perm",
+      "env_port_in_use",
+      "timeout",
+    ];
+    const willRetry = !nonRetriableKinds.includes(kind);
+
+    if (isDebugEnabled()) {
+      debugLog("info", "sprint", "sprint:retry_gate", {
+        data: {
+          taskId: task.id,
+          kind,
+          signal,
+          willRetry,
+          errorHead: truncateStr(err, 120),
+        },
+      });
+    }
+
+    if (!willRetry) return false;
+
+    // Fallback string-based exclusions for cases where the classifier
+    // returned "unknown" but the error text still looks terminal.
+    if (err.includes("timeout") || err.includes("Timed out")) return false;
+
+    return true;
   }
 
   /** Retry a failed task once with error context appended. */
@@ -469,11 +657,23 @@ export class SprintRunner extends EventEmitter {
     const origError = task.error ?? "unknown";
     const origDesc = task.description;
 
+    // Debug: log retry attempt
+    if (isDebugEnabled()) {
+      debugLog("info", "sprint", "sprint:task_retry", {
+        data: {
+          taskId: task.id,
+          originalError: truncateStr(origError, TRUNCATION.goalText),
+          taskIndex: index,
+        },
+      });
+    }
+
     // Reset task state
     task.status = "pending";
     task.error = undefined;
     task.result = undefined;
     task.toolsCalled = [];
+    task.toolCallResults = [];
     this.state.failedTasks--;
 
     this.emitTyped("sprint:warning", {
@@ -494,19 +694,32 @@ export class SprintRunner extends EventEmitter {
   /** Override in subclass or mock for testing. */
   protected async runAgent(
     _agentName: string,
-    _opts: { prompt: string; signal: AbortSignal },
-  ): Promise<string> {
+    _opts: { prompt: string; signal: AbortSignal; taskIndex?: number },
+  ): Promise<string | { text: string; usage: { input: number; output: number } }> {
     throw new Error("runAgent must be wired to LLM before calling run()");
   }
 
-  /** Record a tool call for the currently executing task. */
-  recordToolCall(toolName: string): void {
-    const task = this.state.tasks[this.state.currentTaskIndex];
+  /**
+   * Record a tool call for a task. When `taskIndex` is given, attribute to
+   * that task directly — required under parallel execution, where the shared
+   * `state.currentTaskIndex` races between concurrent `executeTask` frames.
+   * Falls back to `currentTaskIndex` for sequential callers that don't thread
+   * the index.
+   */
+  recordToolCall(
+    toolName: string,
+    info?: { exitCode?: number; stderrHead?: string },
+    taskIndex?: number,
+  ): void {
+    const idx = taskIndex ?? this.state.currentTaskIndex;
+    const task = this.state.tasks[idx];
     if (task && task.status === "in_progress") {
       task.toolsCalled ??= [];
       if (!task.toolsCalled.includes(toolName)) {
         task.toolsCalled.push(toolName);
       }
+      task.toolCallResults ??= [];
+      task.toolCallResults.push({ name: toolName, exitCode: info?.exitCode, stderrHead: info?.stderrHead });
     }
   }
 
@@ -521,7 +734,65 @@ export class SprintRunner extends EventEmitter {
     return (task.toolsCalled ?? []).some((t) => WRITE_TOOLS.has(t));
   }
 
+  /**
+   * Return file paths the task description mentioned that do not currently
+   * exist on disk. Empty when the description names no paths or all of them
+   * exist. Used as a final gate after `taskDidWrite` — catches agents that
+   * wrote to the wrong location.
+   */
+  private missingDescribedFiles(task: SprintTask): string[] {
+    const matches = task.description.match(FILE_PATH_REGEX);
+    if (!matches || matches.length === 0) return [];
+    const cwd = process.cwd();
+    const missing: string[] = [];
+    const seen = new Set<string>();
+    for (const rel of matches) {
+      if (seen.has(rel)) continue;
+      seen.add(rel);
+      const abs = isAbsolute(rel) ? rel : join(cwd, rel);
+      if (!existsSync(abs)) missing.push(rel);
+    }
+    return missing;
+  }
+
+  /** Find the last shell_exec call that returned a non-zero exit code, if any. */
+  private lastShellFailure(task: SprintTask): { exitCode: number; stderrHead?: string } | undefined {
+    const results = task.toolCallResults ?? [];
+    for (let i = results.length - 1; i >= 0; i--) {
+      const r = results[i]!;
+      if (r.name === "shell_exec" && typeof r.exitCode === "number" && r.exitCode !== 0) {
+        return { exitCode: r.exitCode, stderrHead: r.stderrHead };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Guard against planner self-assignment for write-intent tasks. The planner
+   * agent's defaultTools exclude file_write/file_edit, so honoring a planner
+   * tag on a write-intent task guarantees the task fails PR #82 validation.
+   * Downgrade to coder and log a warning. See
+   * docs/debug/planner-misassignment-diagnosis.md for the post-PR-82 trace.
+   */
+  private downgradePlannerOnWrite(task: SprintTask): void {
+    if (task.assignedAgent === "planner" && this.taskExpectsWrite(task)) {
+      if (isDebugEnabled()) {
+        debugLog("warn", "sprint", "sprint:agent_downgrade", {
+          data: {
+            taskId: task.id,
+            from: "planner",
+            to: "coder",
+            reason: "planner lacks write tools for write-intent task",
+            description: truncateStr(task.description, 120),
+          },
+        });
+      }
+      task.assignedAgent = "coder";
+    }
+  }
+
   protected assignAgent(task: SprintTask): string {
+    this.downgradePlannerOnWrite(task);
     // Template mode: use planner-assigned role or map template roles
     if (this.teamContext) {
       // If planner tagged the task with an agent role, map it
@@ -556,6 +827,8 @@ export class SprintRunner extends EventEmitter {
       completedTasks: this.state.completedTasks,
       failedTasks: this.state.failedTasks,
       duration: Date.now() - startTime,
+      inputTokens: this.state.inputTokens,
+      outputTokens: this.state.outputTokens,
     };
   }
 

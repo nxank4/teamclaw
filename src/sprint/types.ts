@@ -2,6 +2,15 @@
  * Sprint mode types — lightweight autonomous task orchestration.
  */
 
+export interface SprintToolCallResult {
+  /** Tool name. */
+  name: string;
+  /** Shell exit code for shell_exec (and tools that wrap it). */
+  exitCode?: number;
+  /** First ~200 chars of stderr for shell_exec. */
+  stderrHead?: string;
+}
+
 export interface SprintTask {
   id: string;
   description: string;
@@ -9,8 +18,10 @@ export interface SprintTask {
   assignedAgent?: string;
   result?: string;
   error?: string;
-  /** Tool names called during this task's execution. */
+  /** Tool names called during this task's execution (deduped). */
   toolsCalled?: string[];
+  /** Per-call tool results with structured metadata (exit code, stderr head). Not deduped. */
+  toolCallResults?: SprintToolCallResult[];
   /** 1-based task indices that must complete before this task can start. */
   dependsOn?: number[];
 }
@@ -25,6 +36,8 @@ export interface SprintState {
   startedAt: string;
   completedTasks: number;
   failedTasks: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface SprintResult {
@@ -33,6 +46,8 @@ export interface SprintResult {
   completedTasks: number;
   failedTasks: number;
   duration: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface SprintTeamContext {
@@ -61,7 +76,7 @@ export interface SprintEventMap {
   "sprint:round:start": { round: number; tasks: SprintTask[] };
   "sprint:round:complete": { round: number; duration: number };
   "sprint:task:start": { task: SprintTask; agentName: string };
-  "sprint:task:complete": { task: SprintTask };
+  "sprint:task:complete": { task: SprintTask; taskIndex?: number; totalTasks?: number };
   "sprint:agent:token": { agentName: string; token: string };
   "sprint:agent:tool": {
     agentName: string;
