@@ -95,7 +95,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
-    "typescript": "~5.9.3"
+    "typescript": "~6.0.3"
   },
   "bugs": {
     "url": "https://github.com/codepawl/openpawl/issues"
