@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenPawl orchestrates AI agent teams for coding tasks via a TUI. Two app
 modes: **solo** (single agent) and **crew** (multi-agent — scaffolding
-removed in `2a22da9`, full implementation in progress on
-`chore/nuke-sprint-scaffold-crew`). Memory persists across sessions via
+removed in `2a22da9` (PR #99); crew design spec at `dc305c9`,
+implementation pending). Memory persists across sessions via
 LanceDB. Decision journal, drift detection, post-mortem learning, and
 session briefing keep context alive between runs.
 
@@ -131,7 +131,7 @@ Primary interactive entry point is `openpawl work` (alias for the TUI session).
 - **Solo**: prompt → single agent → tools → response
 - **Crew**: multi-agent — `prompt-router.ts` currently rejects with "Crew mode not yet implemented" until the new scaffold lands
 
-Shift+Tab cycles modes. The legacy `collab` and `sprint` modes were removed in commit `2a22da9` (`chore(crew): nuke sprint and collab scaffolding`); README still references them but the code does not.
+Shift+Tab cycles modes. The legacy `collab` and `sprint` modes were removed in commit `2a22da9` (`chore(crew): nuke sprint and collab scaffolding`).
 
 ## Code Style
 
