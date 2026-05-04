@@ -15,6 +15,8 @@
 
 import { z } from "zod";
 
+import { CrewPhaseSchema, CrewTaskSchema } from "../types.js";
+
 export const ARTIFACT_KINDS = [
   "plan",
   "phase_summary",
@@ -31,19 +33,32 @@ export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 
 // ── Per-kind payload schemas ────────────────────────────────────────────
 
+/**
+ * Per spec §4.6: PlanArtifact payload is the Planner's flat decomposition
+ * — phases keep id/name/complexity_tier metadata, tasks are top-level
+ * with phase_id back-reference. The Planner's reasoning lives in
+ * `rationale`. Full task descriptions, status, file lists, etc. live on
+ * the `CrewGraphState.phases[].tasks` runtime view, not here.
+ */
 export const PlanArtifactPayloadSchema = z.object({
-  goal: z.string().min(1),
   phases: z
     .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        description: z.string(),
-        task_ids: z.array(z.string()).default([]),
+      CrewPhaseSchema.pick({
+        id: true,
+        name: true,
+        complexity_tier: true,
       }),
     )
     .min(1),
-  rationale: z.string().optional(),
+  tasks: z.array(
+    CrewTaskSchema.pick({
+      id: true,
+      phase_id: true,
+      assigned_agent: true,
+      depends_on: true,
+    }),
+  ),
+  rationale: z.string(),
 });
 export type PlanArtifactPayload = z.infer<typeof PlanArtifactPayloadSchema>;
 
