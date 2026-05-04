@@ -33,10 +33,16 @@ function planArtifact(id: string, overrides: Partial<PlanArtifact> = {}): PlanAr
     created_at: 1700000000000,
     supersedes: null,
     payload: {
-      goal: "Build a thing",
-      phases: [
-        { id: "p1", name: "Scaffold", description: "Create files", task_ids: ["t1"] },
+      phases: [{ id: "p1", name: "Scaffold", complexity_tier: "1" }],
+      tasks: [
+        {
+          id: "t1",
+          phase_id: "p1",
+          assigned_agent: "coder",
+          depends_on: [],
+        },
       ],
+      rationale: "Build the thing in one phase.",
     },
     ...overrides,
   };
@@ -140,15 +146,14 @@ describe("ArtifactStore", () => {
 
     const v2 = planArtifact("plan2", {
       payload: {
-        goal: "Build a thing",
         phases: [
-          {
-            id: "p1",
-            name: "Scaffold (revised)",
-            description: "Create files + lint",
-            task_ids: ["t1", "t2"],
-          },
+          { id: "p1", name: "Scaffold (revised)", complexity_tier: "2" },
         ],
+        tasks: [
+          { id: "t1", phase_id: "p1", assigned_agent: "coder", depends_on: [] },
+          { id: "t2", phase_id: "p1", assigned_agent: "tester", depends_on: ["t1"] },
+        ],
+        rationale: "Revised: add lint step.",
       },
     });
     const result = store.supersede("plan1", v2, "planner");
@@ -206,7 +211,7 @@ describe("ArtifactStore", () => {
       phase_id: null,
       created_at: 1,
       supersedes: null,
-      payload: { goal: "", phases: [] },
+      payload: { phases: [], tasks: [], rationale: "" },
     } as unknown as PlanArtifact;
     const r = store.write(bad, "planner");
     expect(r.written).toBe(false);
