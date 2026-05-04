@@ -64,13 +64,38 @@ export interface SubagentError {
   message: string;
 }
 
+/**
+ * Public return contract per spec §5.6. Exactly:
+ *   - summary: 1-3 paragraphs, what was done + key findings
+ *   - produced_artifacts: ids the caller should persist
+ *   - tokens_used: total (input + output) for budget accounting
+ *
+ * `tokens_breakdown` is an opt-in extension field — not in the spec
+ * contract — that exposes the input/output split for callers that need
+ * it (UI status bars, profiling). Always populated.
+ *
+ * Internal-only signals (agent_id, per-tool errors, full tool-call list)
+ * are not on the return type. They flow out through the optional
+ * `onDebug` callback in {@link RunSubagentArgs}.
+ */
 export interface SubagentResult {
-  agent_id: string;
   summary: string;
   produced_artifacts: ArtifactId[];
-  tokens_used: { input: number; output: number };
+  tokens_used: number;
+  tokens_breakdown?: { input: number; output: number };
+}
+
+/**
+ * Internal-only diagnostic payload. Emitted via the `onDebug` callback
+ * (when supplied) and into the `subagent_returned` debug log entry. Not
+ * part of the public {@link SubagentResult} contract.
+ */
+export interface SubagentDebugInfo {
+  agent_id: string;
+  depth: number;
   errors: SubagentError[];
   tool_calls: ToolCallSummary[];
+  tokens_breakdown: { input: number; output: number };
 }
 
 export class SubagentDepthExceeded extends Error {
@@ -116,6 +141,13 @@ export interface RunSubagentArgs {
   model?: string;
   signal?: AbortSignal;
   maxTurns?: number;
+  /**
+   * Optional callback for internal diagnostics (per-tool errors,
+   * tool-call list, agent_id, breakdown). Production callers do not
+   * need to wire this — debug data also flows to the
+   * `subagent_returned` debug log entry.
+   */
+  onDebug?: (info: SubagentDebugInfo) => void;
   /** Per-call write-lock acquire timeout (ms). Defaults to `WriteLockManager`'s own default (30s). */
   lockTimeoutMs?: number;
   /** Test seam — defaults to the real {@link runAgentTurn}. */
@@ -172,6 +204,7 @@ export async function runSubagent(
     signal,
     maxTurns,
     lockTimeoutMs,
+    onDebug,
     runAgentTurnImpl = defaultRunAgentTurn,
   } = args;
 
@@ -313,35 +346,44 @@ export async function runSubagent(
     }
   }
 
-  const tokens_used = {
+  const tokens_breakdown = {
     input: result.usage.input,
     output: result.usage.output,
   };
+  const tokens_used = tokens_breakdown.input + tokens_breakdown.output;
 
-  if (tokens_used.output > token_budget.max_output) {
+  if (tokens_breakdown.output > token_budget.max_output) {
     errors.push({
       kind: "budget_exceeded",
-      message: `output token usage ${tokens_used.output} exceeded budget ${token_budget.max_output}`,
+      message: `output token usage ${tokens_breakdown.output} exceeded budget ${token_budget.max_output}`,
     });
   }
+
+  const debugInfo: SubagentDebugInfo = {
+    agent_id: agent_def.id,
+    depth,
+    errors,
+    tool_calls: result.toolCalls,
+    tokens_breakdown,
+  };
+  onDebug?.(debugInfo);
 
   debugLog("info", "crew", "subagent_returned", {
     data: {
       agent_id: agent_def.id,
       depth,
       tokens_used,
+      tokens_breakdown,
       tool_call_count: result.toolCalls.length,
       error_count: errors.length,
     },
   });
 
   return {
-    agent_id: agent_def.id,
     summary: result.text,
     // Orchestrator populates this after parsing summary + writing artifacts.
     produced_artifacts: [],
     tokens_used,
-    errors,
-    tool_calls: result.toolCalls,
+    tokens_breakdown,
   };
 }

@@ -9,6 +9,7 @@ import {
   SubagentDepthExceeded,
   runSubagent,
   type RunSubagentArgs,
+  type SubagentDebugInfo,
 } from "./subagent-runner.js";
 import { WriteLockManager } from "./write-lock.js";
 import type {
@@ -50,12 +51,23 @@ interface CapturedExecutor {
   preToolHookOutputs: (string | null)[];
 }
 
-/**
- * Build a stub `runAgentTurn` that:
- *   - calls the supplied preToolHook for each scripted tool call
- *   - if the hook returns null, calls the executor and records its return
- *   - returns a SubagentResult-shaped response
- */
+interface DebugCapture {
+  info: SubagentDebugInfo | null;
+}
+
+function captureDebug(): {
+  cap: DebugCapture;
+  onDebug: (info: SubagentDebugInfo) => void;
+} {
+  const cap: DebugCapture = { info: null };
+  return {
+    cap,
+    onDebug: (info) => {
+      cap.info = info;
+    },
+  };
+}
+
 function stubRunAgentTurn(
   scriptedCalls: Array<{ name: string; args: Record<string, unknown> }>,
   capture: CapturedExecutor,
@@ -114,16 +126,22 @@ describe("runSubagent — depth limit", () => {
   it("allows depth 0 and depth 1", async () => {
     const capture: CapturedExecutor = { args: [], preToolHookOutputs: [] };
     const stub = stubRunAgentTurn([], capture);
+    const a = captureDebug();
+    const b = captureDebug();
 
-    const r0 = await runSubagent(
-      makeArgs({ depth: 0, runAgentTurnImpl: stub }),
+    await runSubagent(
+      makeArgs({ depth: 0, runAgentTurnImpl: stub, onDebug: a.onDebug }),
     );
-    expect(r0.errors).toEqual([]);
+    expect(a.cap.info?.errors).toEqual([]);
 
-    const r1 = await runSubagent(
-      makeArgs({ depth: MAX_SUBAGENT_DEPTH, runAgentTurnImpl: stub }),
+    await runSubagent(
+      makeArgs({
+        depth: MAX_SUBAGENT_DEPTH,
+        runAgentTurnImpl: stub,
+        onDebug: b.onDebug,
+      }),
     );
-    expect(r1.errors).toEqual([]);
+    expect(b.cap.info?.errors).toEqual([]);
   });
 });
 
@@ -144,29 +162,32 @@ describe("runSubagent — token budget", () => {
     expect(caught).toBeInstanceOf(SubagentBudgetExceeded);
   });
 
-  it("admits a normal prompt under the default budget", async () => {
+  it("admits a normal prompt under the default budget — tokens_used is the sum", async () => {
     const capture: CapturedExecutor = { args: [], preToolHookOutputs: [] };
     const r = await runSubagent(
       makeArgs({
         runAgentTurnImpl: stubRunAgentTurn([], capture),
       }),
     );
-    expect(r.tokens_used).toEqual({ input: 100, output: 50 });
+    expect(r.tokens_used).toBe(150); // 100 input + 50 output
+    expect(r.tokens_breakdown).toEqual({ input: 100, output: 50 });
   });
 
-  it("flags an output budget overflow as a non-fatal error", async () => {
+  it("flags an output budget overflow as a non-fatal debug error", async () => {
     const capture: CapturedExecutor = { args: [], preToolHookOutputs: [] };
     const stub = stubRunAgentTurn([], capture, "overflow", {
       input: 100,
       output: 99_999,
     });
-    const r = await runSubagent(
+    const dbg = captureDebug();
+    await runSubagent(
       makeArgs({
         token_budget: DEFAULT_TOKEN_BUDGET,
         runAgentTurnImpl: stub,
+        onDebug: dbg.onDebug,
       }),
     );
-    expect(r.errors.some((e) => e.kind === "budget_exceeded")).toBe(true);
+    expect(dbg.cap.info?.errors.some((e) => e.kind === "budget_exceeded")).toBe(true);
   });
 });
 
@@ -176,19 +197,23 @@ describe("runSubagent — capability gate routing", () => {
     const calls = [{ name: "git_ops", args: { command: "push" } }];
     const stub = stubRunAgentTurn(calls, capture);
     const exec: ToolExecutor = async () => "should-not-run";
+    const dbg = captureDebug();
 
-    const r = await runSubagent(
+    await runSubagent(
       makeArgs({
         agent_def: reviewer(),
         executeTool: exec,
         runAgentTurnImpl: stub,
+        onDebug: dbg.onDebug,
       }),
     );
 
     expect(capture.args.length).toBe(0); // executor not called
     expect(capture.preToolHookOutputs[0]).toContain("[BLOCKED by capability gate]");
     expect(capture.preToolHookOutputs[0]).toContain("tool_not_in_allowlist");
-    expect(r.errors.some((e) => e.kind === "tool_forbidden" && e.tool === "git_ops")).toBe(true);
+    expect(
+      dbg.cap.info?.errors.some((e) => e.kind === "tool_forbidden" && e.tool === "git_ops"),
+    ).toBe(true);
   });
 
   it("blocks a write outside write_scope (tester writing to src/foo.ts)", async () => {
@@ -196,18 +221,20 @@ describe("runSubagent — capability gate routing", () => {
     const calls = [{ name: "file_write", args: { path: "src/foo.ts", content: "x" } }];
     const stub = stubRunAgentTurn(calls, capture);
     const exec: ToolExecutor = async () => "wrote";
+    const dbg = captureDebug();
 
-    const r = await runSubagent(
+    await runSubagent(
       makeArgs({
         agent_def: tester(),
         executeTool: exec,
         runAgentTurnImpl: stub,
+        onDebug: dbg.onDebug,
       }),
     );
 
     expect(capture.args.length).toBe(0);
     expect(capture.preToolHookOutputs[0]).toContain("write_outside_scope");
-    expect(r.errors.some((e) => e.kind === "tool_forbidden")).toBe(true);
+    expect(dbg.cap.info?.errors.some((e) => e.kind === "tool_forbidden")).toBe(true);
   });
 
   it("admits a write inside write_scope and lets the executor run", async () => {
@@ -217,18 +244,20 @@ describe("runSubagent — capability gate routing", () => {
     ];
     const stub = stubRunAgentTurn(calls, capture);
     const exec: ToolExecutor = async () => "wrote";
+    const dbg = captureDebug();
 
-    const r = await runSubagent(
+    await runSubagent(
       makeArgs({
         agent_def: tester(),
         executeTool: exec,
         runAgentTurnImpl: stub,
+        onDebug: dbg.onDebug,
       }),
     );
 
     expect(capture.args.length).toBe(1);
     expect(capture.preToolHookOutputs[0]).toBeNull();
-    expect(r.errors).toEqual([]);
+    expect(dbg.cap.info?.errors).toEqual([]);
   });
 });
 
@@ -246,12 +275,14 @@ describe("runSubagent — write-lock acquisition", () => {
       return "wrote";
     };
     const stub = stubRunAgentTurn(calls, capture);
+    const dbg = captureDebug();
 
-    const r = await runSubagent(
+    await runSubagent(
       makeArgs({
         write_lock_manager: locks,
         executeTool: exec,
         runAgentTurnImpl: stub,
+        onDebug: dbg.onDebug,
       }),
     );
 
@@ -259,7 +290,7 @@ describe("runSubagent — write-lock acquisition", () => {
     expect(observed[0]?.holder).toBe("tester");
     // After turn end, the lock is released.
     expect(locks.isHeld("file:src/foo.test.ts")).toBe(false);
-    expect(r.errors).toEqual([]);
+    expect(dbg.cap.info?.errors).toEqual([]);
   });
 
   it("converts a lock timeout into a tool result and records a lock_timeout error", async () => {
@@ -273,7 +304,6 @@ describe("runSubagent — write-lock acquisition", () => {
     const stub: (args: RunAgentTurnArgs) => Promise<RunAgentTurnResult> = async (
       turnArgs,
     ) => {
-      // The runner's wrapped executor handles the lock acquire — call it directly.
       let result: string | null = null;
       try {
         const raw = await turnArgs.executeTool!(calls[0]!.name, calls[0]!.args);
@@ -287,6 +317,7 @@ describe("runSubagent — write-lock acquisition", () => {
         usage: { input: 10, output: 10 },
       };
     };
+    const dbg = captureDebug();
 
     const r = await runSubagent(
       makeArgs({
@@ -295,11 +326,12 @@ describe("runSubagent — write-lock acquisition", () => {
         runAgentTurnImpl: stub,
         token_budget: { max_input: 10_000, max_output: 1_000 },
         lockTimeoutMs: 50,
+        onDebug: dbg.onDebug,
       }),
     );
 
     expect(r.summary).toContain("[BLOCKED by write lock]");
-    expect(r.errors.some((e) => e.kind === "lock_timeout")).toBe(true);
+    expect(dbg.cap.info?.errors.some((e) => e.kind === "lock_timeout")).toBe(true);
     locks.release("file:src/foo.test.ts", "other-agent");
   });
 
@@ -330,7 +362,6 @@ describe("runSubagent — write-lock acquisition", () => {
     const stub: (args: RunAgentTurnArgs) => Promise<RunAgentTurnResult> = async (
       turnArgs,
     ) => {
-      // Acquire a lock through the wrapped executor, then throw.
       await turnArgs.executeTool!("file_write", { path: "x.test.ts", content: "x" });
       throw new Error("simulated runner crash");
     };
@@ -353,8 +384,8 @@ describe("runSubagent — write-lock acquisition", () => {
   });
 });
 
-describe("runSubagent — return shape", () => {
-  it("returns the structured SubagentResult contract", async () => {
+describe("runSubagent — return shape (spec §5.6)", () => {
+  it("public SubagentResult exposes only summary, produced_artifacts, tokens_used, tokens_breakdown", async () => {
     const capture: CapturedExecutor = { args: [], preToolHookOutputs: [] };
     const stub = stubRunAgentTurn(
       [{ name: "file_read", args: { path: "src/foo.ts" } }],
@@ -372,11 +403,44 @@ describe("runSubagent — return shape", () => {
       }),
     );
 
-    expect(r.agent_id).toBe("reviewer");
     expect(r.summary).toBe("I read the file.");
     expect(r.produced_artifacts).toEqual([]);
-    expect(r.tokens_used).toEqual({ input: 250, output: 75 });
-    expect(r.tool_calls.length).toBe(1);
-    expect(r.errors).toEqual([]);
+    expect(r.tokens_used).toBe(325); // 250 + 75
+    expect(r.tokens_breakdown).toEqual({ input: 250, output: 75 });
+
+    // The internal-only fields must NOT be on the public return.
+    expect(Object.keys(r).sort()).toEqual([
+      "produced_artifacts",
+      "summary",
+      "tokens_breakdown",
+      "tokens_used",
+    ]);
+  });
+
+  it("internal diagnostics (agent_id, errors, tool_calls) flow through onDebug", async () => {
+    const capture: CapturedExecutor = { args: [], preToolHookOutputs: [] };
+    const stub = stubRunAgentTurn(
+      [{ name: "file_read", args: { path: "src/foo.ts" } }],
+      capture,
+      "I read the file.",
+      { input: 250, output: 75 },
+    );
+    const exec: ToolExecutor = async () => "file contents";
+    const dbg = captureDebug();
+
+    await runSubagent(
+      makeArgs({
+        agent_def: reviewer(),
+        executeTool: exec,
+        runAgentTurnImpl: stub,
+        onDebug: dbg.onDebug,
+      }),
+    );
+
+    expect(dbg.cap.info?.agent_id).toBe("reviewer");
+    expect(dbg.cap.info?.depth).toBe(0);
+    expect(dbg.cap.info?.errors).toEqual([]);
+    expect(dbg.cap.info?.tool_calls.length).toBe(1);
+    expect(dbg.cap.info?.tokens_breakdown).toEqual({ input: 250, output: 75 });
   });
 });
