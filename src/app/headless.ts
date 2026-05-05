@@ -35,18 +35,30 @@ import { migrateV03ConfigIfNeeded } from "../crew/config-migration.js";
 
 type RunMode = "solo" | "crew";
 
-interface HeadlessOptions {
+export interface HeadlessOptions {
   goal: string;
   runs: number;
   mode: RunMode;
   workdir: string | null;
+  /**
+   * --strict is accepted for parity with TUI invocations. Headless
+   * coordinators always auto-advance phase gates regardless of this
+   * flag (there is no human at the loop) — the flag is preserved on
+   * the parsed options so future routing or session resume logic can
+   * read it without re-parsing argv.
+   */
+  strict_mode: boolean;
+  /** TUI-only: override the 30s phase-gate auto-advance window. */
+  auto_advance_ms: number | null;
 }
 
-function parseArgs(args: string[]): HeadlessOptions {
+export function parseArgs(args: string[]): HeadlessOptions {
   let goal = "";
   let runs = 1;
   let mode: RunMode = "solo";
   let workdir: string | null = null;
+  let strict_mode = false;
+  let auto_advance_ms: number | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -64,6 +76,16 @@ function parseArgs(args: string[]): HeadlessOptions {
     } else if (arg === "--template" && args[i + 1]) {
       // Templates were sprint-scoped; ignore for now (consumed by future crew).
       i++;
+    } else if (arg === "--strict") {
+      strict_mode = true;
+    } else if (arg === "--auto-advance-ms" && args[i + 1]) {
+      const parsed = parseInt(args[++i]!, 10);
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        auto_advance_ms = parsed;
+      } else {
+        console.error(pc.red(`error: --auto-advance-ms expects a non-negative integer, got "${args[i]}"`));
+        process.exit(1);
+      }
     } else if (arg === "--headless") {
       // already handled by caller
     } else if (!arg.startsWith("-") && !goal) {
@@ -72,11 +94,16 @@ function parseArgs(args: string[]): HeadlessOptions {
   }
 
   if (!goal) {
-    console.error("Usage: openpawl run --headless --goal \"<prompt>\" [--runs N] [--mode solo|crew] [--workdir path]");
+    console.error(
+      "Usage: openpawl run --headless --goal \"<prompt>\" [--runs N] [--mode solo|crew] " +
+        "[--workdir path] [--strict] [--auto-advance-ms N]\n" +
+        "  --strict             accepted for parity; headless mode always auto-advances phase gates\n" +
+        "  --auto-advance-ms N  TUI-only override of the 30s phase-gate window (no effect headless)",
+    );
     process.exit(1);
   }
 
-  return { goal, runs, mode, workdir };
+  return { goal, runs, mode, workdir, strict_mode, auto_advance_ms };
 }
 
 function resolveModeFlag(raw: string): RunMode {
@@ -138,6 +165,18 @@ export async function runHeadless(args: string[]): Promise<void> {
   console.log(pc.dim(`Goal: ${opts.goal}`));
   console.log(pc.dim(`Mode: ${opts.mode} | Runs: ${opts.runs}`));
   console.log(pc.dim(`Project dir: ${projectDir}`));
+  if (opts.strict_mode) {
+    console.log(
+      pc.yellow(
+        `note: --strict accepted but headless mode always auto-advances phase gates (no human at the loop).`,
+      ),
+    );
+  }
+  if (opts.auto_advance_ms !== null) {
+    console.log(
+      pc.dim(`note: --auto-advance-ms is TUI-only; ignored in headless mode.`),
+    );
+  }
   console.log("");
 
   // Initialize session manager

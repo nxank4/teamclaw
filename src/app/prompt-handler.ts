@@ -36,13 +36,20 @@ export async function handleWithRouter(
   layout.statusBar.updateSegment(3, "routing...", defaultTheme.accent);
   layout.tui.requestRender();
 
+  const appMode = appModeSystem?.getMode();
+  // For crew dispatch we plumb workdir = current process cwd so the
+  // crew runner's tool calls operate on the right project. The active
+  // CheckpointCoordinator (if any TUI host has registered one via
+  // CrewSession) is resolved by the router itself through the registry.
   const result = await router.route(session.id, text, {
-    appMode: appModeSystem?.getMode(),
+    appMode,
+    workdir: appMode === "crew" ? process.cwd() : undefined,
   });
 
   if (result.isErr()) {
     if ("cause" in result.error && result.error.cause?.includes("aborted")) return;
-    ctx.addMessage("error", `Error: ${result.error.type}`);
+    const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
+    ctx.addMessage("error", `Error: ${result.error.type}${cause}`);
     layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
     layout.tui.requestRender();
     return;

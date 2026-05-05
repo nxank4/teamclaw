@@ -10,6 +10,7 @@ import {
   runCrew,
   runPlanning,
 } from "./crew-runner.js";
+import { CheckpointCoordinator } from "./checkpoints.js";
 import type {
   ExecutePhaseArgs,
   ExecutePhaseResult,
@@ -856,7 +857,9 @@ describe("runCrew — drift integration", () => {
     });
     expect(r.status).toBe("halted");
     if (r.status !== "halted") return;
-    expect(r.ended_by).toBe("drift_halt");
+    // Default coordinator is headless → waitForReanchor resolves to abort,
+    // which the runner reports as drift_halt_user_abort.
+    expect(r.ended_by).toBe("drift_halt_user_abort");
     expect(r.reanchor).toBeDefined();
     expect(r.reanchor?.markdown).toContain("Add a /health endpoint");
     // Phase 2 (the next phase) had its pending tasks marked blocked.
@@ -947,6 +950,222 @@ describe("runCrew — compaction integration", () => {
       checkAndCompactImpl: flakyCompact,
     });
     expect(r.status).toBe("completed");
+  });
+});
+
+// ── runCrew + checkpoint coordinator (Layer 2) ────────────────────────────
+
+describe("runCrew — checkpoint coordinator integration", () => {
+  it("default headless coordinator: phase gates auto-advance, run completes", async () => {
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+    });
+    expect(r.status).toBe("completed");
+  });
+
+  it("TUI coordinator with /abort during phase gate halts with user_abort", async () => {
+    const coord = CheckpointCoordinator.tui({ strict_mode: true });
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+
+    // Set up the coordinator to fire abort once it sees the gate open.
+    coord.on("checkpoint:phase_pause", () => {
+      coord.requestAbort();
+    });
+
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      checkpointCoordinator: coord,
+    });
+    expect(r.status).toBe("aborted");
+    if (r.status !== "aborted") return;
+    expect(r.ended_by).toBe("user_abort");
+    expect(phaseExec.callCount()).toBe(1);
+    // Phase 2's tasks are marked blocked.
+    expect(r.phases[1]?.tasks.every((t) => t.status === "blocked")).toBe(true);
+  });
+
+  it("TUI coordinator continue at phase gate advances normally", async () => {
+    const coord = CheckpointCoordinator.tui({ strict_mode: true });
+    coord.on("checkpoint:phase_pause", () => {
+      coord.resolvePhaseAdvance("continue");
+    });
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      checkpointCoordinator: coord,
+    });
+    expect(r.status).toBe("completed");
+  });
+
+  it("drift halt + coordinator continue resets to completed", async () => {
+    const coord = CheckpointCoordinator.tui();
+    coord.on("checkpoint:reanchor_open", () => {
+      coord.resolveReanchor({ option: "continue" });
+    });
+    coord.on("checkpoint:phase_pause", () => {
+      coord.resolvePhaseAdvance("continue");
+    });
+
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const haltDrift = (_a: CheckDriftArgs): DriftCheckResult => ({
+      score: 0.85,
+      decision: "halt",
+      drifting_decisions: [],
+    });
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: meetingProducingMarkdown("## drift"),
+      checkAndCompactImpl: noopCompact,
+      checkDriftImpl: haltDrift,
+      checkpointCoordinator: coord,
+    });
+    expect(r.status).toBe("completed");
+  });
+
+  it("drift halt + edit_goal returns drift_halt_edit_goal with new_goal_pending", async () => {
+    const coord = CheckpointCoordinator.tui();
+    coord.on("checkpoint:reanchor_open", () => {
+      coord.resolveReanchor({ option: "edit_goal", new_goal: "Build a CLI tool instead" });
+    });
+
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const haltDrift = (_a: CheckDriftArgs): DriftCheckResult => ({
+      score: 0.9,
+      decision: "halt",
+      drifting_decisions: [],
+    });
+    const r = await runCrew({
+      options: { goal: "Original goal", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: meetingProducingMarkdown("## drift"),
+      checkAndCompactImpl: noopCompact,
+      checkDriftImpl: haltDrift,
+      checkpointCoordinator: coord,
+    });
+    expect(r.status).toBe("halted");
+    if (r.status !== "halted") return;
+    expect(r.ended_by).toBe("drift_halt_edit_goal");
+    expect(r.new_goal_pending).toBe("Build a CLI tool instead");
+  });
+
+  it("requestReorder with valid permutation reorders the next phase's tasks", async () => {
+    const coord = CheckpointCoordinator.headless();
+    // Reorder phase 1's tasks (default: t1, t2, t1->t2 dep). Only valid order
+    // is the original; assert the reorder is applied and validated.
+    coord.requestReorder("p1", ["t1", "t2"]);
+
+    const subagent = stubSubagent([happyPlanJson()]);
+    const seenOrders: string[][] = [];
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    // Wrap to capture the order phase-executor sees.
+    const wrappedImpl = async (a: ExecutePhaseArgs): Promise<ExecutePhaseResult> => {
+      seenOrders.push(a.phase.tasks.map((t) => t.id));
+      return phaseExec.impl(a);
+    };
+    await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: wrappedImpl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      checkpointCoordinator: coord,
+    });
+    expect(seenOrders[0]).toEqual(["t1", "t2"]);
+  });
+
+  it("requestReorder with invalid permutation is rejected (run unaffected)", async () => {
+    const coord = CheckpointCoordinator.headless();
+    // Out-of-order: t2 depends on t1, but reorder asks for t2 first → rejected.
+    coord.requestReorder("p1", ["t2", "t1"]);
+
+    const subagent = stubSubagent([happyPlanJson()]);
+    const seenOrders: string[][] = [];
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const wrappedImpl = async (a: ExecutePhaseArgs): Promise<ExecutePhaseResult> => {
+      seenOrders.push(a.phase.tasks.map((t) => t.id));
+      return phaseExec.impl(a);
+    };
+    await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: wrappedImpl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      checkpointCoordinator: coord,
+    });
+    // The original order is preserved.
+    expect(seenOrders[0]).toEqual(["t1", "t2"]);
+  });
+
+  it("requestAbort before phase loop starts halts immediately", async () => {
+    const coord = CheckpointCoordinator.tui();
+    coord.requestAbort();
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([{ ended_by: "all_complete" }]);
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      checkpointCoordinator: coord,
+    });
+    expect(r.status).toBe("aborted");
+    if (r.status !== "aborted") return;
+    expect(r.ended_by).toBe("user_abort");
+    expect(phaseExec.callCount()).toBe(0);
   });
 });
 

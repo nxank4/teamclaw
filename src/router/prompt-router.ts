@@ -26,6 +26,11 @@ import { RouterEvent, DISPATCH_EVENTS } from "./event-types.js";
 import { parseMentions } from "./mention-parser.js";
 import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
+import { runCrew } from "../crew/crew-runner.js";
+import type { CrewRunResult } from "../crew/crew-runner.js";
+import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
+import type { CheckpointCoordinator } from "../crew/checkpoints.js";
+import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -128,7 +133,22 @@ export class PromptRouter extends EventEmitter {
   async route(
     sessionId: string,
     prompt: string,
-    options?: { appMode?: AppMode },
+    options?: {
+      appMode?: AppMode;
+      /**
+       * Override the active CheckpointCoordinator for crew dispatch.
+       * When omitted, falls back to {@link getActiveCheckpointCoordinator}
+       * (which returns whatever the host has registered, or null — in
+       * which case `runCrew` builds its own headless coordinator).
+       */
+      checkpointCoordinator?: CheckpointCoordinator;
+      /** Crew preset name. Defaults to FULL_STACK_PRESET. */
+      crewName?: string;
+      /** Working directory for crew tool calls. Defaults to process.cwd(). */
+      workdir?: string;
+      /** Cancellation signal piped through to the crew runner. */
+      abortSignal?: AbortSignal;
+    },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
     const pendingDecision = this.pendingConfirmation.get(sessionId);
@@ -159,14 +179,12 @@ export class PromptRouter extends EventEmitter {
     // 3. Parse mentions
     const mentions = parseMentions(prompt, this.registry.getIds());
 
-    // 3b. Crew mode is not yet implemented in v0.4 scaffold
+    // 3b. Crew mode → invoke runCrew. Closes the PR #106 stub that was
+    // missed across the rest of Phase 1 (the runner shipped in PRs
+    // #109–#113 but the router-side dispatch was never re-wired).
     const appMode = options?.appMode;
     if (appMode === "crew") {
-      return err({
-        type: "dispatch_failed",
-        agentId: "crew",
-        cause: "Crew mode not yet implemented. Use --mode solo for now.",
-      });
+      return await this.dispatchCrew(sessionId, prompt, options);
     }
 
     // 4. Classify intent
@@ -246,6 +264,69 @@ export class PromptRouter extends EventEmitter {
     }
 
     return dispatchResult;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CREW DISPATCH
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private async dispatchCrew(
+    sessionId: string,
+    prompt: string,
+    options?: {
+      checkpointCoordinator?: CheckpointCoordinator;
+      crewName?: string;
+      workdir?: string;
+      abortSignal?: AbortSignal;
+    },
+  ): Promise<Result<DispatchResult, RouterError>> {
+    const start = Date.now();
+    this.emit(RouterEvent.AgentStart, sessionId, "crew");
+
+    try {
+      const coord =
+        options?.checkpointCoordinator ?? getActiveCheckpointCoordinator() ?? undefined;
+      const crewName = options?.crewName ?? FULL_STACK_PRESET;
+      const workdir = options?.workdir ?? process.cwd();
+
+      const result: CrewRunResult = await runCrew({
+        options: { goal: prompt, crew_name: crewName, workdir },
+        session_id: sessionId,
+        workdir,
+        checkpointCoordinator: coord,
+        signal: options?.abortSignal,
+      });
+
+      const md = renderCrewResultMarkdown(result);
+      const duration = Date.now() - start;
+      const tokensUsed = result.status === "plan_failed" ? 0 : result.tokens_used;
+
+      this.emit(RouterEvent.AgentDone, sessionId, "crew", {
+        success: result.status === "completed",
+      });
+
+      return ok({
+        strategy: "orchestrated",
+        agentResults: [
+          {
+            agentId: "crew",
+            success: result.status === "completed",
+            response: md,
+            toolCalls: [],
+            duration,
+            inputTokens: 0,
+            outputTokens: tokensUsed,
+          },
+        ],
+        totalDuration: duration,
+        totalInputTokens: 0,
+        totalOutputTokens: tokensUsed,
+      });
+    } catch (e) {
+      const cause = e instanceof Error ? e.message : String(e);
+      this.emit(RouterEvent.AgentDone, sessionId, "crew", { success: false });
+      return err({ type: "dispatch_failed", agentId: "crew", cause });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -478,4 +559,66 @@ export class PromptRouter extends EventEmitter {
     this.lastAgentBySession.clear();
     this.pendingConfirmation.clear();
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CREW RESULT RENDERING
+// ═════════════════════════════════════════════════════════════════════════════
+
+function renderCrewResultMarkdown(result: CrewRunResult): string {
+  if (result.status === "plan_failed") {
+    return [
+      `# Crew run failed during planning`,
+      ``,
+      `Crew: \`${result.crew_name}\``,
+      `Reason: \`${result.error.reason}\``,
+      ``,
+      result.error.message,
+    ].join("\n");
+  }
+  if (result.status === "plan_only") {
+    return [
+      `# Crew planning complete`,
+      ``,
+      `Crew: \`${result.crew_name}\` — ${result.phases.length} phase(s) planned, ${result.tokens_used} tokens`,
+      ``,
+      ...result.phases.map(
+        (p, i) => `${i + 1}. **${p.name}** (\`${p.id}\`, tier ${p.complexity_tier}, ${p.tasks.length} tasks)`,
+      ),
+    ].join("\n");
+  }
+  // completed | halted | aborted
+  const lines: string[] = [];
+  const heading =
+    result.status === "completed"
+      ? "Crew run completed"
+      : result.status === "aborted"
+        ? "Crew run aborted"
+        : "Crew run halted";
+  lines.push(`# ${heading}`);
+  lines.push("");
+  lines.push(`Crew: \`${result.crew_name}\` · ended_by: \`${result.ended_by}\` · ${result.tokens_used} tokens`);
+  lines.push("");
+  for (const p of result.phases) {
+    const counts = {
+      done: p.tasks.filter((t) => t.status === "completed").length,
+      failed: p.tasks.filter((t) => t.status === "failed").length,
+      blocked: p.tasks.filter((t) => t.status === "blocked").length,
+    };
+    lines.push(
+      `- **${p.name}** (\`${p.id}\`, tier ${p.complexity_tier}) — ` +
+        `${counts.done} done, ${counts.failed} failed, ${counts.blocked} blocked`,
+    );
+  }
+  if (result.reanchor) {
+    lines.push("");
+    lines.push("## Re-anchor prompt");
+    lines.push("");
+    lines.push(result.reanchor.markdown);
+  }
+  if (result.new_goal_pending) {
+    lines.push("");
+    lines.push(`> User edited goal: ${result.new_goal_pending}`);
+  }
+  return lines.join("\n");
 }

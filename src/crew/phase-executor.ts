@@ -28,6 +28,7 @@ import {
   type ArtifactStoreReader,
 } from "./artifacts/index.js";
 import { BudgetTracker } from "./budget-tracker.js";
+import type { CheckpointCoordinator } from "./checkpoints.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import {
   classifyTaskError,
@@ -68,6 +69,14 @@ export interface ExecutePhaseArgs {
   doom_loop?: DoomLoopDetector;
   /** Optional Hebbian recaller. When set, every task prompt gains a "## Relevant context" block alongside known files. */
   hebbian_recall?: HebbianRecaller;
+  /**
+   * Optional checkpoint coordinator. When set, the executor:
+   *   - parks between waves while {@link CheckpointCoordinator.isPaused} is true
+   *   - force-completes any task whose id appears in
+   *     {@link CheckpointCoordinator.isTaskSkipped} without an LLM call
+   *   - bails if {@link CheckpointCoordinator.isAbortRequested} fires mid-phase
+   */
+  checkpoint_coordinator?: CheckpointCoordinator;
   /** Test seam — defaults to the real {@link runSubagent}. */
   runSubagentImpl?: (args: RunSubagentArgs) => Promise<SubagentResult>;
   /** External abort (e.g. global session abort). The phase timer is internal. */
@@ -91,7 +100,12 @@ export interface ExecutePhaseResult {
   files_modified: string[];
   tokens_used: number;
   wall_time_ms: number;
-  ended_by: "all_complete" | "time_budget" | "session_budget" | "abort_signal";
+  ended_by:
+    | "all_complete"
+    | "time_budget"
+    | "session_budget"
+    | "abort_signal"
+    | "user_abort";
 }
 
 // ── Topological sort + wave selection ──────────────────────────────────
@@ -573,6 +587,36 @@ export async function executePhase(
         endedBy = "session_budget";
         break;
       }
+      if (args.checkpoint_coordinator?.isAbortRequested()) {
+        endedBy = "user_abort";
+        break;
+      }
+
+      // Park while paused. Released by /continue. /abort short-circuits via
+      // isAbortRequested above on the next loop iteration.
+      if (args.checkpoint_coordinator?.isPaused()) {
+        await args.checkpoint_coordinator.waitWhilePaused({ signal: phaseAbort.signal });
+        if (args.checkpoint_coordinator.isAbortRequested()) {
+          endedBy = "user_abort";
+          break;
+        }
+      }
+
+      // Force-complete any pending task the user asked us to /skip before
+      // this wave starts. No LLM call, no validator — the user has spoken.
+      if (args.checkpoint_coordinator) {
+        const coord = args.checkpoint_coordinator;
+        for (const t of args.phase.tasks) {
+          if (t.status !== "pending") continue;
+          if (!coord.isTaskSkipped(t.id)) continue;
+          t.status = "completed";
+          t.result = "user_skipped";
+          t.retry_count = 0;
+          debugLog("info", "crew", "phase:task_user_skipped", {
+            data: { task_id: t.id, phase_id: args.phase.id },
+          });
+        }
+      }
 
       const ready = readyTasks(args.phase);
       if (ready.length === 0) {
@@ -639,8 +683,13 @@ export async function executePhase(
           t.error =
             endedBy === "session_budget"
               ? "session_budget_exhausted"
+              : endedBy === "user_abort"
+              ? "user_abort"
               : "phase_time_budget_exceeded";
-          t.error_kind = endedBy === "session_budget" ? "unknown" : "timeout";
+          t.error_kind =
+            endedBy === "session_budget" || endedBy === "user_abort"
+              ? "unknown"
+              : "timeout";
         }
       }
     }

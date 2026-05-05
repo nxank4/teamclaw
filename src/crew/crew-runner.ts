@@ -42,6 +42,12 @@ import {
   type CheckAndCompactResult,
 } from "./compaction.js";
 import {
+  CheckpointCoordinator,
+  validateReorder,
+  type UserAction,
+  type WaitForReanchorResult,
+} from "./checkpoints.js";
+import {
   buildReanchorPrompt,
   type ReanchorPrompt,
 } from "./drift-reanchor.js";
@@ -119,10 +125,14 @@ export type CrewEndedBy =
   | "all_phases_complete"
   | "session_budget"
   | "abort_signal"
-  | "drift_halt";
+  | "drift_halt"
+  | "drift_halt_user_abort"
+  | "drift_halt_edit_goal"
+  | "user_abort"
+  | "aborted";
 
 export interface CrewCompletedResult {
-  status: "completed" | "halted";
+  status: "completed" | "halted" | "aborted";
   session_id: string;
   crew_name: string;
   goal: string;
@@ -131,8 +141,10 @@ export interface CrewCompletedResult {
   phase_summary_artifact_ids: string[];
   tokens_used: number;
   ended_by: CrewEndedBy;
-  /** Set only when ended_by === "drift_halt". */
+  /** Set only when ended_by indicates a drift halt path. */
   reanchor?: ReanchorPrompt;
+  /** Set only when ended_by === "drift_halt_edit_goal" — the user-supplied new goal text. */
+  new_goal_pending?: string;
 }
 
 export type CrewRunResult =
@@ -178,6 +190,12 @@ export interface RunCrewArgs extends RunPlanningArgs {
   compaction_threshold_ratio?: number;
   /** Approximate model context window for compaction sizing. Defaults to 200k. */
   model_context_window?: number;
+  /**
+   * Checkpoint coordinator. Defaults to a headless coordinator (auto-advance)
+   * when not provided. TUI hosts inject a TUI-mode coordinator wired to
+   * slash commands.
+   */
+  checkpointCoordinator?: CheckpointCoordinator;
   signal?: AbortSignal;
 }
 
@@ -452,6 +470,8 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
   const checkDriftImpl =
     args.checkDriftImpl ?? defaultCheckDriftAtPhaseBoundary;
   const runSubagent = args.runSubagentImpl ?? defaultRunSubagent;
+  const coordinator =
+    args.checkpointCoordinator ?? CheckpointCoordinator.headless();
 
   const lockManager = new WriteLockManager();
   // The artifact store replays the JSONL, so it sees the PlanArtifact
@@ -476,9 +496,25 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
   let totalTokens = planResult.tokens_used;
   let endedBy: CrewEndedBy = "all_phases_complete";
   let reanchor: ReanchorPrompt | undefined;
+  let newGoalPending: string | undefined;
 
   for (let i = 0; i < planResult.phases.length; i++) {
     const phase = planResult.phases[i]!;
+
+    if (coordinator.isAbortRequested()) {
+      endedBy = "user_abort";
+      for (let j = i; j < planResult.phases.length; j++) {
+        const p = planResult.phases[j]!;
+        for (const t of p.tasks) {
+          if (t.status === "pending") {
+            t.status = "blocked";
+            t.error = "user_abort";
+            t.error_kind = "unknown";
+          }
+        }
+      }
+      break;
+    }
 
     if (args.signal?.aborted) {
       endedBy = "abort_signal";
@@ -521,6 +557,24 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
 
     phase.status = "executing";
     phase.started_at = Date.now();
+
+    // Apply any pending reorder for this phase (Layer 3 /reorder).
+    const pendingOrder = coordinator.consumePendingReorder(phase.id);
+    if (pendingOrder) {
+      const reorderError = validateReorder(phase, pendingOrder);
+      if (reorderError) {
+        debugLog("warn", "crew", "phase:reorder_rejected", {
+          data: { phase_id: phase.id, reason: reorderError },
+        });
+      } else {
+        const taskById = new Map(phase.tasks.map((t) => [t.id, t]));
+        phase.tasks = pendingOrder.map((id) => taskById.get(id)!);
+        debugLog("info", "crew", "phase:reorder_applied", {
+          data: { phase_id: phase.id, new_order: pendingOrder },
+        });
+      }
+    }
+
     debugLog("info", "crew", "phase:start", {
       data: {
         phase_id: phase.id,
@@ -543,6 +597,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
       session_id: sessionId,
       doom_loop: doomLoop,
       hebbian_recall: args.hebbian_recall,
+      checkpoint_coordinator: coordinator,
       runSubagentImpl: runSubagent,
       signal: args.signal,
       phase_time_budget_ms: phaseTimeBudget,
@@ -625,20 +680,6 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
           current_phase: { id: phase.id, name: phase.name },
           drift_score: driftResult.score,
         });
-        // Mark remaining phases blocked.
-        for (let j = i + 1; j < planResult.phases.length; j++) {
-          const p = planResult.phases[j]!;
-          for (const t of p.tasks) {
-            if (t.status === "pending") {
-              t.status = "blocked";
-              t.error = "drift_halt";
-              t.error_kind = "unknown";
-            }
-          }
-        }
-        // The PhaseSummary for THIS phase still gets written below so
-        // its meeting_notes_artifact_id index is preserved; the loop
-        // halts on the next iteration via endedBy === "drift_halt".
       }
     }
 
@@ -709,12 +750,101 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
       endedBy = "abort_signal";
       break;
     }
-    // Drift halt: meeting just produced a halting score. Stop after the
-    // PhaseSummaryArtifact for THIS phase has been written (above).
-    if (endedBy === "drift_halt") break;
+
+    // Drift halt: surface the re-anchor prompt to the coordinator and
+    // wait for the user (TUI) to choose continue / abort / edit_goal.
+    // Headless coordinator resolves immediately to "abort".
+    if (endedBy === "drift_halt" && reanchor) {
+      let reanchorResult: WaitForReanchorResult = { option: "abort" };
+      try {
+        reanchorResult = await coordinator.waitForReanchor({
+          reanchor,
+          signal: args.signal,
+        });
+      } catch (err) {
+        debugLog("warn", "crew", "checkpoint:reanchor_exception", {
+          data: { phase_id: phase.id },
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (reanchorResult.option === "continue") {
+        // Reset drift state — user chose to plow ahead.
+        endedBy = "all_phases_complete";
+        reanchor = undefined;
+        continue;
+      }
+      if (reanchorResult.option === "edit_goal") {
+        endedBy = "drift_halt_edit_goal";
+        newGoalPending = reanchorResult.new_goal;
+      } else {
+        endedBy = "drift_halt_user_abort";
+      }
+      // Mark remaining phases blocked.
+      for (let j = i + 1; j < planResult.phases.length; j++) {
+        const p = planResult.phases[j]!;
+        for (const t of p.tasks) {
+          if (t.status === "pending") {
+            t.status = "blocked";
+            t.error =
+              endedBy === "drift_halt_edit_goal" ? "drift_halt_edit_goal" : "drift_halt";
+            t.error_kind = "unknown";
+          }
+        }
+      }
+      break;
+    }
+
+    // Layer 2 visibility gate — fired between phases (NOT after the last
+    // phase, since there's nothing to advance into).
+    const isFinal = i === planResult.phases.length - 1;
+    if (!isFinal) {
+      let action: UserAction = "continue";
+      try {
+        action = await coordinator.waitForPhaseAdvance({
+          phase,
+          summary_artifact_id: writeResult.written ? summary.id : "",
+          signal: args.signal,
+        });
+      } catch (err) {
+        debugLog("warn", "crew", "checkpoint:gate_exception", {
+          data: { phase_id: phase.id },
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (action === "abort") {
+        endedBy = "user_abort";
+        // Mark remaining phases blocked.
+        for (let j = i + 1; j < planResult.phases.length; j++) {
+          const p = planResult.phases[j]!;
+          for (const t of p.tasks) {
+            if (t.status === "pending") {
+              t.status = "blocked";
+              t.error = "user_abort";
+              t.error_kind = "unknown";
+            }
+          }
+        }
+        break;
+      }
+      if (action === "adjust") {
+        // Real plan-adjustment (LLM-driven) lands in a follow-up PR.
+        // For now, log and continue — the coordinator already emitted
+        // its own debug event for the user choice.
+        debugLog("warn", "crew", "checkpoint:adjust_unimplemented", {
+          data: { phase_id: phase.id },
+        });
+      }
+    }
   }
 
-  const status = endedBy === "all_phases_complete" ? "completed" : "halted";
+  const status: CrewCompletedResult["status"] =
+    endedBy === "all_phases_complete"
+      ? "completed"
+      : endedBy === "user_abort" || endedBy === "abort_signal"
+      ? "aborted"
+      : "halted";
   debugLog("info", "crew", "crew:done", {
     data: {
       session_id: sessionId,
@@ -737,6 +867,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
     tokens_used: totalTokens,
     ended_by: endedBy,
     ...(reanchor ? { reanchor } : {}),
+    ...(newGoalPending ? { new_goal_pending: newGoalPending } : {}),
   };
 }
 
