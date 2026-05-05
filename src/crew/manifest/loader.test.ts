@@ -11,12 +11,16 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  DEFAULT_MODEL_SENTINEL,
+  ManifestModelError,
   loadManifestFromDir,
   loadUserCrew,
   listUserCrewNames,
+  resolveModelSentinels,
   userCrewDir,
 } from "./loader.js";
 import { ensureBuiltInPresets, FULL_STACK_PRESET } from "./presets.js";
+import type { CrewManifest } from "./types.js";
 
 let homeDir: string;
 
@@ -171,5 +175,135 @@ describe("ensureBuiltInPresets + full-stack preset", () => {
     expect(tester.tools).toContain("file_write");
     expect(tester.write_scope?.length).toBeGreaterThan(0);
     expect(tester.write_scope?.some((g) => g.includes("test"))).toBe(true);
+  });
+});
+
+// ── Model sentinel resolution ────────────────────────────────────────────
+
+function manifestWithModels(models: Array<string | undefined>): CrewManifest {
+  return {
+    name: "team",
+    description: "x",
+    version: "1.0.0",
+    constraints: {
+      min_agents: 2,
+      max_agents: 10,
+      recommended_range: [3, 5],
+      required_roles: [],
+    },
+    agents: models.map((m, i) => ({
+      id: `a${i + 1}`,
+      name: `Agent ${i + 1}`,
+      description: "x",
+      prompt: "you are an agent.",
+      tools: ["file_read"] as const,
+      ...(m !== undefined ? { model: m } : {}),
+    })) as CrewManifest["agents"],
+  };
+}
+
+describe("resolveModelSentinels", () => {
+  it("rewrites model: 'default' to the active model", () => {
+    const m = manifestWithModels([DEFAULT_MODEL_SENTINEL, "claude-sonnet-4-6"]);
+    const resolved = resolveModelSentinels(m, () => "minimax-m2.7");
+    expect(resolved.agents[0]?.model).toBe("minimax-m2.7");
+    expect(resolved.agents[1]?.model).toBe("claude-sonnet-4-6");
+  });
+
+  it("rewrites undefined model to the active model", () => {
+    const m = manifestWithModels([undefined, undefined]);
+    const resolved = resolveModelSentinels(m, () => "claude-opus-4-7");
+    expect(resolved.agents[0]?.model).toBe("claude-opus-4-7");
+    expect(resolved.agents[1]?.model).toBe("claude-opus-4-7");
+  });
+
+  it("returns the manifest unchanged when no agent uses a sentinel", () => {
+    const m = manifestWithModels(["claude-haiku-4-5", "claude-haiku-4-5"]);
+    const resolved = resolveModelSentinels(m, () => "should-not-be-used");
+    expect(resolved).toEqual(m);
+  });
+
+  it("throws ManifestModelError when active model is unset", () => {
+    const m = manifestWithModels([DEFAULT_MODEL_SENTINEL, "x"]);
+    let caught: unknown = null;
+    try {
+      resolveModelSentinels(m, () => "");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ManifestModelError);
+    expect((caught as ManifestModelError).reason).toBe("no_active_model_configured");
+  });
+
+  it("throws ManifestModelError when getActiveModel itself throws", () => {
+    const m = manifestWithModels([DEFAULT_MODEL_SENTINEL]);
+    let caught: unknown = null;
+    try {
+      resolveModelSentinels(m, () => {
+        throw new Error("config not initialized");
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ManifestModelError);
+    expect((caught as ManifestModelError).reason).toBe("model_resolution_failed");
+  });
+});
+
+describe("loadManifestFromDir — model resolution integration", () => {
+  it("resolves agent.model 'default' against injected getActiveModelImpl", () => {
+    const dir = path.join(homeDir, "team");
+    writeManifest(
+      dir,
+      `name: team
+description: x
+agents:
+  - id: coder
+    name: Coder
+    description: writes code
+    prompt_file: agents/coder.md
+    tools: [file_read, file_write]
+    model: default
+  - id: reviewer
+    name: Reviewer
+    description: reviews
+    prompt_file: agents/reviewer.md
+    tools: [file_read]
+`,
+    );
+    writeAgentMd(dir, "agents/coder.md", "you are the coder agent");
+    writeAgentMd(dir, "agents/reviewer.md", "you are the reviewer agent");
+
+    const m = loadManifestFromDir(dir, { getActiveModelImpl: () => "minimax-m2.7" });
+    expect(m.agents.find((a) => a.id === "coder")?.model).toBe("minimax-m2.7");
+    // reviewer had no model field → also resolved to active.
+    expect(m.agents.find((a) => a.id === "reviewer")?.model).toBe("minimax-m2.7");
+  });
+
+  it("skipModelResolution leaves the sentinel in place", () => {
+    const dir = path.join(homeDir, "team");
+    writeManifest(
+      dir,
+      `name: team
+description: x
+agents:
+  - id: coder
+    name: Coder
+    description: writes code
+    prompt_file: agents/coder.md
+    tools: [file_read, file_write]
+    model: default
+  - id: reviewer
+    name: Reviewer
+    description: reviews
+    prompt_file: agents/reviewer.md
+    tools: [file_read]
+`,
+    );
+    writeAgentMd(dir, "agents/coder.md", "you are the coder agent");
+    writeAgentMd(dir, "agents/reviewer.md", "you are the reviewer agent");
+
+    const m = loadManifestFromDir(dir, { skipModelResolution: true });
+    expect(m.agents.find((a) => a.id === "coder")?.model).toBe("default");
   });
 });

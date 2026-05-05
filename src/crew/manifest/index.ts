@@ -5,12 +5,16 @@
 export * from "./types.js";
 export {
   MANIFEST_FILENAME,
+  DEFAULT_MODEL_SENTINEL,
+  ManifestModelError,
   loadManifestFromDir,
   loadUserCrew,
   listUserCrewNames,
+  resolveModelSentinels,
   userCrewDir,
   userCrewsDir,
 } from "./loader.js";
+export type { LoadManifestOptions } from "./loader.js";
 export { validateManifest } from "./validator.js";
 export type { ValidationIssue, ValidationResult } from "./validator.js";
 export {
