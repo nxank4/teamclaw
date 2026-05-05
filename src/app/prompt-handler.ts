@@ -10,6 +10,42 @@ import type { AppLayout } from "./layout.js";
 import type { Session } from "../session/session.js";
 import type { PromptRouter } from "../router/prompt-router.js";
 import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
+import type { AppContext } from "./init-session-router.js";
+
+/**
+ * Build a thin executeTool adapter against the app's ToolExecutor instance.
+ * Mirrors the solo-mode wiring in init-session-router.ts so crew agents
+ * see the same tool surface.
+ */
+function buildCrewExecuteTool(
+  appCtx: AppContext,
+): import("../router/agent-turn.js").ToolExecutor | undefined {
+  const exec = appCtx.toolExecutor;
+  const session = appCtx.chatSession;
+  if (!exec) return undefined;
+  return async (toolName, toolArgs) => {
+    const result = await exec.execute(toolName, toolArgs, {
+      sessionId: session?.id ?? "",
+      agentId: "crew",
+      workingDirectory: process.cwd(),
+    });
+    if (result.isOk()) {
+      const text = result.value.fullOutput || JSON.stringify(result.value.data) || result.value.summary;
+      const data = result.value.data as Record<string, unknown> | undefined;
+      const diff = data?.diff as import("../utils/diff.js").DiffResult | undefined;
+      const shell = toolName === "shell_exec" && data
+        ? { exitCode: data.exitCode as number | undefined, stderrHead: typeof data.stderr === "string" ? (data.stderr as string).slice(0, 200) : undefined }
+        : undefined;
+      const success = result.value.success;
+      if (diff || shell) {
+        return { text, diff, success, exitCode: shell?.exitCode, stderrHead: shell?.stderrHead };
+      }
+      return text;
+    }
+    const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
+    throw new Error(`${result.error.type}${cause}`);
+  };
+}
 
 export async function handleWithRouter(
   text: string,
@@ -18,6 +54,7 @@ export async function handleWithRouter(
   layout: AppLayout,
   ctx: { addMessage: (role: string, content: string) => void },
   appModeSystem?: AppModeSystem | null,
+  appCtx?: AppContext,
 ): Promise<void> {
   try {
     const { ClarificationDetector } = await import("../conversation/clarification.js");
@@ -37,13 +74,26 @@ export async function handleWithRouter(
   layout.tui.requestRender();
 
   const appMode = appModeSystem?.getMode();
-  // For crew dispatch we plumb workdir = current process cwd so the
-  // crew runner's tool calls operate on the right project. The active
-  // CheckpointCoordinator (if any TUI host has registered one via
-  // CrewSession) is resolved by the router itself through the registry.
+  // For crew dispatch we plumb workdir = current process cwd, the
+  // executeTool adapter (so Coder/Tester actually touch disk), and the
+  // tool schema lookups. The active CheckpointCoordinator (if any TUI
+  // host has registered one via CrewSession) is resolved by the router
+  // itself through the registry.
+  const crewExecuteTool =
+    appMode === "crew" && appCtx ? buildCrewExecuteTool(appCtx) : undefined;
+  const reg = appCtx?.toolRegistry ?? null;
   const result = await router.route(session.id, text, {
     appMode,
     workdir: appMode === "crew" ? process.cwd() : undefined,
+    executeTool: crewExecuteTool,
+    getToolSchemas:
+      appMode === "crew" && reg
+        ? (toolNames) => reg.exportForLLM(toolNames)
+        : undefined,
+    getNativeTools:
+      appMode === "crew" && reg
+        ? (toolNames) => reg.exportForAPI(toolNames)
+        : undefined,
   });
 
   if (result.isErr()) {
