@@ -16,6 +16,7 @@ import YAML from "yaml";
 
 import { debugLog } from "../../debug/logger.js";
 import { getActiveModel as defaultGetActiveModel } from "../../core/provider-config.js";
+import { BUILT_IN_PRESETS, ensureBuiltInPresets } from "./presets.js";
 import {
   CrewManifestSchema,
   RawCrewManifestSchema,
@@ -120,6 +121,14 @@ export interface LoadManifestOptions {
   getActiveModelImpl?: () => string;
   /** Skip model-sentinel resolution (used by validators that operate on raw shapes). */
   skipModelResolution?: boolean;
+  /**
+   * When loading a built-in preset name and the on-disk crew dir does
+   * not exist, seed it from the bundled `presets/` tree before loading.
+   * Idempotent — already-installed presets are left alone. Defaults to
+   * true on `loadUserCrew` so a fresh user install works without
+   * manual `cp -r src/crew/presets/* ~/.openpawl/crews/`.
+   */
+  seedBuiltInsIfMissing?: boolean;
 }
 
 export function loadManifestFromDir(
@@ -158,7 +167,18 @@ export function loadUserCrew(
   homeDir: string = os.homedir(),
   opts: LoadManifestOptions = {},
 ): CrewManifest {
-  return loadManifestFromDir(userCrewDir(name, homeDir), opts);
+  const dir = userCrewDir(name, homeDir);
+  const seed = opts.seedBuiltInsIfMissing !== false;
+  if (seed && !existsSync(path.join(dir, MANIFEST_FILENAME))) {
+    // ensureBuiltInPresets is idempotent (skips already-seeded crews).
+    // The loader → presets → loader import cycle is benign because
+    // presets only references the userCrewDir / userCrewsDir function
+    // exports, which are hoisted in ESM.
+    if ((BUILT_IN_PRESETS as readonly string[]).includes(name)) {
+      ensureBuiltInPresets(homeDir);
+    }
+  }
+  return loadManifestFromDir(dir, opts);
 }
 
 export function listUserCrewNames(homeDir: string = os.homedir()): string[] {

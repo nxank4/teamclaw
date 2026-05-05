@@ -250,6 +250,53 @@ describe("resolveModelSentinels", () => {
   });
 });
 
+describe("loadUserCrew — auto-seed built-in presets", () => {
+  it("seeds the built-in preset on a fresh homeDir before loading", () => {
+    // homeDir is a fresh tmpdir per beforeEach — no presets yet.
+    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(false);
+    const m = loadUserCrew(FULL_STACK_PRESET, homeDir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
+    expect(m.name).toBe(FULL_STACK_PRESET);
+    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(true);
+  });
+
+  it("is idempotent — second call does not reseed or fail", () => {
+    loadUserCrew(FULL_STACK_PRESET, homeDir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
+    // Second call must not throw and must produce the same manifest.
+    const m2 = loadUserCrew(FULL_STACK_PRESET, homeDir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
+    expect(m2.name).toBe(FULL_STACK_PRESET);
+  });
+
+  it("does not seed when seedBuiltInsIfMissing is false", () => {
+    let caught: unknown = null;
+    try {
+      loadUserCrew(FULL_STACK_PRESET, homeDir, {
+        seedBuiltInsIfMissing: false,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    expect(String(caught)).toMatch(/manifest not found/);
+  });
+
+  it("does not seed for unknown crew names (only built-in names auto-seed)", () => {
+    let caught: unknown = null;
+    try {
+      loadUserCrew("not-a-built-in", homeDir);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    expect(String(caught)).toMatch(/manifest not found/);
+  });
+});
+
 describe("loadManifestFromDir — model resolution integration", () => {
   it("resolves agent.model 'default' against injected getActiveModelImpl", () => {
     const dir = path.join(homeDir, "team");
