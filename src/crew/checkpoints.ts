@@ -143,19 +143,6 @@ export class CheckpointCoordinator extends EventEmitter {
       return "continue";
     }
 
-    this.emit("checkpoint:phase_pause", {
-      phase_id: args.phase.id,
-      summary_artifact_id: args.summary_artifact_id,
-      strict_mode: this.strictMode,
-      auto_advance_ms: this.strictMode ? null : this.autoAdvanceMs,
-    });
-    debugLog("info", "crew", "checkpoint:phase_pause", {
-      data: {
-        phase_id: args.phase.id,
-        strict_mode: this.strictMode,
-      },
-    });
-
     return await new Promise<UserAction>((resolve, reject) => {
       const onAbort = (): void => {
         if (this.pendingGate?.timer) clearTimeout(this.pendingGate.timer);
@@ -205,6 +192,21 @@ export class CheckpointCoordinator extends EventEmitter {
           reject(err);
         },
       };
+
+      // Emit AFTER pendingGate is wired so synchronous listeners (slash
+      // commands, tests) can resolve via resolvePhaseAdvance immediately.
+      this.emit("checkpoint:phase_pause", {
+        phase_id: args.phase.id,
+        summary_artifact_id: args.summary_artifact_id,
+        strict_mode: this.strictMode,
+        auto_advance_ms: this.strictMode ? null : this.autoAdvanceMs,
+      });
+      debugLog("info", "crew", "checkpoint:phase_pause", {
+        data: {
+          phase_id: args.phase.id,
+          strict_mode: this.strictMode,
+        },
+      });
     });
   }
 
@@ -225,11 +227,6 @@ export class CheckpointCoordinator extends EventEmitter {
       });
       return { option: "abort" };
     }
-
-    this.emit("checkpoint:reanchor_open", { reanchor: args.reanchor });
-    debugLog("info", "crew", "checkpoint:reanchor_open", {
-      data: { options: args.reanchor.options },
-    });
 
     return await new Promise<WaitForReanchorResult>((resolve, reject) => {
       const onAbort = (): void => {
@@ -252,6 +249,13 @@ export class CheckpointCoordinator extends EventEmitter {
         },
         reject,
       };
+
+      // Emit AFTER pendingReanchor is wired so synchronous listeners
+      // can resolve immediately.
+      this.emit("checkpoint:reanchor_open", { reanchor: args.reanchor });
+      debugLog("info", "crew", "checkpoint:reanchor_open", {
+        data: { options: args.reanchor.options },
+      });
     });
   }
 
