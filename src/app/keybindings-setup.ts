@@ -9,6 +9,7 @@ import type { AppLayout } from "./layout.js";
 import type { CommandRegistry } from "../tui/index.js";
 import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 import type { AppContext } from "./init-session-router.js";
+import { getActiveCrewEscapeHandler } from "./crew-session-hook.js";
 
 export function setupKeybindings(
   layout: AppLayout,
@@ -130,6 +131,18 @@ export function setupKeybindings(
     }
 
     if (combo) {
+      // Escape during a crew run: first press → pause, second within 2s → abort.
+      // No-op when no crew is active.
+      if (combo === "escape") {
+        const escHandler = getActiveCrewEscapeHandler();
+        if (escHandler) {
+          const result = escHandler();
+          if (result !== "noop") {
+            return true;
+          }
+        }
+      }
+
       if (leaderKey.isAwaitingSecondKey()) {
         const result = leaderKey.handleKey(combo);
         if (result.consumed) {
