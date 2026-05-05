@@ -48,7 +48,8 @@ export async function handleWithRouter(
 
   if (result.isErr()) {
     if ("cause" in result.error && result.error.cause?.includes("aborted")) return;
-    ctx.addMessage("error", `Error: ${result.error.type}`);
+    const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
+    ctx.addMessage("error", `Error: ${result.error.type}${cause}`);
     layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
     layout.tui.requestRender();
     return;
