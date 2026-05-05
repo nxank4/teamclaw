@@ -11,6 +11,13 @@ import type { Session } from "../session/session.js";
 import type { PromptRouter } from "../router/prompt-router.js";
 import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 import type { AppContext } from "./init-session-router.js";
+import { CrewSession, type CrewSessionHost } from "./crew-session.js";
+import {
+  loadUserCrew,
+  ManifestModelError,
+  FULL_STACK_PRESET,
+  type CrewManifest,
+} from "../crew/manifest/index.js";
 
 /**
  * Build a thin executeTool adapter against the app's ToolExecutor instance.
@@ -47,6 +54,38 @@ function buildCrewExecuteTool(
   };
 }
 
+/**
+ * Adapter from the live AppLayout into the CrewSessionHost contract.
+ * Renders phase-summary / re-anchor views into the message stream
+ * (no live-panel infra in v0.4.0-rc.1; the host's optional
+ * showPhaseSummaryView / showReanchorView hooks fall back to the
+ * single-shot addMessage path inside CrewSession when omitted).
+ */
+function buildCrewSessionHost(
+  layout: AppLayout,
+  ctx: { addMessage: (role: string, content: string) => void },
+): CrewSessionHost {
+  return {
+    addMessage: (role, content) => ctx.addMessage(role, content),
+    requestRender: () => layout.tui.requestRender(),
+    width: layout.tui.getTerminal().columns,
+  };
+}
+
+/** Pre-load the manifest so CrewSession + the router both see the same shape. */
+function tryLoadCrewManifest(crewName: string): CrewManifest | { error: string } {
+  try {
+    return loadUserCrew(crewName);
+  } catch (err) {
+    if (err instanceof ManifestModelError) {
+      return { error: err.message };
+    }
+    return {
+      error: `Failed to load crew '${crewName}': ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 export async function handleWithRouter(
   text: string,
   session: Session,
@@ -74,27 +113,56 @@ export async function handleWithRouter(
   layout.tui.requestRender();
 
   const appMode = appModeSystem?.getMode();
+
   // For crew dispatch we plumb workdir = current process cwd, the
   // executeTool adapter (so Coder/Tester actually touch disk), and the
-  // tool schema lookups. The active CheckpointCoordinator (if any TUI
-  // host has registered one via CrewSession) is resolved by the router
-  // itself through the registry.
+  // tool schema lookups. CrewSession is instantiated up-front so the
+  // CheckpointCoordinator is registered (Layer 2 phase-summary view +
+  // /pause /continue /skip /reorder /abort all wire through the same
+  // session). The router resolves the coordinator via the registry.
   const crewExecuteTool =
     appMode === "crew" && appCtx ? buildCrewExecuteTool(appCtx) : undefined;
   const reg = appCtx?.toolRegistry ?? null;
-  const result = await router.route(session.id, text, {
-    appMode,
-    workdir: appMode === "crew" ? process.cwd() : undefined,
-    executeTool: crewExecuteTool,
-    getToolSchemas:
-      appMode === "crew" && reg
-        ? (toolNames) => reg.exportForLLM(toolNames)
-        : undefined,
-    getNativeTools:
-      appMode === "crew" && reg
-        ? (toolNames) => reg.exportForAPI(toolNames)
-        : undefined,
-  });
+
+  let crewSession: CrewSession | null = null;
+  if (appMode === "crew") {
+    const crewName = FULL_STACK_PRESET;
+    const manifestOrErr = tryLoadCrewManifest(crewName);
+    if ("error" in manifestOrErr) {
+      ctx.addMessage("error", `Crew load error: ${manifestOrErr.error}`);
+      layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
+      layout.tui.requestRender();
+      return;
+    }
+    crewSession = new CrewSession(
+      {
+        session_id: session.id,
+        manifest: manifestOrErr,
+        goal: text,
+        phases: [],
+      },
+      buildCrewSessionHost(layout, ctx),
+    );
+  }
+
+  let result;
+  try {
+    result = await router.route(session.id, text, {
+      appMode,
+      workdir: appMode === "crew" ? process.cwd() : undefined,
+      executeTool: crewExecuteTool,
+      getToolSchemas:
+        appMode === "crew" && reg
+          ? (toolNames) => reg.exportForLLM(toolNames)
+          : undefined,
+      getNativeTools:
+        appMode === "crew" && reg
+          ? (toolNames) => reg.exportForAPI(toolNames)
+          : undefined,
+    });
+  } finally {
+    crewSession?.dispose();
+  }
 
   if (result.isErr()) {
     if ("cause" in result.error && result.error.cause?.includes("aborted")) return;

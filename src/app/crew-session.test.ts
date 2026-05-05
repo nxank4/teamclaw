@@ -5,7 +5,11 @@ import { buildReanchorPrompt } from "../crew/drift-reanchor.js";
 import { CrewPhaseSchema } from "../crew/types.js";
 import type { CrewManifest } from "../crew/manifest/index.js";
 import type { PhaseSummaryArtifactPayload } from "../crew/artifacts/types.js";
-import { clearActiveCrew, getActiveCrew } from "../crew/checkpoint-registry.js";
+import {
+  clearActiveCrew,
+  getActiveCheckpointCoordinator,
+  getActiveCrew,
+} from "../crew/checkpoint-registry.js";
 import { getActiveCrewEscapeHandler } from "./crew-session-hook.js";
 
 const fixtureManifest: CrewManifest = {
@@ -254,5 +258,25 @@ describe("CrewSession — reanchor presentation", () => {
         });
       }, 5);
     });
+  });
+});
+
+describe("CrewSession — registers coordinator the router can resolve", () => {
+  it("getActiveCheckpointCoordinator() returns the session's coord while alive", () => {
+    const { host } = makeHost();
+    const sess = new CrewSession(
+      {
+        session_id: "s-route",
+        manifest: fixtureManifest,
+        goal: "g",
+        phases: [fixturePhase("p1")],
+      },
+      host,
+    );
+    // The router's dispatchCrew resolves the coordinator through the
+    // same registry getter — the session's ctor must register it.
+    expect(getActiveCheckpointCoordinator()).toBe(sess.coordinator);
+    sess.dispose();
+    expect(getActiveCheckpointCoordinator()).toBeNull();
   });
 });
