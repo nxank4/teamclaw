@@ -663,6 +663,24 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /**
+   * Replace the last message's content only if its tag matches.
+   * Returns true if a replace happened, false if the last message is
+   * untagged or has a different tag.
+   *
+   * Used by the thinking spinner so its 150ms tick does not clobber a
+   * tool-approval prompt that landed on top of the thinking placeholder.
+   */
+  replaceLastByTag(tag: ChatMessage["tag"], content: string): boolean {
+    if (this.messages.length === 0) return false;
+    const idx = this.messages.length - 1;
+    if (this.messages[idx]!.tag !== tag) return false;
+    this.messages[idx]!.content = content;
+    this.renderCache.delete(idx);
+    this.heightCache.delete(idx);
+    return true;
+  }
+
   /** Replace the last message entirely (e.g., swap thinking for agent message). */
   replaceLastWith(msg: ChatMessage): void {
     if (this.messages.length > 0) {
