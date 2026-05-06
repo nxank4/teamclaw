@@ -1,28 +1,29 @@
 /**
- * Built-in preset seeding.
+ * Built-in preset resolution.
  *
- * On first run, copy each built-in preset directory from the package's
- * presets/ tree into `~/.openpawl/crews/<name>/`. Already-installed
- * presets are left untouched so user edits survive upgrades.
+ * Built-in presets ship inside the package — under `src/crew/presets/`
+ * in the source tree, and `dist/presets/` next to the bundled CLI. They
+ * are read in place; we no longer copy them into `~/.openpawl/crews/`
+ * on first run. The auto-copy path was the source of Bug Z: tsup's
+ * `clean: true` deletes files but leaves empty directories, so the
+ * subsequent `cp -r src/crew/presets dist/presets` saw `dist/presets/`
+ * already present and nested everything one level deeper at
+ * `dist/presets/presets/`. The runtime resolver then reported
+ * "manifest not found" on a fresh install. Direct read + a stable
+ * build script means there is nothing to copy and nothing to drop.
  *
- * The preset source resolves from this module's directory at runtime so
- * both `tsx` (src tree) and the bundled CLI (dist tree, with presets
- * copied by the build script) work without configuration.
+ * Users who want to fork a built-in still have the option of an
+ * explicit clone (Prompt 9b's `openpawl crew clone <name>` lands in a
+ * follow-up). When their `~/.openpawl/crews/<name>/manifest.yaml`
+ * exists it takes precedence over the built-in — see
+ * `loadUserCrew` in `./loader.ts`.
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  statSync,
-} from "node:fs";
-import os from "node:os";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { debugLog } from "../../debug/logger.js";
-import { MANIFEST_FILENAME, userCrewDir, userCrewsDir } from "./loader.js";
+import { MANIFEST_FILENAME } from "./loader.js";
 
 export const FULL_STACK_PRESET = "full-stack";
 export const BUILT_IN_PRESETS = [FULL_STACK_PRESET] as const;
@@ -36,9 +37,9 @@ function moduleDir(): string {
  *
  * - In the source tree (`src/crew/manifest/presets.ts`), this resolves to
  *   `src/crew/presets/`.
- * - In the bundled CLI (`dist/cli.js`), build copies the presets next to
- *   the bundle so `dist/presets/` exists. We probe both candidates and
- *   return the first that has the requested preset.
+ * - In the bundled CLI (`dist/cli.js`), the build script lays the presets
+ *   down next to the bundle at `dist/presets/`. We probe both candidates
+ *   and return the first that exists.
  */
 export function builtInPresetsDir(): string {
   const here = moduleDir();
@@ -56,57 +57,15 @@ export function builtInPresetDir(name: string): string {
   return path.join(builtInPresetsDir(), name);
 }
 
-function copyDirRecursive(src: string, dest: string): number {
-  let copied = 0;
-  if (!existsSync(dest)) mkdirSync(dest, { recursive: true });
-  for (const entry of readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copied += copyDirRecursive(s, d);
-    } else if (entry.isFile()) {
-      copyFileSync(s, d);
-      copied += 1;
-    }
-  }
-  return copied;
-}
-
-export interface PresetSeedResult {
-  installed: string[];
-  skipped: string[];
-  missing_source: string[];
-}
-
-export function ensureBuiltInPresets(homeDir: string = os.homedir()): PresetSeedResult {
-  const installed: string[] = [];
-  const skipped: string[] = [];
-  const missingSource: string[] = [];
-
-  const root = userCrewsDir(homeDir);
-  if (!existsSync(root)) mkdirSync(root, { recursive: true });
-
-  for (const name of BUILT_IN_PRESETS) {
-    const src = builtInPresetDir(name);
-    const dest = userCrewDir(name, homeDir);
-    if (!existsSync(src) || !statSync(src).isDirectory()) {
-      missingSource.push(name);
-      continue;
-    }
-    // Sentinel-file check: a successful previous install always lands a
-    // manifest.yaml under the crew dir. An empty / partially-populated
-    // dest (test fixture, interrupted copy) lacks the sentinel, so we
-    // re-run the copy. copyDirRecursive overwrites individual files, so
-    // a half-done copy is repaired without manual intervention.
-    if (existsSync(path.join(dest, MANIFEST_FILENAME))) {
-      skipped.push(name);
-      continue;
-    }
-    const fileCount = copyDirRecursive(src, dest);
-    debugLog("info", "crew", "preset_seeded", {
-      data: { name, dest, file_count: fileCount },
-    });
-    installed.push(name);
-  }
-  return { installed, skipped, missing_source: missingSource };
+/**
+ * True when the named built-in preset is present on disk with a
+ * manifest.yaml. The loader uses this to fall back to the bundled
+ * preset when the user has not supplied an override at
+ * `~/.openpawl/crews/<name>/`.
+ */
+export function builtInPresetExists(name: string): boolean {
+  const dir = builtInPresetDir(name);
+  if (!existsSync(dir)) return false;
+  if (!statSync(dir).isDirectory()) return false;
+  return existsSync(path.join(dir, MANIFEST_FILENAME));
 }

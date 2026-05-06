@@ -22,6 +22,5 @@ export {
   FULL_STACK_PRESET,
   builtInPresetsDir,
   builtInPresetDir,
-  ensureBuiltInPresets,
+  builtInPresetExists,
 } from "./presets.js";
-export type { PresetSeedResult } from "./presets.js";

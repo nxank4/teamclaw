@@ -29,7 +29,6 @@ import { classifyPhaseComplexity } from "./complexity.js";
 import { DoomLoopDetector } from "./doom-loop.js";
 import { KnownFilesRegistry } from "./known-files.js";
 import {
-  ensureBuiltInPresets,
   FULL_STACK_PRESET,
   loadUserCrew,
   WRITE_TOOLS,
@@ -220,8 +219,11 @@ function resolveManifest(
   override?: CrewManifest,
 ): CrewManifest {
   if (override) return override;
-  ensureBuiltInPresets(homeDir);
   const name = options.crew_name || FULL_STACK_PRESET;
+  // loadUserCrew now resolves user-override → bundled built-in
+  // → throw, with no on-disk seeding. Built-ins ship inside the
+  // package; the user only sees a copy under ~/.openpawl/crews/
+  // when they explicitly clone one (Prompt 9b's `openpawl crew clone`).
   return loadUserCrew(name, homeDir);
 }
 

@@ -16,7 +16,11 @@ import YAML from "yaml";
 
 import { debugLog } from "../../debug/logger.js";
 import { getActiveModel as defaultGetActiveModel } from "../../core/provider-config.js";
-import { BUILT_IN_PRESETS, ensureBuiltInPresets } from "./presets.js";
+import {
+  BUILT_IN_PRESETS,
+  builtInPresetDir,
+  builtInPresetExists,
+} from "./presets.js";
 import {
   CrewManifestSchema,
   RawCrewManifestSchema,
@@ -122,13 +126,13 @@ export interface LoadManifestOptions {
   /** Skip model-sentinel resolution (used by validators that operate on raw shapes). */
   skipModelResolution?: boolean;
   /**
-   * When loading a built-in preset name and the on-disk crew dir does
-   * not exist, seed it from the bundled `presets/` tree before loading.
-   * Idempotent — already-installed presets are left alone. Defaults to
-   * true on `loadUserCrew` so a fresh user install works without
-   * manual `cp -r src/crew/presets/* ~/.openpawl/crews/`.
+   * Disable the built-in preset fallback. When true, only the user
+   * directory at `~/.openpawl/crews/<name>/` is consulted; missing
+   * manifests there throw rather than resolving to the bundled preset.
+   * Used by tests that want to assert the user-override path
+   * specifically. Defaults to false (built-in fallback enabled).
    */
-  seedBuiltInsIfMissing?: boolean;
+  skipBuiltInFallback?: boolean;
 }
 
 export function loadManifestFromDir(
@@ -162,23 +166,40 @@ export function loadManifestFromDir(
   return manifest;
 }
 
+/**
+ * Resolve a crew by name with the user → built-in priority.
+ *
+ *   1. `~/.openpawl/crews/<name>/manifest.yaml` — user override.
+ *      Anything the user has authored or cloned here wins.
+ *   2. The bundled built-in preset at `builtInPresetDir(name)` — read
+ *      in place, never copied. This eliminates the auto-seed-on-first-
+ *      run failure mode from Bug Z.
+ *   3. Otherwise throw — `manifest not found`. The error message names
+ *      both candidate paths so the user can tell which leg failed.
+ *
+ * `skipBuiltInFallback` collapses the resolution to step 1 only —
+ * useful in tests that want to assert pure-user behaviour.
+ */
 export function loadUserCrew(
   name: string,
   homeDir: string = os.homedir(),
   opts: LoadManifestOptions = {},
 ): CrewManifest {
-  const dir = userCrewDir(name, homeDir);
-  const seed = opts.seedBuiltInsIfMissing !== false;
-  if (seed && !existsSync(path.join(dir, MANIFEST_FILENAME))) {
-    // ensureBuiltInPresets is idempotent (skips already-seeded crews).
-    // The loader → presets → loader import cycle is benign because
-    // presets only references the userCrewDir / userCrewsDir function
-    // exports, which are hoisted in ESM.
-    if ((BUILT_IN_PRESETS as readonly string[]).includes(name)) {
-      ensureBuiltInPresets(homeDir);
-    }
+  const userDir = userCrewDir(name, homeDir);
+  if (existsSync(path.join(userDir, MANIFEST_FILENAME))) {
+    return loadManifestFromDir(userDir, opts);
   }
-  return loadManifestFromDir(dir, opts);
+  if (
+    !opts.skipBuiltInFallback &&
+    (BUILT_IN_PRESETS as readonly string[]).includes(name) &&
+    builtInPresetExists(name)
+  ) {
+    return loadManifestFromDir(builtInPresetDir(name), opts);
+  }
+  const userPath = path.join(userDir, MANIFEST_FILENAME);
+  throw new Error(
+    `manifest not found: ${userPath} (and no built-in preset for '${name}')`,
+  );
 }
 
 export function listUserCrewNames(homeDir: string = os.homedir()): string[] {
