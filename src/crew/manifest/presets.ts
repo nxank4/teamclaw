@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { debugLog } from "../../debug/logger.js";
-import { userCrewDir, userCrewsDir } from "./loader.js";
+import { MANIFEST_FILENAME, userCrewDir, userCrewsDir } from "./loader.js";
 
 export const FULL_STACK_PRESET = "full-stack";
 export const BUILT_IN_PRESETS = [FULL_STACK_PRESET] as const;
@@ -93,7 +93,12 @@ export function ensureBuiltInPresets(homeDir: string = os.homedir()): PresetSeed
       missingSource.push(name);
       continue;
     }
-    if (existsSync(dest)) {
+    // Sentinel-file check: a successful previous install always lands a
+    // manifest.yaml under the crew dir. An empty / partially-populated
+    // dest (test fixture, interrupted copy) lacks the sentinel, so we
+    // re-run the copy. copyDirRecursive overwrites individual files, so
+    // a half-done copy is repaired without manual intervention.
+    if (existsSync(path.join(dest, MANIFEST_FILENAME))) {
       skipped.push(name);
       continue;
     }

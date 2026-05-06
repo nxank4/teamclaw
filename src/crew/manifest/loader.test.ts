@@ -154,6 +154,25 @@ describe("ensureBuiltInPresets + full-stack preset", () => {
     expect(second.skipped).toContain(FULL_STACK_PRESET);
   });
 
+  it("re-seeds when the crew dir exists but manifest.yaml is missing", () => {
+    // Simulate the case where an earlier interrupted install (or a
+    // test fixture) left an empty crew dir at the destination. The old
+    // existsSync(dest) check skipped these forever, blocking the
+    // preset from ever being installed.
+    const dest = userCrewDir(FULL_STACK_PRESET, homeDir);
+    mkdirSync(dest, { recursive: true });
+    expect(existsSync(dest)).toBe(true);
+    expect(existsSync(path.join(dest, "manifest.yaml"))).toBe(false);
+
+    const result = ensureBuiltInPresets(homeDir);
+    expect(result.installed).toContain(FULL_STACK_PRESET);
+    expect(result.skipped).toEqual([]);
+
+    expect(existsSync(path.join(dest, "manifest.yaml"))).toBe(true);
+    const agentFiles = readdirSync(path.join(dest, "agents")).sort();
+    expect(agentFiles).toEqual(["coder.md", "planner.md", "reviewer.md", "tester.md"]);
+  });
+
   it("seeded full-stack preset loads + matches Prompt 4 capability rules", () => {
     ensureBuiltInPresets(homeDir);
     const m = loadUserCrew(FULL_STACK_PRESET, homeDir);
