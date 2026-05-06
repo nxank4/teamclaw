@@ -44,6 +44,15 @@ import {
   type SubagentDebugInfo,
   type SubagentResult,
 } from "./subagent-runner.js";
+import type {
+  ToolExecutor,
+} from "../router/agent-turn.js";
+import type {
+  ToolDef,
+} from "../engine/llm.js";
+import type {
+  NativeToolDefinition,
+} from "../providers/stream-types.js";
 import { validateTaskCompletion } from "./validator.js";
 import type { CrewPhase, CrewTask, ComplexityTier } from "./types.js";
 import { WriteLockManager } from "./write-lock.js";
@@ -77,6 +86,17 @@ export interface ExecutePhaseArgs {
    *   - bails if {@link CheckpointCoordinator.isAbortRequested} fires mid-phase
    */
   checkpoint_coordinator?: CheckpointCoordinator;
+  /**
+   * Real tool executor. Forwarded down to runSubagent so Coder, Tester,
+   * etc. can actually call file_write / file_edit / shell_exec. When
+   * undefined the LLM still emits tool calls but no disk effect happens
+   * (this is the dry-run path used by the unit tests).
+   */
+  executeTool?: ToolExecutor;
+  /** Tool schema lookup forwarded into runSubagent. */
+  getToolSchemas?: (toolNames: string[]) => ToolDef[];
+  /** Native tool defs forwarded into runSubagent. */
+  getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
   /** Test seam — defaults to the real {@link runSubagent}. */
   runSubagentImpl?: (args: RunSubagentArgs) => Promise<SubagentResult>;
   /** External abort (e.g. global session abort). The phase timer is internal. */
@@ -250,6 +270,9 @@ async function runTaskOnce(args: {
   workdir: string;
   signal?: AbortSignal;
   runSubagent: (a: RunSubagentArgs) => Promise<SubagentResult>;
+  executeTool?: ToolExecutor;
+  getToolSchemas?: (toolNames: string[]) => ToolDef[];
+  getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
 }): Promise<RunOnceOutcome> {
   const estIn = PROMPT_TOKEN_HEURISTIC(args.prompt) + PROMPT_TOKEN_HEURISTIC(args.agentDef.prompt);
   const estOut = Math.min(8_000, Math.floor(args.task.max_tokens_per_task / 5));
@@ -293,6 +316,10 @@ async function runTaskOnce(args: {
         max_input: args.task.max_tokens_per_task,
         max_output: estOut,
       },
+      executeTool: args.executeTool,
+      getToolSchemas: args.getToolSchemas,
+      getNativeTools: args.getNativeTools,
+      model: args.agentDef.model,
       signal: args.signal,
       onDebug: (info) => {
         debugInfo = info;
@@ -391,6 +418,9 @@ async function executeTaskWithRetries(args: {
   signal?: AbortSignal;
   doomLoop: DoomLoopDetector;
   runSubagent: (a: RunSubagentArgs) => Promise<SubagentResult>;
+  executeTool?: ToolExecutor;
+  getToolSchemas?: (toolNames: string[]) => ToolDef[];
+  getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
 }): Promise<void> {
   const startedAt = Date.now();
   args.task.status = "in_progress";
@@ -429,6 +459,9 @@ async function executeTaskWithRetries(args: {
       workdir: args.workdir,
       signal: args.signal,
       runSubagent: args.runSubagent,
+      executeTool: args.executeTool,
+      getToolSchemas: args.getToolSchemas,
+      getNativeTools: args.getNativeTools,
     });
 
     totalIn += outcome.tokens_input;
@@ -666,6 +699,9 @@ export async function executePhase(
             signal: phaseAbort.signal,
             doomLoop,
             runSubagent,
+            executeTool: args.executeTool,
+            getToolSchemas: args.getToolSchemas,
+            getNativeTools: args.getNativeTools,
           });
           if (task.status === "completed") {
             args.known_files.addFromTaskResult(task);

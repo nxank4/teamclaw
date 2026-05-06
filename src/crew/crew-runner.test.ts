@@ -1169,3 +1169,85 @@ describe("runCrew — checkpoint coordinator integration", () => {
   });
 });
 
+// ── runCrew + tool executor threading ──────────────────────────────────────
+
+describe("runCrew — executeTool threading", () => {
+  it("forwards executeTool / getToolSchemas / getNativeTools to executePhase", async () => {
+    const subagent = stubSubagent([happyPlanJson()]);
+    const seenArgs: ExecutePhaseArgs[] = [];
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const wrapped = async (a: ExecutePhaseArgs): Promise<ExecutePhaseResult> => {
+      seenArgs.push(a);
+      return phaseExec.impl(a);
+    };
+    const myExecuteTool = async (_n: string, _a: Record<string, unknown>) => "ok";
+    const mySchemas = (_t: string[]) => [];
+    const myNative = (_t: string[]) => [];
+
+    await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: wrapped,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      executeTool: myExecuteTool,
+      getToolSchemas: mySchemas,
+      getNativeTools: myNative,
+    });
+
+    expect(seenArgs.length).toBeGreaterThan(0);
+    expect(seenArgs[0]?.executeTool).toBe(myExecuteTool);
+    expect(seenArgs[0]?.getToolSchemas).toBe(mySchemas);
+    expect(seenArgs[0]?.getNativeTools).toBe(myNative);
+  });
+
+  it("planner subagent receives executeTool too (read-only by capability gate)", async () => {
+    const subagentCalls: RunSubagentArgs[] = [];
+    const subagent = stubSubagent([happyPlanJson()]);
+    const captureSubagent = async (a: RunSubagentArgs) => {
+      subagentCalls.push(a);
+      return subagent.impl(a);
+    };
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const myExecuteTool = async () => "ok";
+
+    await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: captureSubagent,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+      executeTool: myExecuteTool,
+    });
+
+    // Planner is the first subagent invoked.
+    expect(subagentCalls.length).toBeGreaterThan(0);
+    expect(subagentCalls[0]?.executeTool).toBe(myExecuteTool);
+  });
+
+  it("executeTool can be omitted (legacy / dry-run path) without errors", async () => {
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+    });
+    expect(r.status).toBe("completed");
+  });
+});
+

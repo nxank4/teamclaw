@@ -75,6 +75,9 @@ import {
 } from "./subagent-runner.js";
 import type { CrewPhase, CrewRunOptions } from "./types.js";
 import { WriteLockManager } from "./write-lock.js";
+import type { ToolExecutor } from "../router/agent-turn.js";
+import type { ToolDef } from "../engine/llm.js";
+import type { NativeToolDefinition } from "../providers/stream-types.js";
 
 export const CREW_RUNNER_PENDING_MESSAGE =
   "crew runner pending — see PR sequence after #105";
@@ -164,6 +167,18 @@ export interface RunPlanningArgs {
   runSubagentImpl?: (args: RunSubagentArgs) => Promise<SubagentResult>;
   /** Test seam — preload the manifest instead of going through the loader. */
   manifest?: CrewManifest;
+  /**
+   * Real tool executor — Coder/Tester/Reviewer agents need this to make
+   * actual disk + shell side-effects. When undefined, tool calls run in
+   * dry-run mode (LLM emits calls, no side effect). The planner only
+   * needs read-only tools but still goes through the same executor; the
+   * capability gate enforces its read-only manifest at runtime.
+   */
+  executeTool?: ToolExecutor;
+  /** Tool schema lookup — defaults pulled from the global tool registry. */
+  getToolSchemas?: (toolNames: string[]) => ToolDef[];
+  /** Native tool defs lookup — for providers that prefer the native shape. */
+  getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
 }
 
 export interface RunCrewArgs extends RunPlanningArgs {
@@ -341,6 +356,10 @@ export async function runPlanning(args: RunPlanningArgs): Promise<CrewRunResult>
       write_lock_manager: lockManager,
       session_id: sessionId,
       token_budget: tokenBudget,
+      executeTool: args.executeTool,
+      getToolSchemas: args.getToolSchemas,
+      getNativeTools: args.getNativeTools,
+      model: planner.model,
     });
     totalTokens += result.tokens_used;
 
@@ -598,6 +617,9 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
       doom_loop: doomLoop,
       hebbian_recall: args.hebbian_recall,
       checkpoint_coordinator: coordinator,
+      executeTool: args.executeTool,
+      getToolSchemas: args.getToolSchemas,
+      getNativeTools: args.getNativeTools,
       runSubagentImpl: runSubagent,
       signal: args.signal,
       phase_time_budget_ms: phaseTimeBudget,

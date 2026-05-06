@@ -31,6 +31,9 @@ import type { CrewRunResult } from "../crew/crew-runner.js";
 import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
 import type { CheckpointCoordinator } from "../crew/checkpoints.js";
 import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
+import type { ToolExecutor } from "./agent-turn.js";
+import type { ToolDef } from "../engine/llm.js";
+import type { NativeToolDefinition } from "../providers/stream-types.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -148,6 +151,16 @@ export class PromptRouter extends EventEmitter {
       workdir?: string;
       /** Cancellation signal piped through to the crew runner. */
       abortSignal?: AbortSignal;
+      /**
+       * Real tool executor for crew agents. Without this, the LLM emits
+       * tool calls but no disk effect happens. The TUI host passes the
+       * same instance it builds for solo dispatch.
+       */
+      executeTool?: ToolExecutor;
+      /** Tool schema lookup for crew agents. Forwarded to runCrew. */
+      getToolSchemas?: (toolNames: string[]) => ToolDef[];
+      /** Native tool defs lookup. Forwarded to runCrew. */
+      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
     },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
@@ -278,6 +291,9 @@ export class PromptRouter extends EventEmitter {
       crewName?: string;
       workdir?: string;
       abortSignal?: AbortSignal;
+      executeTool?: ToolExecutor;
+      getToolSchemas?: (toolNames: string[]) => ToolDef[];
+      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
     },
   ): Promise<Result<DispatchResult, RouterError>> {
     const start = Date.now();
@@ -294,6 +310,9 @@ export class PromptRouter extends EventEmitter {
         session_id: sessionId,
         workdir,
         checkpointCoordinator: coord,
+        executeTool: options?.executeTool,
+        getToolSchemas: options?.getToolSchemas,
+        getNativeTools: options?.getNativeTools,
         signal: options?.abortSignal,
       });
 

@@ -31,6 +31,9 @@ export interface AppContext {
   appModeSystem: AppModeSystem | null;
   memoryCleanup: (() => void) | null;
   onQueueDrain: (() => void) | null;
+  /** Real tool executor + registry. Exposed so crew dispatch can pass them through to runCrew, mirroring the solo dispatch path. */
+  toolRegistry: import("../tools/registry.js").ToolRegistry | null;
+  toolExecutor: import("../tools/executor.js").ToolExecutor | null;
 }
 
 export async function initSessionRouter(
@@ -118,6 +121,10 @@ export async function initSessionRouter(
       layout.statusBar.updateSegment(3, `${toolName} failed`, defaultTheme.error);
       layout.tui.requestRender();
     });
+
+    // Expose to AppContext so crew dispatch can plumb the same instance.
+    ctx.toolRegistry = toolRegistry;
+    ctx.toolExecutor = toolExecutor;
   } catch {
     // Tools not available — run without tools
   }

@@ -37,8 +37,14 @@ export function wireRouterEvents(
   let thinkingMsgAdded = false;
 
   thinking.onUpdate = (text) => {
-    if (thinkingMsgAdded) {
-      layout.messages.replaceLast(text);
+    if (!thinkingMsgAdded) return;
+    // Only overwrite the spinner placeholder. If a `tool-approval` (or
+    // any other tagged message) has been pushed on top, leave it
+    // alone — otherwise the next 150ms tick would erase the permission
+    // prompt before the user can read it. The crew dispatch path keeps
+    // the indicator running for the entire run, so this guard is what
+    // makes Y/N prompts visible for shell_exec / file_write.
+    if (layout.messages.replaceLastByTag("thinking", text)) {
       layout.tui.requestRender();
     }
   };
