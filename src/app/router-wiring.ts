@@ -136,12 +136,27 @@ export function wireRouterEvents(
     }
   };
 
-  const onAgentTool = (_sessionId: string, _agentId: string, toolName: string, status: string, details?: { executionId?: string; inputSummary?: string; duration?: number; outputSummary?: string; success?: boolean; diff?: import("../utils/diff.js").DiffResult }) => {
+  const onAgentTool = (_sessionId: string, agentId: string, toolName: string, status: string, details?: { executionId?: string; inputSummary?: string; duration?: number; outputSummary?: string; success?: boolean; diff?: import("../utils/diff.js").DiffResult }) => {
     const execId = details?.executionId ?? `fallback_${Date.now()}`;
 
     if (status === "running") {
-      layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, _agentId);
+      layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, agentId);
       startToolSpinner();
+      // Surface the active subagent + tool in the status bar. Solo
+      // dispatch handles this via ToolEvent.Start in
+      // init-session-router (showing just the tool name); for crew
+      // we want to see WHICH agent is acting too, since the message
+      // stream alone does not always make the role obvious between
+      // runs. agentId here is the real subagent ("planner", "coder",
+      // …), not the umbrella "crew" agent — that's what makes the
+      // status text useful instead of generic.
+      if (agentId !== "system" && agentId !== "crew") {
+        layout.statusBar.updateSegment(
+          3,
+          `${agentDisplayName(agentId)}: ${toolName}...`,
+          defaultTheme.accent,
+        );
+      }
     } else if (status === "completed" || status === "failed") {
       layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0, details?.diff);
     }

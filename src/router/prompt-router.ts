@@ -319,6 +319,25 @@ export class PromptRouter extends EventEmitter {
         getToolSchemas: options?.getToolSchemas,
         getNativeTools: options?.getNativeTools,
         signal: options?.abortSignal,
+        // Crew progress observability — the runtime fires this on
+        // every subagent tool-call lifecycle event. Map it onto the
+        // existing RouterEvent.AgentTool channel so the TUI's
+        // onAgentTool handler in router-wiring can render tool views
+        // exactly the way it does for solo dispatch. The agent_id is
+        // the actual subagent (planner / coder / tester / …) so each
+        // gets its own color and status-bar segment text. §5.6
+        // isolation is preserved: this is observability, not context
+        // bubbling — subagent prompts still reset per invocation.
+        onProgress: (event) => {
+          this.emit(
+            RouterEvent.AgentTool,
+            sessionId,
+            event.agent_id,
+            event.tool_name,
+            event.status,
+            event.details,
+          );
+        },
       });
 
       const md = renderCrewResultMarkdown(result);
