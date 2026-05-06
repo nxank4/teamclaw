@@ -180,6 +180,15 @@ export async function handleWithRouter(
 
     if (agentResult.agentId === "system") {
       ctx.addMessage("system", agentResult.response);
+    } else if (agentResult.agentId === "crew") {
+      // Crew dispatch produces a final markdown summary
+      // (renderCrewResultMarkdown). Subagents do not propagate
+      // AgentToken events back through the router, so unlike solo
+      // agents the response was never streamed into the chat — it has
+      // to be rendered explicitly here. Without this, the TUI looked
+      // frozen after a successful crew run because the user never saw
+      // a "Crew run completed" message.
+      ctx.addMessage("system", agentResult.response);
     } else if (agentResult.inputTokens === 0 && agentResult.outputTokens === 0) {
       layout.messages.addMessage({
         role: "agent",
