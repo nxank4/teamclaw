@@ -27,7 +27,7 @@ import { parseMentions } from "./mention-parser.js";
 import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
 import { runCrew } from "../crew/crew-runner.js";
-import type { CrewRunResult } from "../crew/crew-runner.js";
+import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
 import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
 import type { CheckpointCoordinator } from "../crew/checkpoints.js";
 import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
@@ -161,6 +161,8 @@ export class PromptRouter extends EventEmitter {
       getToolSchemas?: (toolNames: string[]) => ToolDef[];
       /** Native tool defs lookup. Forwarded to runCrew. */
       getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
+      /** Test seam — defaults to the real {@link runCrew}. */
+      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
     },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
@@ -294,10 +296,13 @@ export class PromptRouter extends EventEmitter {
       executeTool?: ToolExecutor;
       getToolSchemas?: (toolNames: string[]) => ToolDef[];
       getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
+      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
     },
   ): Promise<Result<DispatchResult, RouterError>> {
     const start = Date.now();
     this.emit(RouterEvent.AgentStart, sessionId, "crew");
+
+    const runCrewFn = options?.runCrewImpl ?? runCrew;
 
     try {
       const coord =
@@ -305,7 +310,7 @@ export class PromptRouter extends EventEmitter {
       const crewName = options?.crewName ?? FULL_STACK_PRESET;
       const workdir = options?.workdir ?? process.cwd();
 
-      const result: CrewRunResult = await runCrew({
+      const result: CrewRunResult = await runCrewFn({
         options: { goal: prompt, crew_name: crewName, workdir },
         session_id: sessionId,
         workdir,
@@ -324,7 +329,7 @@ export class PromptRouter extends EventEmitter {
         success: result.status === "completed",
       });
 
-      return ok({
+      const dispatchResult: DispatchResult = {
         strategy: "orchestrated",
         agentResults: [
           {
@@ -340,9 +345,23 @@ export class PromptRouter extends EventEmitter {
         totalDuration: duration,
         totalInputTokens: 0,
         totalOutputTokens: tokensUsed,
-      });
+      };
+
+      // Mirror the dispatcher path (dispatch-strategy.ts:112): emit Done
+      // so the TUI's onDispatchDone handler runs — that's where the
+      // status-bar token-pair display is updated. Without this, the
+      // status bar stays at "idle" (or worse, the last tool name) and
+      // the TUI looks frozen even though the run completed cleanly.
+      this.emit(RouterEvent.Done, sessionId, dispatchResult);
+
+      return ok(dispatchResult);
     } catch (e) {
       const cause = e instanceof Error ? e.message : String(e);
+      // AgentDone (with success: false) covers the TUI cleanup —
+      // onAgentDone in router-wiring stops the thinking indicator and
+      // resets the status bar. The caller (prompt-handler) renders the
+      // error from the returned err; emitting RouterEvent.Error here
+      // would duplicate the error message in the chat stream.
       this.emit(RouterEvent.AgentDone, sessionId, "crew", { success: false });
       return err({ type: "dispatch_failed", agentId: "crew", cause });
     }
