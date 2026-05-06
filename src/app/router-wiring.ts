@@ -161,6 +161,15 @@ export function wireRouterEvents(
     tokenFilter = null;
     thinking.stop();
     thinkingMsgAdded = false;
+    // Strip the thinking placeholder. Solo dispatch already swapped
+    // it for a streaming agent message in onAgentToken — that path
+    // dropped the tag, so this is a no-op there. Crew dispatch never
+    // emits AgentToken (subagents are isolated), so the placeholder
+    // sits in the stream with its last-rendered spinner text frozen
+    // in place. Without this removal the user sees a stale "Worth
+    // the wait…" line after a clean crew run, and the next prompt
+    // appears to render on top of an indicator that never went away.
+    layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
     layout.messages.bakeToolCalls();
     layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
@@ -182,6 +191,10 @@ export function wireRouterEvents(
     tokenFilter = null;
     thinking.stop();
     thinkingMsgAdded = false;
+    // Same reason as onAgentDone — strip a lingering thinking
+    // placeholder so the error message lands cleanly instead of
+    // sitting under a frozen spinner line.
+    layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
     layout.messages.clearToolCalls();
     layout.messages.addMessage({
@@ -219,6 +232,11 @@ export function wireRouterEvents(
     tokenFilter = null;
     thinking.stop();
     thinkingMsgAdded = false;
+    // Same reason as onAgentDone — strip a lingering thinking
+    // placeholder. The cancellation message in `streamingForAgent`
+    // appendToLast above goes to the streaming agent message, not
+    // the spinner, so this remove is independent of that branch.
+    layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
     layout.messages.bakeToolCalls();
     layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
