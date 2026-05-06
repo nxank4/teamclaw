@@ -66,7 +66,9 @@ agents:
     writeAgentMd(dir, "agents/coder.md", "You are the coder. Implement the task.");
     writeAgentMd(dir, "agents/reviewer.md", "You are the reviewer. Audit the diff.");
 
-    const manifest = loadManifestFromDir(dir);
+    const manifest = loadManifestFromDir(dir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
     expect(manifest.name).toBe("team");
     expect(manifest.agents).toHaveLength(2);
     expect(manifest.agents[0]?.prompt).toContain("Implement the task");
@@ -133,7 +135,9 @@ agents:
     );
     writeAgentMd(dir, "agents/a.md", "Prompt for agent a.");
     writeAgentMd(dir, "agents/b.md", "Prompt for agent b.");
-    const m = loadUserCrew("crew1", homeDir);
+    const m = loadUserCrew("crew1", homeDir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
     expect(m.agents.map((a) => a.id)).toEqual(["a", "b"]);
   });
 });
@@ -175,7 +179,9 @@ describe("ensureBuiltInPresets + full-stack preset", () => {
 
   it("seeded full-stack preset loads + matches Prompt 4 capability rules", () => {
     ensureBuiltInPresets(homeDir);
-    const m = loadUserCrew(FULL_STACK_PRESET, homeDir);
+    const m = loadUserCrew(FULL_STACK_PRESET, homeDir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
 
     expect(m.agents.map((a) => a.id).sort()).toEqual([
       "coder",
