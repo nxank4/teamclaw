@@ -138,6 +138,14 @@ function sanitize(
 const MAX_LOG_FILES = 50;
 const KEEP_LOG_FILES = 30;
 
+/**
+ * Number of files cleaned during the most recent rotation. Logged into
+ * the JSONL after the file descriptor opens — never written to stdout
+ * or stderr because the TUI owns the terminal and a stray write
+ * corrupts its DiffRenderer (Bug U+1).
+ */
+let _rotatedCount = 0;
+
 function rotateIfNeeded(debugDir: string): void {
   if (_rotated) return;
   _rotated = true;
@@ -160,8 +168,7 @@ function rotateIfNeeded(debugDir: string): void {
           // ignore individual file errors
         }
       }
-      // Log rotation warning via console (not JSONL, since file not open yet)
-      console.error(`[openpawl-debug] Cleaned ${toDelete.length} old debug logs`);
+      _rotatedCount = toDelete.length;
     }
   } catch {
     // rotation is non-critical
@@ -181,6 +188,26 @@ function ensureOpen(): void {
   _logPath = join(debugDir, `${_sessionId}.jsonl`);
   _fd = openSync(_logPath, "a");
   installSignalHook();
+
+  // Surface the rotation outcome inside the JSONL itself rather than
+  // via stderr. The TUI mode runs on top of the terminal and any
+  // stray stdout/stderr write corrupts the DiffRenderer's screen
+  // state — that was Bug U+1's root cause.
+  if (_rotatedCount > 0) {
+    try {
+      const entry: DebugLog = {
+        timestamp: new Date().toISOString(),
+        level: "info",
+        source: "error",
+        event: "debug:log_rotated",
+        data: { deleted: _rotatedCount, kept: KEEP_LOG_FILES },
+      };
+      appendFileSync(_fd, JSON.stringify(entry) + "\n");
+    } catch {
+      // Best-effort: rotation reporting must never crash the host.
+    }
+    _rotatedCount = 0;
+  }
 }
 
 function installSignalHook(): void {
