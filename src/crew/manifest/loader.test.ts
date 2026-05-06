@@ -19,7 +19,7 @@ import {
   resolveModelSentinels,
   userCrewDir,
 } from "./loader.js";
-import { ensureBuiltInPresets, FULL_STACK_PRESET } from "./presets.js";
+import { builtInPresetDir, FULL_STACK_PRESET } from "./presets.js";
 import type { CrewManifest } from "./types.js";
 
 let homeDir: string;
@@ -142,43 +142,15 @@ agents:
   });
 });
 
-describe("ensureBuiltInPresets + full-stack preset", () => {
-  it("seeds the full-stack preset on first run, then is idempotent", () => {
-    const first = ensureBuiltInPresets(homeDir);
-    expect(first.installed).toContain(FULL_STACK_PRESET);
-    expect(first.skipped).toEqual([]);
+describe("built-in full-stack preset", () => {
+  it("loads from the bundled location with full agent set + Prompt 4 capability rules", () => {
+    // No user dir, no seeding — loadUserCrew now reads the built-in
+    // directly from the bundled `presets/` tree (src in dev, dist
+    // alongside the CLI bundle in prod). Bug Z (manifest-not-found
+    // on fresh installs caused by the auto-seed cp script flakiness)
+    // cannot recur because no copy ever happens.
+    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(false);
 
-    const dest = userCrewDir(FULL_STACK_PRESET, homeDir);
-    expect(existsSync(path.join(dest, "manifest.yaml"))).toBe(true);
-    const agentFiles = readdirSync(path.join(dest, "agents")).sort();
-    expect(agentFiles).toEqual(["coder.md", "planner.md", "reviewer.md", "tester.md"]);
-
-    const second = ensureBuiltInPresets(homeDir);
-    expect(second.installed).toEqual([]);
-    expect(second.skipped).toContain(FULL_STACK_PRESET);
-  });
-
-  it("re-seeds when the crew dir exists but manifest.yaml is missing", () => {
-    // Simulate the case where an earlier interrupted install (or a
-    // test fixture) left an empty crew dir at the destination. The old
-    // existsSync(dest) check skipped these forever, blocking the
-    // preset from ever being installed.
-    const dest = userCrewDir(FULL_STACK_PRESET, homeDir);
-    mkdirSync(dest, { recursive: true });
-    expect(existsSync(dest)).toBe(true);
-    expect(existsSync(path.join(dest, "manifest.yaml"))).toBe(false);
-
-    const result = ensureBuiltInPresets(homeDir);
-    expect(result.installed).toContain(FULL_STACK_PRESET);
-    expect(result.skipped).toEqual([]);
-
-    expect(existsSync(path.join(dest, "manifest.yaml"))).toBe(true);
-    const agentFiles = readdirSync(path.join(dest, "agents")).sort();
-    expect(agentFiles).toEqual(["coder.md", "planner.md", "reviewer.md", "tester.md"]);
-  });
-
-  it("seeded full-stack preset loads + matches Prompt 4 capability rules", () => {
-    ensureBuiltInPresets(homeDir);
     const m = loadUserCrew(FULL_STACK_PRESET, homeDir, {
       getActiveModelImpl: () => "minimax-m2.7",
     });
@@ -200,6 +172,24 @@ describe("ensureBuiltInPresets + full-stack preset", () => {
     expect(tester.tools).toContain("file_write");
     expect(tester.write_scope?.length).toBeGreaterThan(0);
     expect(tester.write_scope?.some((g) => g.includes("test"))).toBe(true);
+
+    // No write to ~/.openpawl/crews/ ever happens — that path is
+    // reserved for explicit user clones.
+    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(false);
+  });
+
+  it("built-in source ships under the bundled presets directory", () => {
+    // Sanity check on the build: if the dev tree is missing the
+    // bundled preset, dispatch on a fresh install would fail.
+    const dir = builtInPresetDir(FULL_STACK_PRESET);
+    expect(existsSync(path.join(dir, "manifest.yaml"))).toBe(true);
+    const agentFiles = readdirSync(path.join(dir, "agents")).sort();
+    expect(agentFiles).toEqual([
+      "coder.md",
+      "planner.md",
+      "reviewer.md",
+      "tester.md",
+    ]);
   });
 });
 
@@ -275,33 +265,66 @@ describe("resolveModelSentinels", () => {
   });
 });
 
-describe("loadUserCrew — auto-seed built-in presets", () => {
-  it("seeds the built-in preset on a fresh homeDir before loading", () => {
-    // homeDir is a fresh tmpdir per beforeEach — no presets yet.
+describe("loadUserCrew — resolution priority", () => {
+  it("loads the built-in preset on a fresh homeDir without writing to disk", () => {
     expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(false);
     const m = loadUserCrew(FULL_STACK_PRESET, homeDir, {
       getActiveModelImpl: () => "minimax-m2.7",
     });
     expect(m.name).toBe(FULL_STACK_PRESET);
-    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(true);
+    // Crucially, the user dir is still NOT created. Built-ins are
+    // read in place; the user only owns ~/.openpawl/crews/<name>/
+    // when they explicitly clone (Prompt 9b).
+    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(false);
   });
 
-  it("is idempotent — second call does not reseed or fail", () => {
+  it("is idempotent — repeated calls return matching manifests with no side-effects", () => {
     loadUserCrew(FULL_STACK_PRESET, homeDir, {
       getActiveModelImpl: () => "minimax-m2.7",
     });
-    // Second call must not throw and must produce the same manifest.
     const m2 = loadUserCrew(FULL_STACK_PRESET, homeDir, {
       getActiveModelImpl: () => "minimax-m2.7",
     });
     expect(m2.name).toBe(FULL_STACK_PRESET);
+    expect(existsSync(userCrewDir(FULL_STACK_PRESET, homeDir))).toBe(false);
   });
 
-  it("does not seed when seedBuiltInsIfMissing is false", () => {
+  it("user dir takes precedence over the built-in (override fork)", () => {
+    // A user who has cloned + edited the full-stack preset gets
+    // their override loaded instead of the bundled version.
+    const dir = userCrewDir(FULL_STACK_PRESET, homeDir);
+    writeManifest(
+      dir,
+      `name: ${FULL_STACK_PRESET}
+description: user override
+agents:
+  - id: a
+    name: A
+    description: a
+    prompt_file: agents/a.md
+    tools: [file_read]
+  - id: b
+    name: B
+    description: b
+    prompt_file: agents/b.md
+    tools: [file_read]
+`,
+    );
+    writeAgentMd(dir, "agents/a.md", "user-overridden agent a prompt content");
+    writeAgentMd(dir, "agents/b.md", "user-overridden agent b prompt content");
+
+    const m = loadUserCrew(FULL_STACK_PRESET, homeDir, {
+      getActiveModelImpl: () => "minimax-m2.7",
+    });
+    expect(m.description).toBe("user override");
+    expect(m.agents.map((a) => a.id)).toEqual(["a", "b"]);
+  });
+
+  it("skipBuiltInFallback bypasses the built-in path", () => {
     let caught: unknown = null;
     try {
       loadUserCrew(FULL_STACK_PRESET, homeDir, {
-        seedBuiltInsIfMissing: false,
+        skipBuiltInFallback: true,
       });
     } catch (e) {
       caught = e;
@@ -310,7 +333,7 @@ describe("loadUserCrew — auto-seed built-in presets", () => {
     expect(String(caught)).toMatch(/manifest not found/);
   });
 
-  it("does not seed for unknown crew names (only built-in names auto-seed)", () => {
+  it("throws for unknown crew names (no built-in fallback for unrecognised names)", () => {
     let caught: unknown = null;
     try {
       loadUserCrew("not-a-built-in", homeDir);
