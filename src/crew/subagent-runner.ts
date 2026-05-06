@@ -30,6 +30,7 @@ import {
   type RunAgentTurnResult,
   type ToolExecutor,
 } from "../router/agent-turn.js";
+import type { ToolCallDetails } from "../router/llm-agent-runner.js";
 import type { ToolCallSummary } from "../router/router-types.js";
 
 import type { ArtifactId, ArtifactStoreReader } from "./artifacts/index.js";
@@ -98,6 +99,26 @@ export interface SubagentDebugInfo {
   tokens_breakdown: { input: number; output: number };
 }
 
+/**
+ * Observability-only progress event surfaced as each subagent tool
+ * call moves through its lifecycle. The orchestrator listens (via
+ * `onProgress` on RunSubagentArgs / RunCrewArgs) and re-emits these
+ * to the router so the TUI can render activity in real time.
+ *
+ * §5.6 isolation contract is preserved: this stream is observability,
+ * not context — the subagent's prompt history still resets per
+ * invocation, and the parent's transcript is unchanged. Only the
+ * outer host gets a copy.
+ */
+export interface SubagentProgressEvent {
+  agent_id: string;
+  tool_name: string;
+  status: "running" | "completed" | "failed" | "blocked";
+  details?: ToolCallDetails;
+}
+
+export type SubagentProgressEmitter = (event: SubagentProgressEvent) => void;
+
 export class SubagentDepthExceeded extends Error {
   constructor(
     public readonly agent_id: string,
@@ -150,6 +171,12 @@ export interface RunSubagentArgs {
   onDebug?: (info: SubagentDebugInfo) => void;
   /** Per-call write-lock acquire timeout (ms). Defaults to `WriteLockManager`'s own default (30s). */
   lockTimeoutMs?: number;
+  /**
+   * Observability sink for tool-call lifecycle events fired during
+   * this subagent turn. The host (router → TUI) uses it to render
+   * crew activity in real time. See {@link SubagentProgressEvent}.
+   */
+  onProgress?: SubagentProgressEmitter;
   /** Test seam — defaults to the real {@link runAgentTurn}. */
   runAgentTurnImpl?: (args: RunAgentTurnArgs) => Promise<RunAgentTurnResult>;
 }
@@ -205,6 +232,7 @@ export async function runSubagent(
     maxTurns,
     lockTimeoutMs,
     onDebug,
+    onProgress,
     runAgentTurnImpl = defaultRunAgentTurn,
   } = args;
 
@@ -321,6 +349,30 @@ export async function runSubagent(
       }
     : undefined;
 
+  // Forward runAgentTurn's tool-call lifecycle into the host's
+  // onProgress channel. The mapping is a 1:1 pass-through; we only
+  // narrow the status to the SubagentProgressEvent's union so callers
+  // get a typed payload instead of a free-form string. Solo dispatch
+  // does the equivalent in init-session-router.ts via toolEmitter; the
+  // crew path was the missing leg.
+  const onToolCallForward: RunAgentTurnArgs["onToolCall"] = onProgress
+    ? (agentId, toolName, status, details) => {
+        if (
+          status === "running" ||
+          status === "completed" ||
+          status === "failed" ||
+          status === "blocked"
+        ) {
+          onProgress({
+            agent_id: agentId,
+            tool_name: toolName,
+            status,
+            details,
+          });
+        }
+      }
+    : undefined;
+
   let result;
   try {
     result = await runAgentTurnImpl({
@@ -332,6 +384,7 @@ export async function runSubagent(
       nativeToolDefs,
       executeTool: wrappedExecutor,
       preToolHook,
+      onToolCall: onToolCallForward,
       model: model ?? agent_def.model,
       maxTurns,
       signal,

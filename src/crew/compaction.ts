@@ -41,6 +41,7 @@ import {
 import {
   runSubagent as defaultRunSubagent,
   type RunSubagentArgs,
+  type SubagentProgressEmitter,
   type SubagentResult,
 } from "./subagent-runner.js";
 import { WriteLockManager } from "./write-lock.js";
@@ -66,6 +67,8 @@ export interface CheckAndCompactArgs {
   model_context_window?: number;
   runSubagentImpl?: (args: RunSubagentArgs) => Promise<SubagentResult>;
   signal?: AbortSignal;
+  /** Observability sink for the compaction subagent's tool-call lifecycle. */
+  onProgress?: SubagentProgressEmitter;
 }
 
 export interface CompactedPhase {
@@ -296,6 +299,7 @@ export async function checkAndCompact(
           max_output: Math.max(1_000, Math.floor(subagentInput / 2)),
         },
         signal: args.signal,
+        onProgress: args.onProgress,
       });
       summaryMarkdown = result.summary.trim();
       if (summaryMarkdown.length === 0) {
