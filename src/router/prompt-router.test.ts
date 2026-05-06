@@ -151,4 +151,87 @@ describe("PromptRouter — crew dispatch event flow", () => {
     // the error UI with a stale token-pair display.
     expect(events).toEqual(["agent:start", "agent:done(success=false)"]);
   });
+
+  it("forwards subagent progress events as RouterEvent.AgentTool with the subagent id", async () => {
+    // Bug U+2 root cause: the crew run was invisible to the TUI for
+    // the entire 5-15 minute duration because subagent tool calls
+    // never reached the router. dispatchCrew now subscribes to
+    // runCrew's onProgress channel and re-emits each event as
+    // RouterEvent.AgentTool — the existing TUI handler in
+    // router-wiring.onAgentTool then renders the same tool views
+    // solo dispatch already shows. This test pins down the bridge.
+    const sessionMgr = createSessionManager({ sessionsDir: homeDir });
+    await sessionMgr.initialize();
+
+    const router = new PromptRouter({}, sessionMgr, null, stubAgentRunner);
+
+    type ToolEvent = {
+      sessionId: string;
+      agentId: string;
+      tool: string;
+      status: string;
+    };
+    const toolEvents: ToolEvent[] = [];
+    router.on(
+      RouterEvent.AgentTool,
+      (sessionId: string, agentId: string, tool: string, status: string) => {
+        toolEvents.push({ sessionId, agentId, tool, status });
+      },
+    );
+
+    // Stub runCrew that simulates two subagents firing tool calls
+    // — the planner doing a file_read (read-only by manifest) and
+    // the coder doing a file_write. dispatchCrew passes its
+    // onProgress closure into runCrew; we invoke it directly here
+    // to assert the wiring without spinning up a real LLM.
+    const stubRunCrew: (args: RunCrewArgs) => Promise<CrewRunResult> = async (
+      args,
+    ) => {
+      args.onProgress?.({
+        agent_id: "planner",
+        tool_name: "file_read",
+        status: "running",
+      });
+      args.onProgress?.({
+        agent_id: "planner",
+        tool_name: "file_read",
+        status: "completed",
+      });
+      args.onProgress?.({
+        agent_id: "coder",
+        tool_name: "file_write",
+        status: "running",
+        details: { executionId: "exec-2", inputSummary: "src/hello.ts" },
+      });
+      return {
+        status: "completed",
+        session_id: "sid",
+        crew_name: "full-stack",
+        goal: "test",
+        phases: [],
+        plan_artifact_id: "plan-1",
+        phase_summary_artifact_ids: [],
+        tokens_used: 100,
+        ended_by: "all_phases_complete",
+      };
+    };
+
+    await router.route("sid", "create hello.ts", {
+      appMode: "crew",
+      runCrewImpl: stubRunCrew,
+    });
+
+    expect(toolEvents).toHaveLength(3);
+    expect(toolEvents[0]).toMatchObject({
+      sessionId: "sid",
+      agentId: "planner",
+      tool: "file_read",
+      status: "running",
+    });
+    expect(toolEvents[2]).toMatchObject({
+      agentId: "coder",
+      tool: "file_write",
+      status: "running",
+    });
+  });
 });
