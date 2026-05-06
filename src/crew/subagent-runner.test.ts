@@ -10,6 +10,7 @@ import {
   runSubagent,
   type RunSubagentArgs,
   type SubagentDebugInfo,
+  type SubagentProgressEvent,
 } from "./subagent-runner.js";
 import { WriteLockManager } from "./write-lock.js";
 import type {
@@ -442,5 +443,110 @@ describe("runSubagent — return shape (spec §5.6)", () => {
     expect(dbg.cap.info?.errors).toEqual([]);
     expect(dbg.cap.info?.tool_calls.length).toBe(1);
     expect(dbg.cap.info?.tokens_breakdown).toEqual({ input: 250, output: 75 });
+  });
+});
+
+describe("runSubagent — onProgress observability channel", () => {
+  it("forwards runAgentTurn tool-call lifecycle events with the subagent's id", async () => {
+    // The crew dispatch path (router → runCrew → ... → runSubagent)
+    // uses onProgress as its observability sink. Without this the
+    // TUI sees nothing during a multi-minute crew run, which was
+    // Bug U+2's root cause class. The event must carry the actual
+    // subagent id ("reviewer", not "agent" or "crew") so the TUI's
+    // tool-view can color + label it correctly.
+    const events: SubagentProgressEvent[] = [];
+    const onProgress = (event: SubagentProgressEvent): void => {
+      events.push(event);
+    };
+
+    const stub = async (turnArgs: RunAgentTurnArgs) => {
+      turnArgs.onToolCall?.(turnArgs.agentId, "file_read", "running", {
+        executionId: "exec-1",
+        inputSummary: "src/foo.ts",
+      });
+      turnArgs.onToolCall?.(turnArgs.agentId, "file_read", "completed", {
+        executionId: "exec-1",
+        duration: 12,
+        success: true,
+      });
+      return {
+        text: "done",
+        toolCalls: [
+          {
+            tool: "file_read",
+            input: '{"path":"src/foo.ts"}',
+            output: "...",
+            duration: 12,
+            success: true,
+          },
+        ],
+        usage: { input: 100, output: 50 },
+      };
+    };
+
+    await runSubagent(
+      makeArgs({
+        agent_def: reviewer(),
+        runAgentTurnImpl: stub,
+        onProgress,
+      }),
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual({
+      agent_id: "reviewer",
+      tool_name: "file_read",
+      status: "running",
+      details: { executionId: "exec-1", inputSummary: "src/foo.ts" },
+    });
+    expect(events[1]?.status).toBe("completed");
+    expect(events[1]?.agent_id).toBe("reviewer");
+  });
+
+  it("is a no-op when onProgress is not provided (backwards compat)", async () => {
+    const stub = async (turnArgs: RunAgentTurnArgs) => {
+      // Even though no onProgress was passed, runAgentTurn callers
+      // routinely fire onToolCall — so the wrapper must safely no-op,
+      // not throw, when onProgress is absent.
+      turnArgs.onToolCall?.(turnArgs.agentId, "file_read", "running");
+      return {
+        text: "done",
+        toolCalls: [],
+        usage: { input: 100, output: 50 },
+      };
+    };
+
+    const r = await runSubagent(
+      makeArgs({
+        agent_def: reviewer(),
+        runAgentTurnImpl: stub,
+      }),
+    );
+    expect(r.tokens_used).toBe(150);
+  });
+
+  it("ignores statuses outside the SubagentProgressEvent union", async () => {
+    // Defensive — runAgentTurn could one day emit new statuses.
+    // Until those are mapped explicitly, the wrapper must drop them
+    // rather than ship a malformed event upstream.
+    const events: SubagentProgressEvent[] = [];
+    const stub = async (turnArgs: RunAgentTurnArgs) => {
+      turnArgs.onToolCall?.(turnArgs.agentId, "file_read", "weird-future-status");
+      return {
+        text: "done",
+        toolCalls: [],
+        usage: { input: 100, output: 50 },
+      };
+    };
+
+    await runSubagent(
+      makeArgs({
+        agent_def: reviewer(),
+        runAgentTurnImpl: stub,
+        onProgress: (e) => events.push(e),
+      }),
+    );
+
+    expect(events).toHaveLength(0);
   });
 });

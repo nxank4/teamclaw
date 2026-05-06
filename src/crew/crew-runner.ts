@@ -70,6 +70,7 @@ import { parsePlan, type ParseError } from "./plan-parser.js";
 import {
   runSubagent as defaultRunSubagent,
   type RunSubagentArgs,
+  type SubagentProgressEmitter,
   type SubagentResult,
 } from "./subagent-runner.js";
 import type { CrewPhase, CrewRunOptions } from "./types.js";
@@ -178,6 +179,13 @@ export interface RunPlanningArgs {
   getToolSchemas?: (toolNames: string[]) => ToolDef[];
   /** Native tool defs lookup — for providers that prefer the native shape. */
   getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
+  /**
+   * Observability sink for subagent tool-call lifecycle events. Threaded
+   * down to every {@link runSubagent} invocation so the host (router →
+   * TUI) can render activity in real time. §5.6 isolation is preserved:
+   * progress is observability, not context. Optional.
+   */
+  onProgress?: SubagentProgressEmitter;
 }
 
 export interface RunCrewArgs extends RunPlanningArgs {
@@ -361,6 +369,7 @@ export async function runPlanning(args: RunPlanningArgs): Promise<CrewRunResult>
       executeTool: args.executeTool,
       getToolSchemas: args.getToolSchemas,
       getNativeTools: args.getNativeTools,
+      onProgress: args.onProgress,
       model: planner.model,
     });
     totalTokens += result.tokens_used;
@@ -568,6 +577,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         threshold_ratio: args.compaction_threshold_ratio,
         model_context_window: args.model_context_window,
         signal: args.signal,
+        onProgress: args.onProgress,
       });
     } catch (err) {
       debugLog("warn", "crew", "compaction:exception", {
@@ -625,6 +635,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
       runSubagentImpl: runSubagent,
       signal: args.signal,
       phase_time_budget_ms: phaseTimeBudget,
+      onProgress: args.onProgress,
     });
 
     phase.completed_at = Date.now();
@@ -650,6 +661,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         session_id: sessionId,
         runSubagentImpl: runSubagent,
         signal: args.signal,
+        onProgress: args.onProgress,
       });
       if (meetingResult.skipped_reason === null) {
         meetingNotesArtifactId =
