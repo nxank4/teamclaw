@@ -65,6 +65,10 @@ export function wireRouterEvents(
       thinkingMsgAdded = false;
     }
 
+    // Fresh dispatch — reset the per-run word history so this run can
+    // draw from the full P-themed pool again. Persists across stop/start
+    // within a run so idle gaps between subagents cycle to new words.
+    thinking.resetRun();
     thinking.start();
     layout.messages.addMessage({
       role: "agent",
@@ -142,6 +146,16 @@ export function wireRouterEvents(
     if (status === "running") {
       layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, agentId);
       startToolSpinner();
+      // First running tool — silence the idle flavor animation so the
+      // tree shows real progress without a stale "Pondering..." line
+      // frozen inside it. We blank the placeholder content so the tree
+      // renderer falls through to its "thinking..." fallback (an
+      // overlay-styled hint inside the tree) instead of pinning the
+      // last spinner frame.
+      if (thinking.isVisible()) {
+        thinking.stop();
+        layout.messages.replaceLastByTag("thinking", "");
+      }
       // Surface the active subagent + tool in the status bar. Solo
       // dispatch handles this via ToolEvent.Start in
       // init-session-router (showing just the tool name); for crew
@@ -159,6 +173,19 @@ export function wireRouterEvents(
       }
     } else if (status === "completed" || status === "failed") {
       layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0, details?.diff);
+      // No more running tools → the run is back in an idle gap (waiting
+      // for the next subagent to spin up, a meeting, compaction, etc.).
+      // Restart the flavor animation with a fresh 4-word selection so
+      // the user sees movement during these gaps. thinkingMsgAdded gates
+      // this to active dispatches — once AgentDone removes the
+      // placeholder we don't want a rogue start() racing it.
+      if (
+        thinkingMsgAdded &&
+        !thinking.isVisible() &&
+        !layout.messages.hasRunningToolCalls()
+      ) {
+        thinking.start();
+      }
     }
 
     layout.tui.requestRender();
