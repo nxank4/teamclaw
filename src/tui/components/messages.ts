@@ -751,6 +751,36 @@ export class MessagesComponent implements Component {
     view.complete({ success, summary: outputSummary, duration, diff });
   }
 
+  /**
+   * Move the most recent tool call matching toolName + agentId into a
+   * new status. Used by the wiring layer to flip a node from
+   * `running` (the LLM dispatched the call) into `pending` while the
+   * user is being asked for approval, then back to `running` once the
+   * executor actually starts. Walks tool order in reverse so an older
+   * matching call cannot accidentally win when the LLM repeats a
+   * tool.
+   */
+  setToolCallStatus(
+    toolName: string,
+    agentId: string,
+    status: "pending" | "running",
+  ): boolean {
+    for (let i = this.toolCallOrder.length - 1; i >= 0; i--) {
+      const id = this.toolCallOrder[i]!;
+      const view = this.activeToolCalls.get(id);
+      if (!view) continue;
+      if (view.toolName !== toolName) continue;
+      if (view.agentId !== agentId) continue;
+      // Skip already-finished views; we are only interested in the
+      // currently-in-flight call. This means a fresh call to the same
+      // tool wins over an earlier completed/failed one.
+      if (view.status !== "pending" && view.status !== "running") continue;
+      view.setStatus(status);
+      return true;
+    }
+    return false;
+  }
+
   /** Advance all running tool call spinners (call from timer). */
   advanceToolSpinners(): void {
     for (const view of this.activeToolCalls.values()) {

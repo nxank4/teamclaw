@@ -72,8 +72,8 @@ export async function initSessionRouter(
     toolRegistry = reg;
     toolExecutor = new ToolExecutor(reg, new PermissionResolver());
 
-    toolExecutor.on(ToolEvent.ConfirmationNeeded, ({ toolName, input, riskLevel, approve, reject }: {
-      toolName: string; input: unknown; riskLevel: string; category: string;
+    toolExecutor.on(ToolEvent.ConfirmationNeeded, ({ toolName, input, riskLevel, agentId, approve, reject }: {
+      toolName: string; agentId: string; input: unknown; riskLevel: string; category: string;
       approve: (always?: boolean) => void; reject: () => void;
     }) => {
       const prompt = formatToolPermissionPrompt(toolName, input, riskLevel);
@@ -83,6 +83,15 @@ export async function initSessionRouter(
         timestamp: new Date(),
         tag: "tool-approval",
       });
+      // The agent-turn fires a `running` AgentTool event before
+      // calling executeTool, so by the time we get here the live
+      // tree-node has been created in `running` state. Flip it to
+      // `pending` so the icon (⏳) and verb ("Awaiting approval:")
+      // tell the user the right story while we wait. Once the user
+      // approves, the executor's Start handler below upgrades it
+      // back. The match uses toolName + agentId because the tree
+      // doesn't share executionId namespaces with the executor.
+      layout.messages.setToolCallStatus(toolName, agentId, "pending");
       layout.tui.requestRender();
 
       const resolve = (result: string, color: (s: string) => string, action: () => void) => {
@@ -108,8 +117,12 @@ export async function initSessionRouter(
       });
     });
 
-    toolExecutor.on(ToolEvent.Start, (_id: string, toolName: string) => {
+    toolExecutor.on(ToolEvent.Start, (_id: string, toolName: string, agentId: string) => {
       layout.messages.removeLastByTag("tool-approval");
+      // Promote the matching tree node from `pending` (set when
+      // ConfirmationNeeded fired) back to `running` so the spinner
+      // resumes ticking and the verb returns to the active form.
+      layout.messages.setToolCallStatus(toolName, agentId, "running");
       layout.statusBar.updateSegment(3, `${toolName}...`, defaultTheme.accent);
       layout.tui.requestRender();
     });
