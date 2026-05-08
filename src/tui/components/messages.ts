@@ -77,10 +77,16 @@ function renderToolInTree(
   }
 }
 
-/** Check if a line is a baked tool summary (starts with ✓, ✗, ⏳, or ○). */
+/**
+ * Check if a line is a baked tool summary. Matches the icons every
+ * `ToolCallView` produces: terminal states (✓ ✗ ⏳ ○ ◼) plus every
+ * spinner frame ever used inline — legacy braille (⠋…⠏) for backward
+ * compatibility with already-baked sessions, and the canonical box
+ * spinner (❏ ❐ ❑ ❒) shared across the unified spinner set.
+ */
 function isToolLine(line: string): boolean {
   const stripped = stripAnsi(line).trimStart();
-  return /^[✓✗⏳○⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(stripped);
+  return /^[✓✗⏳○◼⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏❏❐❑❒]/.test(stripped);
 }
 
 /** Split baked agent message content into tool lines and text blocks. */

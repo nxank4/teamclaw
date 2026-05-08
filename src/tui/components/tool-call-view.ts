@@ -38,7 +38,10 @@ const TOOL_VERBS: Record<string, [string, string]> = {
   list_dir:     ["Listed", "Listing"],
 };
 
-const BRAILLE_SPINNER = ICONS.brailleFrames;
+// Tree-node spinner reads from the same canonical 4-frame set as the
+// top-level ThinkingIndicator (ICONS.boxFrames) so the user sees one
+// consistent glyph style across every animated indicator.
+const SPINNER_FRAMES = ICONS.boxFrames;
 
 export class ToolCallView {
   private state: ToolCallViewState;
@@ -166,7 +169,7 @@ export class ToolCallView {
   private getIcon(): string {
     switch (this.state.status) {
       case "pending": return defaultTheme.symbols.pending;
-      case "running": return BRAILLE_SPINNER[this.spinnerFrame % BRAILLE_SPINNER.length]!;
+      case "running": return SPINNER_FRAMES[this.spinnerFrame % SPINNER_FRAMES.length]!;
       case "completed": return defaultTheme.symbols.success;
       case "failed": return defaultTheme.symbols.error;
       case "aborted": return ICONS.aborted;

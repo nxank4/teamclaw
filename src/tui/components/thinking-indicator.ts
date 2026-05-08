@@ -12,11 +12,15 @@
  * made the word flicker faster than the eye could follow.
  */
 import { ctp } from "../themes/default.js";
+import { ICONS } from "../constants/icons.js";
 
 const SYMBOL_INTERVAL_MS = 200;
 const WORD_INTERVAL_MS = 3000;
 
-const FRAMES = ["❏", "❐", "❑", "❒"];
+// Read from the centralized icon set so this indicator stays in
+// lock-step with createSpinner / ToolCallView whenever the canonical
+// box-frame list changes.
+const FRAMES = ICONS.boxFrames;
 
 const WORDS = [
   "Pondering", "Plotting", "Pawing", "Polishing",
