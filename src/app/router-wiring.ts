@@ -65,6 +65,10 @@ export function wireRouterEvents(
       thinkingMsgAdded = false;
     }
 
+    // Fresh dispatch — reset the per-run word history so this run can
+    // draw from the full P-themed pool again. Persists across stop/start
+    // within a run so idle gaps between subagents cycle to new words.
+    thinking.resetRun();
     thinking.start();
     layout.messages.addMessage({
       role: "agent",
