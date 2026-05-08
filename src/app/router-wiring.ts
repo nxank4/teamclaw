@@ -6,6 +6,7 @@ import { formatTokenPair, getAgentColorFn, agentDisplayName } from "./agent-disp
 import { defaultTheme } from "../tui/themes/default.js";
 import { RouterEvent, SessionEvent } from "../router/event-types.js";
 import { ThinkingIndicator } from "../tui/components/thinking-indicator.js";
+import { SPINNER_INTERVAL_MS } from "../tui/components/status-indicator.js";
 import { ToolCallTokenFilter } from "../tui/text/tool-call-filter.js";
 import type { AppLayout } from "./layout.js";
 import type { PromptRouter } from "../router/prompt-router.js";
@@ -125,12 +126,15 @@ export function wireRouterEvents(
 
   const startToolSpinner = () => {
     if (toolSpinnerInterval) return;
+    // Same 200ms cadence as the top-level ThinkingIndicator. Two
+    // animated indicators visible at once now tick on the same beat
+    // instead of competing at 80ms vs 200ms.
     toolSpinnerInterval = setInterval(() => {
       if (layout.messages.hasRunningToolCalls()) {
         layout.messages.advanceToolSpinners();
         layout.tui.requestRender();
       }
-    }, 80);
+    }, SPINNER_INTERVAL_MS);
   };
 
   const stopToolSpinner = () => {

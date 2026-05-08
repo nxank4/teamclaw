@@ -38,7 +38,10 @@ const TOOL_VERBS: Record<string, [string, string]> = {
   list_dir:     ["Listed", "Listing"],
 };
 
-const BRAILLE_SPINNER = ICONS.brailleFrames;
+// Tree-node spinner reads from the same canonical 4-frame set as the
+// top-level ThinkingIndicator (ICONS.boxFrames) so the user sees one
+// consistent glyph style across every animated indicator.
+const SPINNER_FRAMES = ICONS.boxFrames;
 
 export class ToolCallView {
   private state: ToolCallViewState;
@@ -140,11 +143,29 @@ export class ToolCallView {
   }
 
   advanceSpinner(): void {
+    // Pending tools (awaiting user approval) render an hourglass with
+    // no animation — bumping the frame index here would make the icon
+    // flicker even though there is no actual progress to show.
+    if (this.state.status !== "running") return;
     this.spinnerFrame++;
+  }
+
+  /**
+   * Update the live status of an in-flight tool. Used by the wiring
+   * layer to flip a node from `pending` (awaiting approval) to
+   * `running` (post-approval, executing) without rebuilding the view
+   * — the spinner index continues from where pending left off so the
+   * transition is seamless.
+   */
+  setStatus(status: ToolCallViewState["status"]): void {
+    this.state.status = status;
+    if (status === "running") this.spinnerFrame = 0;
   }
 
   get isExpanded(): boolean { return this.state.expanded; }
   get executionId(): string { return this.state.executionId; }
+  get toolName(): string { return this.state.toolName; }
+  get agentId(): string { return this.state.agentId; }
   get status(): string { return this.state.status; }
 
   /** Render a single compact line for baking into chat history. */
@@ -152,7 +173,14 @@ export class ToolCallView {
     const icon = this.getIcon();
     const iconColor = this.getIconColor();
     const verb = this.getVerb();
-    const target = this.state.inputSummary.slice(0, 50);
+    // Collapse all whitespace (including embedded newlines from
+    // heredocs / multi-line bash) so the baked summary stays on one
+    // line. Newlines here would split the baked entry into multiple
+    // lines that no longer start with a tool icon, breaking
+    // parseMessageSegments downstream — the live tree view splits
+    // lines safely (renderToolInTree), but the baked content has no
+    // tree-prefix layer to lean on.
+    const target = this.state.inputSummary.replace(/\s+/g, " ").trim().slice(0, 50);
     const { diff } = this.state;
     const diffStr = diff && (diff.added > 0 || diff.removed > 0)
       ? ` ${ctp.green(`+${diff.added}`)} ${ctp.red(`-${diff.removed}`)}`
@@ -165,8 +193,12 @@ export class ToolCallView {
 
   private getIcon(): string {
     switch (this.state.status) {
-      case "pending": return defaultTheme.symbols.pending;
-      case "running": return BRAILLE_SPINNER[this.spinnerFrame % BRAILLE_SPINNER.length]!;
+      // Pending = the LLM has requested the tool but the user has not
+      // approved it yet. Show an hourglass instead of an animated
+      // spinner so the tree clearly distinguishes "waiting on you"
+      // from "actually running".
+      case "pending": return ICONS.hourglass;
+      case "running": return SPINNER_FRAMES[this.spinnerFrame % SPINNER_FRAMES.length]!;
       case "completed": return defaultTheme.symbols.success;
       case "failed": return defaultTheme.symbols.error;
       case "aborted": return ICONS.aborted;
@@ -175,7 +207,10 @@ export class ToolCallView {
 
   private getIconColor(): (s: string) => string {
     switch (this.state.status) {
-      case "pending": return ctp.surface2;
+      // Yellow tracks the approval-prompt color, signalling "user
+      // input expected" without competing with the active-running
+      // teal spinner.
+      case "pending": return ctp.yellow;
       case "running": return ctp.teal;
       case "completed": return ctp.green;
       case "failed": return ctp.red;
@@ -184,6 +219,13 @@ export class ToolCallView {
   }
 
   private getVerb(): string {
+    if (this.state.status === "pending") {
+      // Make the wording reflect reality: nothing is running yet.
+      // "Awaiting approval:" plus the raw tool name keeps the line
+      // short and avoids the tense-mismatch (`Running cat ...`) the
+      // user reported in the symptom screenshot.
+      return `Awaiting approval: ${this.state.toolName.replace(/_/g, " ")}`;
+    }
     const entry = TOOL_VERBS[this.state.toolName];
     if (entry) {
       return this.state.status === "running" ? entry[1] : entry[0];

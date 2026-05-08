@@ -96,3 +96,100 @@ describe("MessagesComponent — live tool tree across phase boundaries", () => {
   });
 });
 
+/**
+ * PR #120 — multi-line tool input wrapping must keep every subline
+ * indented under the tree branch instead of letting the wrapped lines
+ * fall flush-left and break the visual hierarchy.
+ */
+describe("MessagesComponent — multi-line tool input rendering", () => {
+  function renderedText(m: MessagesComponent, width = 80): string {
+    return m.render(width).map(stripAnsi).join("\n");
+  }
+
+  it("prefixes every subline of a multi-line tool entry with the vertical tree branch", () => {
+    const m = new MessagesComponent("test-messages");
+    m.addMessage({ role: "user", content: "build hello.ts" });
+    m.addMessage({
+      role: "agent",
+      agentName: "OpenPawl",
+      content: "",
+      tag: "thinking",
+    });
+    // Short-enough heredoc so the 50-char input slice doesn't cut off
+    // the subline marker we want to find.
+    const heredoc = "ls\nhello-marker";
+    m.startToolCall("exec-1", "shell_exec", heredoc, "coder");
+
+    const text = renderedText(m);
+    const treeLines = text.split("\n").filter((l) => l.includes("hello-marker"));
+    expect(treeLines.length).toBe(1);
+    // The wrapped subline must carry a tree-vertical, NOT fall to the
+    // left margin. The renderer uses U+2502 (│) for vertical and the
+    // line is indented at least one space to keep alignment under
+    // the parent badge.
+    const wrapped = treeLines[0]!;
+    expect(/^\s+│/u.test(wrapped)).toBe(true);
+  });
+});
+
+/**
+ * PR #120 — pending vs running flip via setToolCallStatus on the
+ * messages component. Used by router-wiring when the tool executor's
+ * ConfirmationNeeded / Start events fire.
+ */
+describe("MessagesComponent — setToolCallStatus", () => {
+  it("flips the most recent matching tool view's status by toolName + agentId", () => {
+    const m = new MessagesComponent("test-messages");
+    m.startToolCall("exec-1", "shell_exec", "ls", "coder");
+    expect(m.setToolCallStatus("shell_exec", "coder", "pending")).toBe(true);
+  });
+
+  it("returns false when no in-flight match is found", () => {
+    const m = new MessagesComponent("test-messages");
+    m.startToolCall("exec-1", "shell_exec", "ls", "coder");
+    m.completeToolCall("exec-1", true, "ok", 10);
+    // Completed views are no longer in-flight — the wiring should not
+    // accidentally promote a finished node back to pending.
+    expect(m.setToolCallStatus("shell_exec", "coder", "pending")).toBe(false);
+  });
+
+  it("walks tool order in reverse so a fresh call wins over an earlier completed one", () => {
+    const m = new MessagesComponent("test-messages");
+    m.startToolCall("exec-1", "shell_exec", "first", "coder");
+    m.completeToolCall("exec-1", true, "ok", 10);
+    m.startToolCall("exec-2", "shell_exec", "second", "coder");
+    expect(m.setToolCallStatus("shell_exec", "coder", "pending")).toBe(true);
+    // The earlier completed entry is untouched; the later one is now
+    // pending. Verified indirectly via hasRunningToolCalls — the
+    // pending state does not count as running for spinner purposes.
+    expect(m.hasRunningToolCalls()).toBe(false);
+  });
+});
+
+/**
+ * PR #120 — isToolLine classifier must accept both legacy braille
+ * spinner frames (already-baked sessions) and the new canonical
+ * box-frame set, plus the terminal icons (✓ ✗ ⏳ ◼).
+ */
+describe("MessagesComponent — baked tool-line classifier", () => {
+  function renderedText(m: MessagesComponent, width = 80): string {
+    return m.render(width).map(stripAnsi).join("\n");
+  }
+  function lineCount(text: string, needle: string): number {
+    return text.split("\n").filter((l) => l.includes(needle)).length;
+  }
+
+  it("baked content with a box-frame icon classifies as a tool line and renders under the tree", () => {
+    const m = new MessagesComponent("test-messages");
+    m.addMessage({
+      role: "agent",
+      agentName: "OpenPawl",
+      content: "❏ Running ls\n❒ Wrote hello.ts",
+    });
+    const text = renderedText(m);
+    // Both baked lines are recognised; both render.
+    expect(lineCount(text, "Running ls")).toBe(1);
+    expect(lineCount(text, "Wrote hello.ts")).toBe(1);
+  });
+});
+

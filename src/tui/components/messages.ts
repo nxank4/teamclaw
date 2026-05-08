@@ -71,16 +71,32 @@ function renderToolInTree(
   view: ToolCallView, lines: string[], branch: string, vert: string, width: number,
 ): void {
   const rendered = view.render(width);
-  for (let r = 0; r < rendered.length; r++) {
-    const prefix = r === 0 ? " " + branch + " " : " " + vert + "  ";
-    lines.push(prefix + rendered[r]!.trimStart());
+  // Multi-line tool input (heredocs, multi-line bash) leaves embedded
+  // newlines inside a single rendered entry. Split each entry into
+  // sublines and prefix EVERY subline with the tree branch char so
+  // wrapped lines stay indented under the node instead of falling
+  // flush-left and breaking the visual hierarchy.
+  let isFirst = true;
+  for (const r of rendered) {
+    const sublines = r.split("\n");
+    for (const sub of sublines) {
+      const prefix = isFirst ? " " + branch + " " : " " + vert + "  ";
+      lines.push(prefix + sub.trimStart());
+      isFirst = false;
+    }
   }
 }
 
-/** Check if a line is a baked tool summary (starts with ✓, ✗, ⏳, or ○). */
+/**
+ * Check if a line is a baked tool summary. Matches the icons every
+ * `ToolCallView` produces: terminal states (✓ ✗ ⏳ ○ ◼) plus every
+ * spinner frame ever used inline — legacy braille (⠋…⠏) for backward
+ * compatibility with already-baked sessions, and the canonical box
+ * spinner (❏ ❐ ❑ ❒) shared across the unified spinner set.
+ */
 function isToolLine(line: string): boolean {
   const stripped = stripAnsi(line).trimStart();
-  return /^[✓✗⏳○⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(stripped);
+  return /^[✓✗⏳○◼⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏❏❐❑❒]/.test(stripped);
 }
 
 /** Split baked agent message content into tool lines and text blocks. */
@@ -743,6 +759,36 @@ export class MessagesComponent implements Component {
     const view = this.activeToolCalls.get(executionId);
     if (!view) return;
     view.complete({ success, summary: outputSummary, duration, diff });
+  }
+
+  /**
+   * Move the most recent tool call matching toolName + agentId into a
+   * new status. Used by the wiring layer to flip a node from
+   * `running` (the LLM dispatched the call) into `pending` while the
+   * user is being asked for approval, then back to `running` once the
+   * executor actually starts. Walks tool order in reverse so an older
+   * matching call cannot accidentally win when the LLM repeats a
+   * tool.
+   */
+  setToolCallStatus(
+    toolName: string,
+    agentId: string,
+    status: "pending" | "running",
+  ): boolean {
+    for (let i = this.toolCallOrder.length - 1; i >= 0; i--) {
+      const id = this.toolCallOrder[i]!;
+      const view = this.activeToolCalls.get(id);
+      if (!view) continue;
+      if (view.toolName !== toolName) continue;
+      if (view.agentId !== agentId) continue;
+      // Skip already-finished views; we are only interested in the
+      // currently-in-flight call. This means a fresh call to the same
+      // tool wins over an earlier completed/failed one.
+      if (view.status !== "pending" && view.status !== "running") continue;
+      view.setStatus(status);
+      return true;
+    }
+    return false;
   }
 
   /** Advance all running tool call spinners (call from timer). */
