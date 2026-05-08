@@ -1,63 +1,69 @@
 /**
- * Welcome banner content builder.
+ * Welcome banner content builder — Option C card layout.
+ *
+ * The previous banner listed every slash command and agent mention,
+ * so first-time users were greeted with a wall of metadata before
+ * they had any context for it. Option C trims that to a small card
+ * (version + headline) plus two pointer lines: an example prompt
+ * they can copy-paste, and a /help reference for everything else.
+ * The full command surface lives in /help — the welcome only
+ * surfaces what gets a new user productive in the first 30 seconds.
  */
 
 import { VERSION } from "../version.js";
-import { PRODUCT_TAGLINE_LONG } from "../meta/product.js";
-import { defaultTheme } from "../tui/themes/default.js";
+import { PRODUCT_TAGLINE_HEADLINE } from "../meta/product.js";
+import { ctp } from "../tui/themes/default.js";
 import { bold } from "../tui/core/ansi.js";
-import { visibleWidth } from "../tui/utils/text-width.js";
+
+/**
+ * Below this width the box-drawing layout looks cramped (the card
+ * borders eat too much horizontal real estate), so we fall back to a
+ * plain-text version that uses the same palette without the box.
+ */
+const NARROW_FALLBACK_WIDTH = 50;
+
+const EXAMPLE_PROMPT = `Try: "create hello.ts with a hello function"`;
+const HINT_LINE = `Or:  /help to see commands`;
 
 /** Build the welcome banner content, freshly computed for current terminal width. */
 export function buildWelcomeContent(): string {
   const termWidth = process.stdout.columns ?? 80;
-  const lines: string[] = [];
+  const titleText = `OpenPawl v${VERSION}`;
+  const taglineText = PRODUCT_TAGLINE_HEADLINE;
 
-  const title = `OpenPawl v${VERSION}`;
-  const titlePad = Math.max(0, Math.floor((termWidth - title.length) / 2));
-  lines.push("");
-  lines.push(" ".repeat(titlePad) + bold(defaultTheme.primary(title)));
-
-  const tagline = PRODUCT_TAGLINE_LONG;
-  const tagPad = Math.max(0, Math.floor((termWidth - tagline.length) / 2));
-  lines.push(defaultTheme.dim(" ".repeat(tagPad) + tagline));
-  lines.push("");
-
-  const cmdPad = 12;
-  const allItems: ([string, string] | null)[] = [
-    [defaultTheme.info("/help"), "Show commands"],
-    [defaultTheme.info("/settings"), "Configure provider"],
-    [defaultTheme.info("/agents"), "List agents"],
-    [defaultTheme.warning("!command"), "Run shell command"],
-    [defaultTheme.info("@file"), "Reference a file"],
-    null,
-    [defaultTheme.info("@coder"), "Coder"],
-    [defaultTheme.info("@reviewer"), "Reviewer"],
-    [defaultTheme.info("@planner"), "Planner"],
-    [defaultTheme.info("@tester"), "Tester"],
-    [defaultTheme.info("@debugger"), "Debugger"],
-  ];
-
-  const tableLines: string[] = [];
-  for (const item of allItems) {
-    if (!item) { tableLines.push(""); continue; }
-    const [cmd, desc] = item;
-    const cmdVis = visibleWidth(cmd);
-    const gap = " ".repeat(Math.max(2, cmdPad - cmdVis));
-    tableLines.push(`${cmd}${gap}${defaultTheme.dim(desc)}`);
+  if (termWidth < NARROW_FALLBACK_WIDTH) {
+    // No-box plain-text fallback — same content, no border decoration
+    // so each line fits comfortably in <50-column terminals.
+    return [
+      "",
+      bold(ctp.mauve(titleText)),
+      ctp.subtext0(taglineText),
+      "",
+      ctp.green(EXAMPLE_PROMPT),
+      ctp.subtext1(HINT_LINE),
+      "",
+    ].join("\n");
   }
 
-  const maxTableWidth = tableLines.reduce((max, l) => Math.max(max, visibleWidth(l)), 0);
-  const tablePad = " ".repeat(Math.max(0, Math.floor((termWidth - maxTableWidth) / 2)));
-  for (const row of tableLines) {
-    lines.push(tablePad + row);
-  }
+  // Inner width of the card = longest content line + 2 spaces left pad
+  // + 2 spaces right pad. Borders sit just outside the inner area.
+  const innerWidth = Math.max(titleText.length, taglineText.length) + 4;
+  const top = ctp.overlay0(`╭${"─".repeat(innerWidth)}╮`);
+  const bottom = ctp.overlay0(`╰${"─".repeat(innerWidth)}╯`);
+  const padLine = (content: string, visibleLen: number): string => {
+    const rightPad = " ".repeat(Math.max(0, innerWidth - 2 - visibleLen));
+    return `${ctp.overlay0("│")}  ${content}${rightPad}${ctp.overlay0("│")}`;
+  };
 
-  lines.push("");
-  const tip = "Type a prompt to get started. Shift+Tab to switch modes.";
-  const tipPad = Math.max(0, Math.floor((termWidth - tip.length) / 2));
-  lines.push(" ".repeat(tipPad) + defaultTheme.dim(tip));
-  lines.push("");
-
-  return lines.join("\n");
+  return [
+    "",
+    top,
+    padLine(bold(ctp.mauve(titleText)), titleText.length),
+    padLine(ctp.subtext0(taglineText), taglineText.length),
+    bottom,
+    "",
+    ctp.green(EXAMPLE_PROMPT),
+    ctp.subtext1(HINT_LINE),
+    "",
+  ].join("\n");
 }
