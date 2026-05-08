@@ -163,6 +163,13 @@ export class MessagesComponent implements Component {
 
     const hasLiveTools = this.toolCallOrder.length > 0;
     const msgCount = this.messages.length;
+    // Tree rendering attaches to the most recent agent/assistant message
+    // when tool calls are live — not necessarily the last message. During
+    // a crew run, the runtime pushes system messages below the thinking
+    // placeholder ("→ auto-advancing to next phase.", pause/abort
+    // banners, reanchor prompts). Requiring the agent to be globally last
+    // makes the tree disappear the instant any of those land. Bug U+3.
+    const liveAgentIdx = hasLiveTools ? this.findLastAgentIndex() : -1;
 
     // ── Pass 1: Build height map + message boundaries ──────────────
     // For each message, get its rendered height from cache or compute it.
@@ -182,8 +189,7 @@ export class MessagesComponent implements Component {
       this.messageBoundaries.push(cumulativeHeight);
 
       const isLastMsg = i === msgCount - 1;
-      const isAgent = msg.role === "agent" || msg.role === "assistant";
-      const isLiveToolMsg = isLastMsg && isAgent && hasLiveTools;
+      const isLiveToolMsg = i === liveAgentIdx;
       const isStreaming = isLastMsg && this.renderCache.get(i) === undefined &&
         (msg.role === "agent" || msg.role === "assistant");
 
@@ -273,9 +279,7 @@ export class MessagesComponent implements Component {
         allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
       }
 
-      const isLastMsg = i === msgCount - 1;
-      const isAgent = msg.role === "agent" || msg.role === "assistant";
-      if (isLastMsg && isAgent && hasLiveTools) {
+      if (i === liveAgentIdx) {
         const outputLines = this.renderAgentWithLiveTools(msg, width, maxBubbleWidth);
         allLines.push(...outputLines);
         allLines.push("");
@@ -333,15 +337,14 @@ export class MessagesComponent implements Component {
   /** Legacy render-all path (when viewport info not available). */
   private renderAll(width: number, maxBubbleWidth: number, hasLiveTools: boolean): string[] {
     const allLines: string[] = [];
+    const liveAgentIdx = hasLiveTools ? this.findLastAgentIndex() : -1;
     for (let i = 0; i < this.messages.length; i++) {
       const msg = this.messages[i]!;
       if (i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system") {
         allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
       }
       this.messageBoundaries[i] = allLines.length;
-      const isLastMsg = i === this.messages.length - 1;
-      const isAgent = msg.role === "agent" || msg.role === "assistant";
-      if (isLastMsg && isAgent && hasLiveTools) {
+      if (i === liveAgentIdx) {
         allLines.push(...this.renderAgentWithLiveTools(msg, width, maxBubbleWidth));
         allLines.push("");
         continue;
@@ -621,6 +624,15 @@ export class MessagesComponent implements Component {
     } else {
       allLines.push(...msgLines);
     }
+  }
+
+  /** Index of the most recent agent/assistant message, or -1 if none. */
+  private findLastAgentIndex(): number {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const r = this.messages[i]!.role;
+      if (r === "agent" || r === "assistant") return i;
+    }
+    return -1;
   }
 
   /** Remove the last message matching a given tag. Returns true if found. */
