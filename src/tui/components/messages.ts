@@ -71,9 +71,19 @@ function renderToolInTree(
   view: ToolCallView, lines: string[], branch: string, vert: string, width: number,
 ): void {
   const rendered = view.render(width);
-  for (let r = 0; r < rendered.length; r++) {
-    const prefix = r === 0 ? " " + branch + " " : " " + vert + "  ";
-    lines.push(prefix + rendered[r]!.trimStart());
+  // Multi-line tool input (heredocs, multi-line bash) leaves embedded
+  // newlines inside a single rendered entry. Split each entry into
+  // sublines and prefix EVERY subline with the tree branch char so
+  // wrapped lines stay indented under the node instead of falling
+  // flush-left and breaking the visual hierarchy.
+  let isFirst = true;
+  for (const r of rendered) {
+    const sublines = r.split("\n");
+    for (const sub of sublines) {
+      const prefix = isFirst ? " " + branch + " " : " " + vert + "  ";
+      lines.push(prefix + sub.trimStart());
+      isFirst = false;
+    }
   }
 }
 

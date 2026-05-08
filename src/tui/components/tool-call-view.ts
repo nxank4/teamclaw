@@ -173,7 +173,14 @@ export class ToolCallView {
     const icon = this.getIcon();
     const iconColor = this.getIconColor();
     const verb = this.getVerb();
-    const target = this.state.inputSummary.slice(0, 50);
+    // Collapse all whitespace (including embedded newlines from
+    // heredocs / multi-line bash) so the baked summary stays on one
+    // line. Newlines here would split the baked entry into multiple
+    // lines that no longer start with a tool icon, breaking
+    // parseMessageSegments downstream — the live tree view splits
+    // lines safely (renderToolInTree), but the baked content has no
+    // tree-prefix layer to lean on.
+    const target = this.state.inputSummary.replace(/\s+/g, " ").trim().slice(0, 50);
     const { diff } = this.state;
     const diffStr = diff && (diff.added > 0 || diff.removed > 0)
       ? ` ${ctp.green(`+${diff.added}`)} ${ctp.red(`-${diff.removed}`)}`
