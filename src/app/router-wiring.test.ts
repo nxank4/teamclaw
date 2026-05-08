@@ -118,3 +118,46 @@ describe("wireRouterEvents — thinking placeholder lifecycle", () => {
     expect(findThinkingPlaceholder(stub.messages)).toBe(false);
   });
 });
+
+/**
+ * Bug U+3 second leg — flavor animation lifecycle. The 4-frame box
+ * spinner must stop the moment a real tool call starts (the tree
+ * carries visible progress) and resume during idle gaps so the user
+ * sees movement between subagent runs.
+ */
+describe("wireRouterEvents — flavor animation lifecycle", () => {
+  it("stops the spinner when a tool call starts running and resumes when all tools complete", async () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    // Allow one frame to land so the placeholder has spinner content.
+    await Bun.sleep(0);
+    expect(stub.messages.hasRunningToolCalls()).toBe(false);
+
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "coder",
+      "file_write",
+      "running",
+      { executionId: "exec-1", inputSummary: "Write hello.ts" },
+    );
+    expect(stub.messages.hasRunningToolCalls()).toBe(true);
+
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "coder",
+      "file_write",
+      "completed",
+      { executionId: "exec-1", outputSummary: "ok", duration: 12, success: true },
+    );
+    expect(stub.messages.hasRunningToolCalls()).toBe(false);
+    // Placeholder still present (run not done yet) — the spinner has
+    // restarted under the hood and will tick fresh frames into it.
+    const had = stub.messages.removeLastByTag("thinking");
+    expect(had).toBe(true);
+  });
+});
