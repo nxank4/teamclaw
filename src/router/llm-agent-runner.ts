@@ -120,7 +120,12 @@ export function createLLMAgentRunner(opts: LLMAgentRunnerOptions = {}): AgentRun
       const hasTools = (toolDefs.length > 0 || nativeToolDefs.length > 0) && !!executeTool;
       if (hasTools) {
         const toolList = toolDefs.map((t) => `- ${t.name}: ${t.description}`).join("\n");
-        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands — do it yourself.\nWhen you need multiple independent operations (reading files, listing directories, writing files that don't depend on each other), request them all in a single response.`;
+        // The clarify-on-ambiguity block sits next to (not in place of)
+        // the proactive "use tools directly" rule. The agent should
+        // still act immediately when the prompt is concrete; the
+        // examples pin down the threshold so single-word inputs like
+        // "hello" no longer trigger a guess at hello.ts.
+        systemPrompt += `\n\nTools:\n${toolList}\n\nWorking directory: ${process.cwd()}\nUse tools directly. Never ask the user to paste code or run commands — do it yourself.\nWhen you need multiple independent operations (reading files, listing directories, writing files that don't depend on each other), request them all in a single response.\n\nAct immediately on clear prompts. If the prompt is genuinely ambiguous (a single word, a vague pronoun like "it" with no clear referent, or no obvious target), ask exactly ONE short clarifying question instead of guessing — do not call tools first.\nExamples that need clarification:\n- "hello" → "Hi! Did you want a greeting, or to work on hello.ts?"\n- "fix it" → "Which issue would you like me to fix?"\n- "make it better" → "What aspect should I improve?"\nExamples that are clear — act immediately, do not ask:\n- "create hello.ts with a hello function"\n- "fix the typo in line 42"\n- "rewrite this function" (when prior context makes the target obvious)`;
       }
 
       const priorMessages = (context.sessionHistory ?? [])
