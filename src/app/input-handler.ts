@@ -188,6 +188,14 @@ export function setupInputHandler(
           }
         } finally {
           state.agentBusy = false;
+          // Drain the queue here, AFTER the dispatch has fully
+          // returned. Draining inside the router's AgentDone handler
+          // (where this lived before) raced the surrounding await:
+          // the next prompt could start before the current one
+          // finished tearing down, so the two ran in parallel and
+          // their output interleaved. Now the next prompt cannot start
+          // until the current turn's finally block runs.
+          ctx.onQueueDrain?.();
         }
         break;
       }
@@ -223,6 +231,9 @@ export function setupInputHandler(
       }
     } finally {
       state.agentBusy = false;
+      // Re-trigger draining so a chain of queued prompts plays out one
+      // at a time. Same reasoning as the message-case finally above.
+      ctx.onQueueDrain?.();
     }
   };
 

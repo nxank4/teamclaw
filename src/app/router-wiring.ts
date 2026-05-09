@@ -56,7 +56,13 @@ export function wireRouterEvents(
     streamedContent = "";
     layout.messages.clearToolCalls();
     tokenFilter = new ToolCallTokenFilter((filtered) => {
-      layout.messages.appendToLast(filtered);
+      // Append to the most recent agent message in the stream, not the
+      // literal last entry. Without this, a tool-approval system
+      // message pushed between two streamed chunks turns into a
+      // "second Assistant:" header on the next chunk.
+      if (!layout.messages.appendToLastAgent(filtered)) {
+        layout.messages.appendToLast(filtered);
+      }
       layout.tui.requestRender();
     });
 
@@ -101,7 +107,13 @@ export function wireRouterEvents(
       });
       layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} working... ${defaultTheme.dim("(Esc)")}`, defaultTheme.accent);
     }
-    if (streamingForAgent !== agentId || !layout.messages.isLastAgentMessage()) {
+    // Only start a new agent message when the dispatch switches to a
+    // different agent (e.g. crew handoff). For the same agent we keep
+    // appending to the existing message — appendToLastAgent below
+    // walks past any system messages (tool-approval prompts, etc.)
+    // that may have been pushed between streamed chunks, so the user
+    // sees one "Assistant:" header per turn instead of one per chunk.
+    if (streamingForAgent !== agentId) {
       streamingForAgent = agentId;
       layout.messages.addMessage({
         role: "agent",
@@ -117,7 +129,9 @@ export function wireRouterEvents(
     if (tokenFilter) {
       tokenFilter.feed(token);
     } else {
-      layout.messages.appendToLast(token);
+      if (!layout.messages.appendToLastAgent(token)) {
+        layout.messages.appendToLast(token);
+      }
       layout.tui.requestRender();
     }
   };
@@ -225,7 +239,16 @@ export function wireRouterEvents(
       onPlanReady();
     }
 
-    onQueueDrain?.();
+    // Note: queue drain is intentionally NOT triggered here. AgentDone
+    // fires from inside dispatcher.dispatch — the surrounding
+    // handleWithRouter await has not resolved yet, and the input
+    // handler's `state.agentBusy` finally block has not run. Draining
+    // here let the next queued prompt start before the current one
+    // finished tearing down, which produced parallel/interleaved
+    // output. The drain now lives in input-handler.ts at the point
+    // where the dispatch has truly returned. The onQueueDrain hook is
+    // kept on the wiring for callers that still want a per-agent
+    // notification (none currently use it).
   };
 
   const onDispatchError = (_sessionId: string, error: { type: string; cause?: string }) => {
