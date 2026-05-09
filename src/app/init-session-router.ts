@@ -383,9 +383,11 @@ export async function initSessionRouter(
     }
   }
 
-  // Try to resume latest session in this workspace, fall back to creating fresh
+  // Try to resume latest session in this workspace, fall back to creating fresh.
+  // Scope the lookup to process.cwd() so a session from another project
+  // doesn't auto-resume here and inject its history into the next prompt.
   {
-    const resumeResult = await ctx.sessionMgr.resumeLatest();
+    const resumeResult = await ctx.sessionMgr.resumeLatest(process.cwd());
     if (resumeResult.isOk() && resumeResult.value) {
       ctx.chatSession = resumeResult.value;
     } else {
