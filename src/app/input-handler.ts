@@ -139,11 +139,29 @@ export function setupInputHandler(
 
         if (state.agentBusy) {
           state.queue.push({ text, fullPrompt, attachedFiles });
+          // Render the prompt in the message stream immediately, with
+          // the same shape as the non-queued path below (tags prefix
+          // for attached files, full-colour user styling). Without
+          // this the user pressed Enter, the editor cleared, and
+          // nothing visible appeared until the dispatch finished \u2014
+          // they thought their prompt had been dropped.
+          //
+          // We render directly to `layout.messages` rather than
+          // through `msgCtx.addMessage`. msgCtx also writes to
+          // `chatSession`, which would inject the queued prompt into
+          // the LLM history *before* the in-flight turn's assistant
+          // response \u2014 corrupting chronology and reintroducing the
+          // U+8-shaped duplication the router strip in PR #123 only
+          // catches when the trailing turn is a user message. The
+          // drain path below writes to chatSession at dispatch time,
+          // which puts the prompt in the right slot.
+          const renderedText = attachedFiles && attachedFiles.length > 0
+            ? `${attachedFiles.map((f) => `[@${f.split("/").pop()}]`).join(" ")} ${text}`
+            : text;
           layout.messages.addMessage({
             role: "user",
-            content: text,
+            content: renderedText,
             timestamp: new Date(),
-            pending: true,
           });
           layout.divider.setLabel(`\u23f3 ${state.queue.length} queued`);
           layout.tui.requestRender();
