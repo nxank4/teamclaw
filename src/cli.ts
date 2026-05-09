@@ -276,6 +276,10 @@ async function main(): Promise<void> {
         const { runAgentCommand } = await import("./commands/agent.js");
         await runAgentCommand(args.slice(1));
 
+    } else if (cmd === "crew") {
+        const { runCrewCommand } = await import("./commands/crew.js");
+        await runCrewCommand(args.slice(1));
+
     } else if (cmd === "profile") {
         const { runProfileCommand } = await import("./commands/profile.js");
         await runProfileCommand(args.slice(1));
