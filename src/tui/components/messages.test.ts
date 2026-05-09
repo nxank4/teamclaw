@@ -193,3 +193,33 @@ describe("MessagesComponent — baked tool-line classifier", () => {
   });
 });
 
+describe("MessagesComponent.appendToLastAgent", () => {
+  // Bug U+10: a tool that needs Y/N confirmation pushes a system
+  // message between two streamed agent chunks. The naive appendToLast
+  // grows whichever entry happens to be at the array tail. Walking
+  // back to the most recent agent message keeps a single
+  // "Assistant:" header per turn even when system messages have been
+  // pushed onto the stream during streaming.
+  it("appends to the most recent agent message even when a system message sits below it", () => {
+    const m = new MessagesComponent("test-messages");
+    m.addMessage({ role: "agent", agentName: "OpenPawl", content: "I'll read it. " });
+    m.addMessage({ role: "system", content: "shell_exec [Y/N]", tag: "tool-approval" });
+
+    const ok = m.appendToLastAgent("Done.");
+    expect(ok).toBe(true);
+
+    // The agent message grew; the system message is untouched.
+    const text = m.render(80).map(stripAnsi).join("\n");
+    expect(text).toContain("I'll read it. Done.");
+    expect(text).toContain("shell_exec [Y/N]");
+    // Critical: only one agent badge was rendered.
+    expect(text.match(/OpenPawl/g)?.length ?? 0).toBe(1);
+  });
+
+  it("returns false when there is no agent message to append to", () => {
+    const m = new MessagesComponent("test-messages");
+    m.addMessage({ role: "user", content: "hi" });
+    expect(m.appendToLastAgent("token")).toBe(false);
+  });
+});
+

@@ -740,6 +740,25 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /**
+   * Append text to the most recent agent/assistant message, even if
+   * non-agent messages (tool-approval prompts, system notices) have
+   * been pushed on top. Returns true if an agent message was found.
+   *
+   * Used by the streaming token path so a tool-approval system message
+   * pushed between two streamed chunks does not cause a second
+   * "Assistant:" header to render — the second chunk continues the
+   * existing agent message instead of starting a new one.
+   */
+  appendToLastAgent(chunk: string): boolean {
+    const idx = this.findLastAgentIndex();
+    if (idx === -1) return false;
+    this.messages[idx]!.content += chunk;
+    this.renderCache.delete(idx);
+    this.heightCache.delete(idx);
+    return true;
+  }
+
   /** Start tracking a new tool call with a spinner. */
   startToolCall(executionId: string, toolName: string, inputSummary: string, agentId: string): void {
     if (this.activeToolCalls.has(executionId)) return;
