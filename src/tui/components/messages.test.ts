@@ -179,12 +179,12 @@ describe("MessagesComponent — baked tool-line classifier", () => {
     return text.split("\n").filter((l) => l.includes(needle)).length;
   }
 
-  it("baked content with a box-frame icon classifies as a tool line and renders under the tree", () => {
+  it("baked content with a spinner-frame icon classifies as a tool line and renders under the tree", () => {
     const m = new MessagesComponent("test-messages");
     m.addMessage({
       role: "agent",
       agentName: "OpenPawl",
-      content: "❏ Running ls\n❒ Wrote hello.ts",
+      content: "▖ Running ls\n▗ Wrote hello.ts",
     });
     const text = renderedText(m);
     // Both baked lines are recognised; both render.
