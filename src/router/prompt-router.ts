@@ -260,11 +260,19 @@ export class PromptRouter extends EventEmitter {
 
     // 8. Build session history for context
     const activeSession = this.sessionManager.getActive();
-    const sessionHistory = activeSession
-      ? activeSession.buildContextMessages()
-          .filter(m => m.role !== "system")
-          .map(m => ({ role: m.role, content: m.content }))
-      : [];
+    const allMessages = activeSession ? activeSession.buildContextMessages() : [];
+    // The input handler appends the current user prompt to the chat
+    // session before calling route() (so the UI renders it
+    // immediately). Drop that trailing user turn here so priorMessages
+    // contains only PRIOR turns — without this, the LLM sees the same
+    // user message twice (once in history, once as userMessage) and
+    // replies with things like "It looks like you sent 'abc' twice".
+    const lastIdx = allMessages.length - 1;
+    const stripCurrent = lastIdx >= 0 && allMessages[lastIdx]!.role === "user";
+    const priorOnly = stripCurrent ? allMessages.slice(0, -1) : allMessages;
+    const sessionHistory = priorOnly
+      .filter(m => m.role !== "system")
+      .map(m => ({ role: m.role, content: m.content }));
 
     // 9. Dispatch
     const dispatchResult = await this.dispatcher.dispatch(sessionId, mentions.cleanedPrompt, decision, sessionHistory);
