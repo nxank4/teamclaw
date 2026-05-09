@@ -10,8 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js >= 20](https://img.shields.io/badge/Node.js-%3E%3D%2020-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Tests](https://img.shields.io/badge/tests-475_passing-brightgreen)](#)
-[![LOC](https://img.shields.io/badge/source-437_files%20·%2063.5k_LOC-informational)](#)
+[![Tests](https://img.shields.io/badge/tests-860_passing-brightgreen)](#)
+[![LOC](https://img.shields.io/badge/source-510_files%20·%2082.2k_LOC-informational)](#)
 
 OpenPawl orchestrates a team of specialized AI agents toward your goals — with memory, learning, and structure that persists across sessions.
 
@@ -55,9 +55,9 @@ OpenPawl replaces that friction with a team that remembers, learns, and holds it
 
 *5 built-in team templates. Pick a team or let OpenPawl compose autonomously.*
 
-### Crew Mode (coming soon)
+### Crew Mode
 
-*Multi-agent execution lands in crew mode — see `docs/design/crew-v0.4.md`. Today, solo mode is the supported execution path.*
+A team of agents — planner, coder, reviewer, tester — works together on the goal. Tier-1 observability streams every subagent's tool calls into the TUI tree so you can watch the run, not just wait on it. See **Crew Mode** below or [docs/CREW.md](./docs/CREW.md) for the full guide.
 
 ### Escape to Cancel
 
@@ -95,9 +95,9 @@ openpawl run --headless --goal "Build auth" --mode solo --runs 2
 | Mode | How it works | Status |
 |------|-------------|--------|
 | **Solo** | Single agent responds to prompts with tool calling | ✅ Working |
-| **Crew** | Multi-agent orchestration (planner → workers → review) | 🟡 Scaffolded — see `docs/design/crew-v0.4.md` |
+| **Crew** | Multi-agent: planner decomposes → tier-gated phases → discussion meeting → drift supervisor | ✅ Working (rc.1) |
 
-Cycle modes with `Shift+Tab` in the TUI; pick a mode with `--mode` in headless (only `solo` is wired today).
+Cycle modes with `Shift+Tab` in the TUI; pick a mode with `--mode` in headless (`--mode solo` wired; crew runs end-to-end inside the TUI).
 
 ### Team Orchestration
 
@@ -139,6 +139,36 @@ The team remembers across sessions. Success patterns get stored in LanceDB — f
 - **Performance profiler** — opt-in timing breakdown of the full pipeline
 - **Headless mode** — `openpawl run --headless` with `--mode`, `--template`, `--workdir`, `--runs`
 - **Provider/model sync** — single source of truth across agents and modes
+
+## Crew Mode
+
+Crew mode runs a team of agents on a single goal: a planner decomposes the task, agents execute phase tiers in parallel where the dependency graph allows, a discussion meeting fires before tier 3 to surface disagreement, and a drift supervisor halts the run when later phases contradict earlier decisions.
+
+**Enter crew mode** — launch `openpawl`, press `Shift+Tab` to cycle from solo to crew. The status bar shows the active mode.
+
+**Built-in preset** — `full-stack` ships with four agents: Planner, Coder, Reviewer, Tester. Each has its own write_scope and tool capabilities. Run `openpawl crew show full-stack` to inspect.
+
+**Custom crews** — fork a built-in and edit:
+
+```bash
+openpawl crew clone full-stack my-team
+openpawl crew edit my-team             # opens manifest.yaml in $EDITOR
+openpawl crew validate my-team         # check before running
+```
+
+CLI surface:
+
+| Command | Description |
+|---------|-------------|
+| `crew list` | List built-in + user crews |
+| `crew show <name>` | Print manifest YAML and agent prompts |
+| `crew create <name>` | Interactive crew creation |
+| `crew edit <name>` | Open manifest in `$EDITOR` |
+| `crew clone <built-in> <new>` | Fork a bundled preset |
+| `crew validate <name>` | Validate manifest |
+| `crew delete <name>` | Remove a user crew (built-ins are protected) |
+
+Inside a crew run, `/pause`, `/continue`, `/skip <id>`, `/reorder`, `/abort` operate on the live phase loop. See [docs/CREW.md](./docs/CREW.md) for the full guide and [docs/design/crew-v0.4.md](./docs/design/crew-v0.4.md) for the design spec.
 
 ## Team Templates
 
@@ -191,6 +221,7 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 | `model` | LLM selection: list, set, per-agent overrides |
 | `providers` | Configure and test LLM providers |
 | `agent` | Add and manage custom agents |
+| `crew` | Manage crews — list, show, create, edit, delete, validate, clone |
 | `settings` | View and change settings |
 | `config` | Configuration management (get/set/unset) |
 
@@ -248,7 +279,7 @@ graph TD
     U[User Prompt] --> R[Prompt Router]
 
     R -->|solo| A1[Single Agent + Tools]
-    R -->|crew 🟡| CR[Crew Orchestrator]
+    R -->|crew| CR[Crew Orchestrator]
 
     A1 --> LLM[LLM Multi-Turn Loop]
     CR --> LLM
@@ -262,13 +293,13 @@ graph TD
     MS -->|next run| LLM
 ```
 
-Solo mode dispatches a single agent through an LLM multi-turn loop with native tool calling. Crew mode (multi-agent orchestration) is scaffolded — see `docs/design/crew-v0.4.md`. Memory: LanceDB vector store + hebbian associative layer carries patterns and lessons across runs. Context compression keeps long conversations within token limits.
+Solo mode dispatches a single agent through an LLM multi-turn loop with native tool calling. Crew mode runs a 12-node graph: planner → tier-gated phase executor → optional discussion meeting → drift supervisor → context compaction → Hebbian-injection — see [docs/CREW.md](./docs/CREW.md) for the runtime, [docs/design/crew-v0.4.md](./docs/design/crew-v0.4.md) for the design spec. Memory: LanceDB vector store + hebbian associative layer carries patterns and lessons across runs. Context compression keeps long conversations within token limits.
 
 ## Comparison
 
 | Feature | OpenPawl | Claude Code | OpenCode | Aider |
 |---------|----------|-------------|----------|-------|
-| Multi-agent orchestration | Solo today; crew mode planned | Single agent | Single agent | Single agent |
+| Multi-agent orchestration | Crew mode + solo | Single agent | Single agent | Single agent |
 | Cross-session memory | LanceDB vector + hebbian | Per-project CLAUDE.md | None | Git-based |
 | Post-mortem learning | Extracts & injects lessons | None | None | None |
 | Team templates | 5 built-in + custom | None | None | None |
