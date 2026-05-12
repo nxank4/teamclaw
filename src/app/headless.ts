@@ -200,7 +200,7 @@ export async function runHeadless(args: string[]): Promise<void> {
     const runStart = Date.now();
 
     if (opts.mode === "crew") {
-      await runCrew(opts.goal, projectDir);
+      await runCrewHeadlessStub(opts.goal, projectDir);
     } else {
       await runSolo(opts.goal, sessionMgr, toolReg, toolExec);
     }
@@ -370,7 +370,7 @@ async function runSolo(
 // Stub entry point that emits crew:start and throws NotImplementedError.
 // Replaced incrementally by Prompts 4–9 in the crew implementation roadmap.
 
-async function runCrew(goal: string, workdir: string): Promise<void> {
+async function runCrewHeadlessStub(goal: string, workdir: string): Promise<void> {
   const runner = new CrewRunner();
   runner.on("crew:start", (payload: { goal: string; crew_name: string; workdir: string }) => {
     console.log(pc.dim(`[crew] start goal="${payload.goal}" crew=${payload.crew_name}`));
