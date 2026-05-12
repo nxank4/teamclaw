@@ -41,12 +41,18 @@ export const ICONS = {
   brailleFrames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as readonly string[],
   // ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
 
-  // Canonical 4-frame box spinner — single source of truth for every
+  // Canonical 4-frame spinner — single source of truth for every
   // animated indicator. ThinkingIndicator (top-level) and the inline
   // tree-node spinner both render from this set so the user never
   // sees two glyph styles spinning side-by-side at different paces.
-  boxFrames: ["❏", "❐", "❑", "❒"] as readonly string[],
-  // ❏ ❐ ❑ ❒
+  // Quarter-square corner rotation: lower-left → upper-left →
+  // upper-right → lower-right → loop. The wrap from frame 4 back to
+  // frame 1 lands on the adjacent corner, so the cycle reads as a
+  // continuous chase with no visible jump or reversal. The name
+  // `boxFrames` is retained from the previous box-outline set
+  // (PR #119, #120) — these are corner blocks, not box outlines.
+  boxFrames: ["▖", "▘", "▝", "▗"] as readonly string[],
+  // ▖ ▘ ▝ ▗
 
   // Misc
   aborted: "◼",     // ◼
