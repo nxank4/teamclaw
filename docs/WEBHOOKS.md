@@ -1,6 +1,8 @@
 # OpenPawl Webhooks
 
-OpenPawl can POST events to external URLs when tasks complete or cycles end. Use this to notify your team on Discord, Slack, or Telegram.
+> **Status: pending re-wiring (v0.5+).** The webhook subsystem was scaffolded for an earlier `openpawl work` CLI surface that was removed during the v0.4 crew refactor. The event schemas, approval flow, and Slack provider design below are kept as a reference for the upcoming re-introduction against the current `-p` / `crew run` entry points. **CLI examples in this document are not currently wired** — track [the v0.5 roadmap](#) for the live surface.
+
+OpenPawl will POST events to external URLs when tasks complete or cycles end. Use this to notify your team on Discord, Slack, or Telegram.
 
 ## Configuration
 
@@ -120,15 +122,7 @@ Add to `~/.openpawl/config.json`:
 
 ### CLI Usage
 
-```bash
-# Run with async webhook approvals
-openpawl work --async
-
-# Override timeout (in minutes)
-openpawl work --async --async-timeout 10
-```
-
-The `--async` flag activates webhook approvals. The web server stays running to receive callbacks.
+> The `openpawl work --async` / `--async-timeout` CLI surface referenced earlier in this doc was removed in v0.4 along with the `work` command. The non-interactive entry points are now `openpawl -p "<prompt>"` and `openpawl crew run <name> <goal>` — webhook integration for those is a v0.5 follow-up. See the status banner at the top of this file.
 
 ### Approval Flow
 
@@ -190,7 +184,7 @@ Content-Type: application/json
 1. Create a Slack Incoming Webhook for your channel
 2. Set `provider: "slack"` and `url` to the webhook URL
 3. Set a strong `secret` (e.g., `openssl rand -hex 32`)
-4. Run `openpawl work --async`
+4. _(pending v0.5)_ Once the webhook surface is re-wired against `openpawl -p` / `openpawl crew run`, kicking off a run will fire approval requests to Slack.
 
 Approval requests appear as Block Kit messages with Approve/Reject/Escalate buttons. Clicking a button opens a browser page that auto-submits the approval callback. No Slack app interactivity setup required.
 
