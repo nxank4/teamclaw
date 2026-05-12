@@ -33,6 +33,12 @@ No structure                    →   Sprint cadence with standup
 
 OpenPawl replaces that friction with a team that remembers, learns, and holds itself accountable.
 
+## Mechanic at a glance
+
+OpenPawl is TUI-first. Run `openpawl` to launch the interactive shell — solo mode by default (one agent answers your prompt). Press `Shift+Tab` or type `/mode crew` to switch to crew mode, where a planner decomposes the goal and a team of agents executes it under a phase loop with discussion meetings, drift supervision, and live checkpoint controls.
+
+For non-interactive runs, `openpawl -p "<prompt>"` does what `claude -p` does: print the response and exit. Add `--mode crew` to run the full crew pipeline without the TUI; pair it with `--crew <name>` to select a preset. `openpawl crew run <name> <goal>` is the ergonomic alias for the same crew operation. Launch the TUI directly in either mode with `openpawl --mode <solo|crew>` — useful when crew is your default.
+
 ## Screenshots
 
 > All screenshots from real sessions using **opencode-go** provider with **minimax-m2.7** model.
@@ -76,17 +82,17 @@ curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/install.sh |
 ## Quickstart
 
 ```bash
-openpawl setup                    # guided setup wizard
-openpawl                          # launch interactive TUI
-openpawl standup                  # daily summary
-openpawl think "SSE or WebSocket?" # rubber duck mode
+openpawl setup                              # guided setup wizard
+openpawl                                    # interactive TUI (solo)
+openpawl --mode crew                        # interactive TUI (crew)
+openpawl -p "Build auth"                    # non-interactive solo
+openpawl -p "Build auth" --mode crew        # non-interactive crew (full-stack preset)
+openpawl crew run full-stack "Build auth"   # crew run, explicit preset
+openpawl standup                            # daily summary
+openpawl think "SSE or WebSocket?"          # rubber duck mode
 ```
 
-The bare `openpawl` command launches the interactive TUI in solo mode. For unattended runs:
-
-```bash
-openpawl run --headless --goal "Build auth" --mode solo --runs 2
-```
+Bare `openpawl` launches the interactive TUI in solo mode. `-p` is the single non-interactive entry; pass `--mode crew` (with optional `--crew <name>`) for crew runs. `openpawl crew run <name> <goal>` is the same crew operation expressed as a positional command.
 
 ## Features
 
@@ -97,7 +103,7 @@ openpawl run --headless --goal "Build auth" --mode solo --runs 2
 | **Solo** | Single agent responds to prompts with tool calling | ✅ Working |
 | **Crew** | Multi-agent: planner decomposes → tier-gated phases → discussion meeting → drift supervisor | ✅ Working (rc.1) |
 
-Cycle modes with `Shift+Tab` in the TUI; pick a mode with `--mode` in headless (`--mode solo` wired; crew runs end-to-end inside the TUI).
+Cycle modes with `Shift+Tab` (or `/mode <solo|crew>`) in the TUI. Launch directly in a mode with `openpawl --mode <solo|crew>`. Both modes run end-to-end interactively *and* non-interactively (`-p "<prompt>" --mode <solo|crew>`).
 
 ### Team Orchestration
 
@@ -117,7 +123,7 @@ The team remembers across sessions. Success patterns get stored in LanceDB — f
 - **Drift detection** — flags when a new goal contradicts past decisions
 - **Goal clarity checker** — challenges vague goals before planning begins
 - **Context handoff** — auto-generates CONTEXT.md at session end
-- **Inline diffs** — colored unified diffs on file writes/edits in TUI and headless
+- **Inline diffs** — colored unified diffs on file writes/edits in both the TUI and print mode
 - **Post-mortem learning** — extracts lessons across runs, injects into future planning
 
 ### Terminal UI
@@ -137,14 +143,14 @@ The team remembers across sessions. Success patterns get stored in LanceDB — f
 - **Agent heatmap** — find utilization bottlenecks across runs
 - **Cost forecasting** — estimate cost before a run starts
 - **Performance profiler** — opt-in timing breakdown of the full pipeline
-- **Headless mode** — `openpawl run --headless` with `--mode`, `--template`, `--workdir`, `--runs`
+- **Non-interactive mode** — `openpawl -p "<prompt>"` runs solo or crew (`--mode crew --crew <name>`) without the TUI; `openpawl crew run <name> <goal>` is the ergonomic shortcut
 - **Provider/model sync** — single source of truth across agents and modes
 
 ## Crew Mode
 
 Crew mode runs a team of agents on a single goal: a planner decomposes the task, agents execute phase tiers in parallel where the dependency graph allows, a discussion meeting fires before tier 3 to surface disagreement, and a drift supervisor halts the run when later phases contradict earlier decisions.
 
-**Enter crew mode** — launch `openpawl`, press `Shift+Tab` to cycle from solo to crew. The status bar shows the active mode.
+**Enter crew mode** — launch `openpawl --mode crew` to start directly in crew, or run bare `openpawl` and press `Shift+Tab` (or type `/mode crew`) to switch. The status bar shows the active mode.
 
 **Built-in preset** — `full-stack` ships with four agents: Planner, Coder, Reviewer, Tester. Each has its own write_scope and tool capabilities. Run `openpawl crew show full-stack` to inspect.
 
@@ -167,6 +173,7 @@ CLI surface:
 | `crew clone <built-in> <new>` | Fork a bundled preset |
 | `crew validate <name>` | Validate manifest |
 | `crew delete <name>` | Remove a user crew (built-ins are protected) |
+| `crew run <name> <goal>` | Start a crew run with the named preset (non-interactive) |
 
 Inside a crew run, `/pause`, `/continue`, `/skip <id>`, `/reorder`, `/abort` operate on the live phase loop. See [docs/CREW.md](./docs/CREW.md) for the full guide and [docs/design/crew-v0.4.md](./docs/design/crew-v0.4.md) for the design spec.
 
@@ -175,13 +182,12 @@ Inside a crew run, `/pause`, `/continue`, `/skip <id>`, `/reorder`, `/abort` ope
 Pre-built teams you can install and use immediately:
 
 ```bash
-openpawl templates browse                          # list available templates
-openpawl templates install indie-hacker             # install a template
-openpawl run --headless --template indie-hacker \
-  --goal "Build auth system"                        # use in headless mode
+openpawl templates browse              # list available templates
+openpawl templates install indie-hacker # install a template
+openpawl templates list                # show what's installed
 ```
 
-Or use `/team` in the TUI to browse and switch templates interactively.
+Once installed, switch to a template via `/team` inside the TUI. Crew presets live under a separate surface — see [Crew Mode](#crew-mode).
 
 | Template | Pipeline |
 |----------|----------|
@@ -207,8 +213,9 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 
 | Command | Description |
 |---------|-------------|
-| `solo` | Interactive solo mode (single agent) |
-| `run` | Headless mode (`--headless --goal "..." --mode solo --runs N --workdir <path>`) |
+| _(bare)_ `openpawl` | Launch interactive TUI (solo by default; `--mode crew` to start in crew) |
+| `solo` / `chat` | Aliases for the bare TUI launch |
+| `-p "<prompt>"` | Non-interactive print mode; add `--mode crew [--crew <name>] [--workdir <path>]` |
 | `standup` | Daily standup summary |
 | `think` | Rubber duck mode — structured debate |
 | `clarity` | Check goal clarity |
@@ -261,16 +268,35 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 
 | Command | Description |
 |---------|-------------|
-| `/mode` | Switch between solo and crew |
+| `/help` | Show all registered slash commands |
+| `/clear` | Clear the message stream |
+| `/quit` | Exit the TUI |
+| `/mode [solo\|crew]` | Switch mode or cycle to the next |
+| `/sessions` | Browse past sessions and resume one |
+| `/model` | Show or switch the active model |
 | `/team` | Browse and switch team templates |
 | `/agents` | List and configure agents (CRUD) |
-| `/hotkeys` | View and customize keybindings |
-| `/debate` | Multi-perspective analysis |
-| `/research` | Deep research mode |
 | `/settings` | App settings |
 | `/status` | Provider and system status |
-| `/compact` | Toggle compact/expanded view |
 | `/setup` | Re-run setup wizard |
+| `/hotkeys` | View and customize keybindings |
+| `/keybindings` | Open the keybindings config file |
+| `/theme` | Pick a TUI theme |
+| `/debate` | Multi-perspective analysis |
+| `/research` | Deep research mode |
+| `/compact` | Toggle compact/expanded view |
+
+Inside an active crew run, the runtime checkpoint controls become available:
+
+| Command | Description |
+|---------|-------------|
+| `/crew` | Print live crew status (phases, tasks, tokens) |
+| `/pause` | Pause the crew run at the next safe point |
+| `/continue` | Resume a paused run |
+| `/skip <id>` | Skip a queued task |
+| `/reorder` | Reorder upcoming phases interactively |
+| `/abort` | Abort the run, preserving artifacts |
+| `/adjust` | Edit the goal mid-run (re-anchor) |
 
 ## Architecture
 
@@ -307,7 +333,7 @@ Solo mode dispatches a single agent through an LLM multi-turn loop with native t
 | Decision journal | Searchable, drift detection | None | None | None |
 | Cost forecasting | 3 methods + learning curves | None | None | None |
 | Interactive TUI | Custom (Catppuccin, mouse) | Built-in | Bubbletea | Terminal |
-| Headless mode | `--mode`, `--template`, `--runs` | Non-interactive | CLI only | CLI only |
+| Non-interactive mode | `-p` print mode + `crew run` subcommand | `claude -p` | CLI only | CLI only |
 | Agent heatmap | Utilization + bottleneck | None | None | None |
 
 OpenPawl focuses on multi-agent workflows and persistent learning. For single-agent coding tasks, Claude Code and Aider are more mature. For a detailed feature comparison, see [docs/comparison.md](./docs/comparison.md).
@@ -324,10 +350,10 @@ OpenPawl focuses on multi-agent workflows and persistent learning. For single-ag
 | Diff engine | LCS-based line diff (no external deps) |
 | Validation | Zod |
 | Build | tsup + Vite (web client) |
-| Tests | Bun test runner (475 tests) |
+| Tests | Bun test runner |
 | JSON parsing | Safe JSON parser with recovery |
 
-Pure TypeScript (ESM). No Python. 437 source files, ~63.5k LOC.
+Pure TypeScript (ESM). No Python. See the badges at the top of this page for current test count and source size.
 
 ## Development
 
