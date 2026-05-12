@@ -3,9 +3,7 @@
  *
  * Supports `--mode solo` (default, fully implemented) and `--mode crew`
  * (scaffold; the runner stub throws until subsequent PRs land — see
- * src/crew/crew-runner.ts). `--mode sprint` is accepted as a deprecation
- * alias for `crew` and is slated for removal in v0.5. `--mode collab` is
- * rejected outright (see spec §7.4).
+ * src/crew/crew-runner.ts).
  *
  * Usage: openpawl run --headless --goal "..." [--runs N] [--mode solo|crew] [--workdir path]
  */
@@ -74,7 +72,7 @@ export function parseArgs(args: string[]): HeadlessOptions {
       const expanded = raw.startsWith("~") ? raw.replace(/^~/, homedir()) : raw;
       workdir = resolve(expanded);
     } else if (arg === "--template" && args[i + 1]) {
-      // Templates were sprint-scoped; ignore for now (consumed by future crew).
+      // Templates are not yet wired into headless mode; ignore for now (consumed by future crew).
       i++;
     } else if (arg === "--strict") {
       strict_mode = true;
@@ -109,22 +107,6 @@ export function parseArgs(args: string[]): HeadlessOptions {
 function resolveModeFlag(raw: string): RunMode {
   const value = raw.trim().toLowerCase();
   if (value === "solo" || value === "crew") return value;
-  if (value === "sprint") {
-    console.error(
-      pc.yellow(
-        "warning: --mode sprint is deprecated and will be removed in v0.5. Use --mode crew instead.",
-      ),
-    );
-    return "crew";
-  }
-  if (value === "collab") {
-    console.error(
-      pc.red(
-        "error: --mode collab was removed in v0.4. Migrate to --mode crew. See docs/design/crew-v0.4.md §7.4.",
-      ),
-    );
-    process.exit(1);
-  }
   console.error(pc.red(`error: unknown --mode "${raw}". Valid: solo | crew.`));
   process.exit(1);
 }
