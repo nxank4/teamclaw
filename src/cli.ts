@@ -10,6 +10,7 @@ import { logger } from "./core/logger.js";
 import { COMMANDS, findClosestCommand, findClosestSubcommand } from "./cli/fuzzy-matcher.js";
 import { handleUnknownCommand, handleUnknownSubcommand } from "./cli/unknown-command.js";
 import { findCommand, generateHelp, generateCommandHelp, getAllCommandNames } from "./cli/command-registry.js";
+import { parseAppMode, type AppMode } from "./tui/keybindings/app-mode.js";
 
 
 function printHelp(): void {
@@ -85,6 +86,32 @@ async function main(): Promise<void> {
       }
     }
 
+    // ── Global TUI flag: --mode <solo|crew> ──────────────────────────────
+    // Consumed by bare `openpawl` and `openpawl -c` (TUI launches). Print
+    // mode (-p / --print) owns its own --mode flag, so skip the global
+    // splice when -p is present to avoid eating the print-mode token.
+    let initialMode: AppMode | undefined;
+    {
+        const hasPrintFlag = args.includes("-p") || args.includes("--print");
+        if (!hasPrintFlag) {
+            const modeIdx = args.indexOf("--mode");
+            if (modeIdx !== -1) {
+                const raw = args[modeIdx + 1];
+                if (!raw) {
+                    logger.error("--mode requires a value (solo|crew)");
+                    process.exit(1);
+                }
+                const parsed = parseAppMode(raw);
+                if (!parsed) {
+                    logger.error(`unknown --mode "${raw}". Valid: solo | crew.`);
+                    process.exit(1);
+                }
+                initialMode = parsed;
+                args.splice(modeIdx, 2);
+            }
+        }
+    }
+
     // ── TUI entry points (before any commander parsing) ──────────────────
 
     // No args → first-run check, then launch interactive TUI
@@ -98,7 +125,7 @@ async function main(): Promise<void> {
         _mark("before import app/index.js");
         const { launchTUI } = await import("./app/index.js");
         _mark("after import app/index.js");
-        await launchTUI();
+        await launchTUI({ initialMode });
         return;
     }
 
@@ -118,7 +145,7 @@ async function main(): Promise<void> {
             process.exit(1);
         }
         const { launchTUI } = await import("./app/index.js");
-        await launchTUI();
+        await launchTUI({ initialMode });
         return;
     }
 

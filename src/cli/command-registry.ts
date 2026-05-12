@@ -332,6 +332,7 @@ export function generateHelp(): string {
   lines.push(section("OPTIONS"));
   lines.push("  " + cmd(pad("--help, -h")) + desc("Show this help"));
   lines.push("  " + cmd(pad("--version")) + desc("Show version"));
+  lines.push("  " + cmd(pad("--mode <solo|crew>")) + desc("Start TUI in the given mode (default: solo)"));
   lines.push("  " + cmd(pad("--mock-llm")) + desc("Use mock responses (testing)"));
   lines.push("");
   lines.push(section("EXAMPLES"));
