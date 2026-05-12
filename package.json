@@ -82,7 +82,8 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "overrides": {
-    "langsmith": ">=0.4.6"
+    "langsmith": ">=0.4.6",
+    "zod-validation-error": "^4.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
