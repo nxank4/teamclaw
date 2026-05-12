@@ -157,7 +157,7 @@ export const CLI_COMMANDS: CommandDef[] = [
   },
   {
     name: "crew",
-    description: "Manage crews (list, show, create, edit, delete, validate, clone)",
+    description: "Manage crews (list, show, create, edit, delete, validate, clone, run)",
     category: "team",
     handler: { module: "./commands/crew.js", fn: "runCrewCommand" },
     customDispatch: true,
