@@ -210,10 +210,56 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 // Non-interactive print mode
 // ---------------------------------------------------------------------------
 
-export async function runPrintMode(prompt: string): Promise<void> {
-  const parsed = parseInput(prompt);
+interface PrintModeArgs {
+  goal: string;
+  mode: "solo" | "crew";
+  crewName?: string;
+  workdir?: string;
+}
 
-  if (parsed.type === "command" && parsed.name === "status") {
+export function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: string } {
+  let goal: string | null = null;
+  let mode: "solo" | "crew" = "solo";
+  let crewName: string | undefined;
+  let workdir: string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--mode" && args[i + 1]) {
+      const raw = args[++i]!.toLowerCase();
+      if (raw !== "solo" && raw !== "crew") {
+        return { error: `unknown --mode "${raw}". Valid: solo | crew.` };
+      }
+      mode = raw;
+    } else if (arg === "--crew" && args[i + 1]) {
+      crewName = args[++i]!;
+    } else if (arg === "--workdir" && args[i + 1]) {
+      workdir = args[++i]!;
+    } else if (arg && !arg.startsWith("--") && goal === null) {
+      goal = arg;
+    } else {
+      return { error: `unexpected argument: ${arg}` };
+    }
+  }
+
+  if (goal === null) {
+    return { error: "missing prompt" };
+  }
+  return { goal, mode, crewName, workdir };
+}
+
+export async function runPrintMode(args: string[]): Promise<void> {
+  const parsed = parsePrintModeArgs(args);
+  if ("error" in parsed) {
+    console.error(`Error: ${parsed.error}`);
+    console.error("Usage: openpawl -p <prompt> [--mode solo|crew] [--crew <name>] [--workdir <path>]");
+    console.error('  openpawl -p "/status"');
+    process.exit(1);
+  }
+
+  // /status special case — health check, no LLM.
+  const slash = parseInput(parsed.goal);
+  if (slash.type === "command" && slash.name === "status") {
     const { getGlobalProviderManager } = await import("../providers/provider-factory.js");
     const pm = await getGlobalProviderManager();
     for (const p of pm.getProviders()) {
@@ -223,6 +269,20 @@ export async function runPrintMode(prompt: string): Promise<void> {
     return;
   }
 
-  console.log("Usage: openpawl -p <prompt>");
-  console.log('  openpawl -p "/status"');
+  let result: { exitCode: number };
+  if (parsed.mode === "crew") {
+    const { runCrewHeadless } = await import("./run-crew-headless.js");
+    result = await runCrewHeadless({
+      goal: parsed.goal,
+      crewName: parsed.crewName,
+      workdir: parsed.workdir,
+    });
+  } else {
+    const { runSoloHeadless } = await import("./run-solo-headless.js");
+    result = await runSoloHeadless({
+      goal: parsed.goal,
+      workdir: parsed.workdir,
+    });
+  }
+  process.exit(result.exitCode);
 }
