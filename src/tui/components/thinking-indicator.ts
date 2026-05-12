@@ -1,109 +1,107 @@
 /**
- * Thinking indicator — animated pen-writing spinner shown while waiting
- * for LLM response. Starts immediately on prompt submit, stops when
- * first token arrives. Shows fun rotating messages when loading takes a while.
+ * Thinking indicator — animated 4-frame box spinner paired with a
+ * rotating P-themed word. Shown during idle / waiting periods within a
+ * dispatch (no active tool call). Caller stops it as soon as a real
+ * progress tree node lands and restarts it once the run goes idle
+ * again, so the animation only fills the gaps the user actually has to
+ * wait through.
+ *
+ * Symbol and word advance on independent intervals so the box spins
+ * smoothly (200ms / 800ms full loop) while the word stays put long
+ * enough to read (3s). Coupling the two — as PR #119's first cut did —
+ * made the word flicker faster than the eye could follow.
  */
 import { ctp } from "../themes/default.js";
-import { createPenAnimation } from "./pen-spinner.js";
+import { ICONS } from "../constants/icons.js";
 
-const FRAME_INTERVAL = 150;
+const SYMBOL_INTERVAL_MS = 200;
+const WORD_INTERVAL_MS = 3000;
 
-/** Seconds before switching from "Thinking..." to a fun message. */
-const SLOW_THRESHOLD = 3;
-/** Seconds between fun message rotations. */
-const MESSAGE_ROTATE_INTERVAL = 5;
+// Read from the centralized icon set so this indicator stays in
+// lock-step with createSpinner / ToolCallView whenever the canonical
+// box-frame list changes.
+const FRAMES = ICONS.boxFrames;
 
-const LOADING_MESSAGES = [
-  "Brewing some intelligence...",
-  "Warming up the neurons...",
-  "Caffeinating the AI...",
-  "Assembling your team...",
-  "Your agents are stretching...",
-  "Team huddle in progress...",
-  "Rolling out the red carpet for your agents...",
-  "Downloading more RAM... just kidding",
-  "Convincing electrons to think...",
-  "Teaching bits to be smart...",
-  "Spinning up the hamster wheels...",
-  "Polishing the crystal ball...",
-  "Consulting the oracle...",
-  "It's not a bug, it's a loading screen...",
-  "Reticulating splines...",
-  "Compiling witty responses...",
-  "sudo make me a sandwich...",
-  "while (loading) { patience++; }",
-  "git pull origin intelligence",
-  "Good things take a moment...",
-  "Almost there, promise...",
-  "Worth the wait...",
-  "Preparing something special...",
+const WORDS = [
+  "Pondering", "Plotting", "Pawing", "Polishing",
+  "Pruning", "Probing", "Procuring", "Provisioning",
+  "Percolating", "Permuting", "Parsing", "Palavering",
+  "Prowling", "Pouncing", "Padding", "Purring",
 ];
 
-const FIRST_RUN_MESSAGES = [
-  "First time? This takes a minute — go stretch...",
-  "Downloading the brain... one-time setup...",
-  "Building your workspace — only happens once...",
-  "First boot — your patience will be rewarded...",
-  "Unpacking the AI toolkit for the first time...",
-  "Setting up camp — this is a one-time thing...",
-];
-
-function pickRandom(pool: string[]): string {
-  return pool[Math.floor(Math.random() * pool.length)]!;
+export interface ThinkingIndicatorOptions {
+  /** Override the 200ms symbol cadence (mostly for tests). */
+  symbolIntervalMs?: number;
+  /** Override the 3000ms word-rotation cadence (mostly for tests). */
+  wordIntervalMs?: number;
 }
 
 export class ThinkingIndicator {
-  private interval: ReturnType<typeof setInterval> | null = null;
-  private slowTimer: ReturnType<typeof setTimeout> | null = null;
-  private rotateTimer: ReturnType<typeof setInterval> | null = null;
-  private penAnim = createPenAnimation();
+  private symbolInterval: ReturnType<typeof setInterval> | null = null;
+  private wordInterval: ReturnType<typeof setInterval> | null = null;
+  private frameIdx = 0;
+  private currentWord = "";
+  /**
+   * Words shown so far in the current crew run. Persists across
+   * stop()/start() cycles so an idle gap between subagents picks a
+   * word the user has not seen yet. Reset via {@link resetRun} at the
+   * start of a new dispatch.
+   */
+  private usedWords = new Set<string>();
   private visible = false;
-  private slow = false;
-  private currentMessage = "";
   private agentName: string | null = null;
   private agentColorFn: ((s: string) => string) | null = null;
-  private isFirstRun = false;
+  private readonly symbolIntervalMs: number;
+  private readonly wordIntervalMs: number;
 
   /** Callback to update the displayed text (called on each frame). */
   onUpdate?: (text: string) => void;
 
+  constructor(opts: ThinkingIndicatorOptions = {}) {
+    this.symbolIntervalMs = opts.symbolIntervalMs ?? SYMBOL_INTERVAL_MS;
+    this.wordIntervalMs = opts.wordIntervalMs ?? WORD_INTERVAL_MS;
+  }
+
   start(agentName?: string, agentColorFn?: (s: string) => string): void {
     this.stop();
     this.visible = true;
-    this.slow = false;
-    this.currentMessage = "";
+    this.frameIdx = 0;
+    this.currentWord = this.pickNextWord();
     this.agentName = agentName ?? null;
     this.agentColorFn = agentColorFn ?? null;
-    this.penAnim = createPenAnimation();
     this.emitFrame();
-    this.interval = setInterval(() => this.emitFrame(), FRAME_INTERVAL);
-    this.slowTimer = setTimeout(() => {
-      this.slow = true;
-      this.rotateMessage();
-      this.rotateTimer = setInterval(() => this.rotateMessage(), MESSAGE_ROTATE_INTERVAL * 1000);
-    }, SLOW_THRESHOLD * 1000);
+    // Symbol cadence: smooth motion. Each tick advances the frame
+    // index but leaves the word untouched.
+    this.symbolInterval = setInterval(() => {
+      this.frameIdx = (this.frameIdx + 1) % FRAMES.length;
+      this.emitFrame();
+    }, this.symbolIntervalMs);
+    // Word cadence: slow rotation so the word stays readable.
+    this.wordInterval = setInterval(() => {
+      this.currentWord = this.pickNextWord();
+      this.emitFrame();
+    }, this.wordIntervalMs);
   }
 
   stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
+    if (this.symbolInterval) {
+      clearInterval(this.symbolInterval);
+      this.symbolInterval = null;
     }
-    if (this.slowTimer) {
-      clearTimeout(this.slowTimer);
-      this.slowTimer = null;
-    }
-    if (this.rotateTimer) {
-      clearInterval(this.rotateTimer);
-      this.rotateTimer = null;
+    if (this.wordInterval) {
+      clearInterval(this.wordInterval);
+      this.wordInterval = null;
     }
     this.visible = false;
-    this.slow = false;
   }
 
-  /** Mark as first run for first-run-specific messages. */
-  setFirstRun(firstRun: boolean): void {
-    this.isFirstRun = firstRun;
+  /**
+   * Reset the per-run word-history. Call at the start of a new
+   * dispatch so the next set of idle gaps draws from the full pool
+   * again instead of replaying the same chain across runs.
+   */
+  resetRun(): void {
+    this.usedWords.clear();
   }
 
   isVisible(): boolean {
@@ -113,28 +111,43 @@ export class ThinkingIndicator {
   /** Get current frame text (for rendering in components). */
   getCurrentText(): string {
     if (!this.visible) return "";
-    const pen = this.penAnim();
-    const spinner = ctp.teal(pen || " ");
-
-    if (this.slow && this.currentMessage) {
-      if (this.agentName && this.agentColorFn) {
-        return `${spinner} ${this.agentColorFn(`[${this.agentName}]`)} ${ctp.teal(this.currentMessage)}`;
-      }
-      return `${spinner} ${ctp.teal(this.currentMessage)}`;
-    }
-
+    const frame = FRAMES[this.frameIdx]!;
+    const word = this.currentWord || "Thinking";
+    const body = `${frame} ${word}...`;
     if (this.agentName && this.agentColorFn) {
-      return `${spinner} ${this.agentColorFn(`[${this.agentName}]`)} ${ctp.teal("is thinking...")}`;
+      return `${this.agentColorFn(`[${this.agentName}]`)} ${ctp.teal(body)}`;
     }
-    return `${spinner} ${ctp.teal("Thinking...")}`;
+    return ctp.teal(body);
   }
 
-  private rotateMessage(): void {
-    const pool = this.isFirstRun ? FIRST_RUN_MESSAGES : LOADING_MESSAGES;
-    this.currentMessage = pickRandom(pool);
+  /**
+   * Pick a word the user has not seen yet in this run. When the pool
+   * of unseen words empties, reset and keep going — better to show a
+   * repeat than freeze on the same word.
+   */
+  private pickNextWord(): string {
+    let pool = WORDS.filter((w) => !this.usedWords.has(w));
+    if (pool.length === 0) {
+      this.usedWords.clear();
+      pool = [...WORDS];
+    }
+    // Avoid an immediate re-pick of the word currently on screen when
+    // the pool wraps so there is always visible motion on a tick.
+    if (this.currentWord && pool.length > 1) {
+      const filtered = pool.filter((w) => w !== this.currentWord);
+      if (filtered.length > 0) pool = filtered;
+    }
+    const word = pool[Math.floor(Math.random() * pool.length)]!;
+    this.usedWords.add(word);
+    return word;
   }
 
   private emitFrame(): void {
     this.onUpdate?.(this.getCurrentText());
   }
 }
+
+/** Exported for tests and downstream tooling. */
+export const THINKING_FRAMES: readonly string[] = FRAMES;
+export const THINKING_WORDS: readonly string[] = WORDS;
+export { SYMBOL_INTERVAL_MS, WORD_INTERVAL_MS };
