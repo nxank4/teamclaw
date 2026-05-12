@@ -31,6 +31,9 @@ export interface AppContext {
   appModeSystem: AppModeSystem | null;
   memoryCleanup: (() => void) | null;
   onQueueDrain: (() => void) | null;
+  /** Real tool executor + registry. Exposed so crew dispatch can pass them through to runCrew, mirroring the solo dispatch path. */
+  toolRegistry: import("../tools/registry.js").ToolRegistry | null;
+  toolExecutor: import("../tools/executor.js").ToolExecutor | null;
 }
 
 export async function initSessionRouter(
@@ -69,8 +72,8 @@ export async function initSessionRouter(
     toolRegistry = reg;
     toolExecutor = new ToolExecutor(reg, new PermissionResolver());
 
-    toolExecutor.on(ToolEvent.ConfirmationNeeded, ({ toolName, input, riskLevel, approve, reject }: {
-      toolName: string; input: unknown; riskLevel: string; category: string;
+    toolExecutor.on(ToolEvent.ConfirmationNeeded, ({ toolName, input, riskLevel, agentId, approve, reject }: {
+      toolName: string; agentId: string; input: unknown; riskLevel: string; category: string;
       approve: (always?: boolean) => void; reject: () => void;
     }) => {
       const prompt = formatToolPermissionPrompt(toolName, input, riskLevel);
@@ -80,6 +83,15 @@ export async function initSessionRouter(
         timestamp: new Date(),
         tag: "tool-approval",
       });
+      // The agent-turn fires a `running` AgentTool event before
+      // calling executeTool, so by the time we get here the live
+      // tree-node has been created in `running` state. Flip it to
+      // `pending` so the icon (⏳) and verb ("Awaiting approval:")
+      // tell the user the right story while we wait. Once the user
+      // approves, the executor's Start handler below upgrades it
+      // back. The match uses toolName + agentId because the tree
+      // doesn't share executionId namespaces with the executor.
+      layout.messages.setToolCallStatus(toolName, agentId, "pending");
       layout.tui.requestRender();
 
       const resolve = (result: string, color: (s: string) => string, action: () => void) => {
@@ -105,8 +117,12 @@ export async function initSessionRouter(
       });
     });
 
-    toolExecutor.on(ToolEvent.Start, (_id: string, toolName: string) => {
+    toolExecutor.on(ToolEvent.Start, (_id: string, toolName: string, agentId: string) => {
       layout.messages.removeLastByTag("tool-approval");
+      // Promote the matching tree node from `pending` (set when
+      // ConfirmationNeeded fired) back to `running` so the spinner
+      // resumes ticking and the verb returns to the active form.
+      layout.messages.setToolCallStatus(toolName, agentId, "running");
       layout.statusBar.updateSegment(3, `${toolName}...`, defaultTheme.accent);
       layout.tui.requestRender();
     });
@@ -118,6 +134,10 @@ export async function initSessionRouter(
       layout.statusBar.updateSegment(3, `${toolName} failed`, defaultTheme.error);
       layout.tui.requestRender();
     });
+
+    // Expose to AppContext so crew dispatch can plumb the same instance.
+    ctx.toolRegistry = toolRegistry;
+    ctx.toolExecutor = toolExecutor;
   } catch {
     // Tools not available — run without tools
   }
@@ -363,9 +383,11 @@ export async function initSessionRouter(
     }
   }
 
-  // Try to resume latest session in this workspace, fall back to creating fresh
+  // Try to resume latest session in this workspace, fall back to creating fresh.
+  // Scope the lookup to process.cwd() so a session from another project
+  // doesn't auto-resume here and inject its history into the next prompt.
   {
-    const resumeResult = await ctx.sessionMgr.resumeLatest();
+    const resumeResult = await ctx.sessionMgr.resumeLatest(process.cwd());
     if (resumeResult.isOk() && resumeResult.value) {
       ctx.chatSession = resumeResult.value;
     } else {
@@ -386,17 +408,6 @@ export async function initSessionRouter(
     ctx.chatSession?.addTokenUsage("default", input, output);
   });
   ctx.cleanupSession = wireSessionEvents(ctx.sessionMgr, layout);
-
-  // Register /sprint command
-  {
-    const { createSprintCommand } = await import("./commands/sprint.js");
-    registry.register(createSprintCommand({
-      agents: ctx.router.getRegistry(),
-      toolRegistry: toolRegistry ?? undefined,
-      toolExecutor: toolExecutor ?? undefined,
-      layout,
-    }));
-  }
 
   // Register router-powered commands
   if (ctx.chatSession) {

@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.4.0-rc.1] - 2026-05-09
+
+Crew mode end-to-end. Phase 1 of the v0.4 design spec lands in this release: planner → tier-gated phase executor → discussion meeting → drift supervisor → context compaction → Hebbian injection. UX polish across solo and crew, observability into subagent tool calls, and the bundled built-in preset story (no more on-disk auto-copy).
+
+### Added
+- **Crew runtime** end-to-end: planner with complexity-tier classification (#110), phase execution with parallelism + token budgets (#111), discussion meeting with sycophancy guards + facilitator synthesis (#112), drift supervisor + context compaction + Hebbian injection (#113).
+- **Three-layer checkpoint UI**: Plan / Review / Drift gates with `/pause`, `/continue`, `/skip`, `/reorder`, `/abort`, `/adjust` slash commands and a re-anchor binding (#114).
+- **Crew runtime integration**: tool execution wiring + CrewSession host + manifest sentinel + bundled-preset auto-copy on first run (#115). Auto-copy was later replaced — see *Changed*.
+- **Tier 1 observability**: subagent progress events (every tool call lifecycle) are forwarded onto `RouterEvent.AgentTool` so the TUI's existing tree renderer paints crew runs the same way it paints solo runs. Structured JSONL debug logs land in `~/.openpawl/logs/<session>.jsonl` (#118).
+- **Solo agent ambiguity-clarify**: short / single-word prompts now trigger one short clarifying question instead of a guess (#121).
+- **Welcome banner refresh**: minimal banner with an example prompt; version pulls from `package.json` (#122).
+- **`openpawl crew` CLI**: `list / show / create / edit / delete / validate / clone` subcommands. Built-ins are protected from deletion; `clone` rewrites the manifest's `name` field so the fork loads under its new id (this PR).
+- **Crew docs**: [docs/CREW.md](./docs/CREW.md) — full guide covering architecture, manifest format, write_scopes, capability gate, three-layer checkpoints, discussion meeting, slash commands, CLI commands, known limitations (this PR).
+
+### Changed
+- **Spinner frames**: the unified ThinkingIndicator + tree-node spinner moved from the box-outline set `❏ ❐ ❑ ❒` to the corner-rotation set `▖ ▘ ▝ ▗`. The new cycle wraps to the adjacent corner so the loop reads as a continuous chase (#124). Cadence stays at 200 ms; the 16-word P-themed flavour pool is unchanged.
+- **Spinner consolidation**: ThinkingIndicator and the inline tree-node spinner now read from a single canonical 4-frame set at 200 ms, so two visible spinners never drift out of phase (#120).
+- **Built-in preset resolution**: presets are read in place from the bundled location, never copied into `~/.openpawl/crews/` on first run (#117). Eliminates the auto-seed-on-first-run failure mode from Bug Z. User overrides at `~/.openpawl/crews/<name>/manifest.yaml` continue to take precedence.
+- **Sprint and collab execution modes** retired (in favour of crew). Removed `dispatchCollab()` path, `@collab` mention parser, `SprintEvent` enum, and dead `wireDebugToSprintRunner()` listeners (#99). 22 stale debug post-mortems + screenshots removed alongside.
+- `--mode` CLI flag now only accepts `solo` (was `solo | collab | sprint`).
+- TUI mode cycle (`Shift+Tab`) is `solo ↔ crew`.
+- `scripts/testing/benchmark.ts` and `scripts/testing/stress-test.ts` reduced to solo-only.
+
+### Fixed
+- **Bug U** — TUI freeze after a successful crew run. `dispatchCrew` now emits the `Done` event the TUI's `onDispatchDone` handler expects (#116).
+- **Bug Z** — built-in preset manifest reported "not found" on a fresh install because tsup's `clean: true` left an empty `dist/presets/` and the subsequent `cp` nested everything one level deeper. Replaced auto-copy with bundled-resolution (#117).
+- **Bug U+1** — `OPENPAWL_DEBUG=true` collided with TUI rendering. Debug logs now write to `~/.openpawl/logs/<session>.jsonl` only; nothing prints to the TUI surface (#118).
+- **Bug U+2** — ThinkingIndicator placeholder stayed frozen on screen after a successful crew run because the crew path never emitted `AgentToken` (subagents are isolated). `onAgentDone` now strips any lingering thinking-tagged message (#118).
+- **Bug U+3** — progress tree disappeared when a phase auto-advanced because `clearToolCalls` ran on every `AgentStart`. Tree rebuilds preserve completed nodes across phase boundaries (#119).
+- **Solo tree-node state**: `pending approval` is now visually distinct from `executing`, so the user can tell whether the spinner is waiting on Y/N or on the tool itself (#120).
+- **Multi-line tool input wrapping**: every wrapped subline is prefixed with the tree branch char so wrapped lines stay indented under the node instead of falling flush-left (#120).
+- **Bug U+8** — solo agent treated every prompt as if there was prior context that wasn't there. Two root causes: the input handler appended the current user prompt to the chat session before `route()` ran (so the router saw it twice), and `resumeLatest()` picked the globally most-recent session regardless of workspace (so a session for project A auto-resumed in project B). The router now strips the trailing in-flight user turn from `priorMessages`, and `resumeLatest(workspacePath)` filters by workspace (#123).
+- **Bug U+9** — typing during dispatch caused parallel prompt processing because the queue drain fired from `AgentDone` (mid-await) instead of after the dispatch tear-down had finished. Drain moved to the input handler's `finally` (#125).
+- **Bug U+10** — duplicate `Assistant:` header on a single agent turn when a tool-approval system message landed between two streamed chunks. New `MessagesComponent.appendToLastAgent` walks back to the most recent agent entry; streaming only opens a new agent message when the dispatch genuinely switches agents (#125).
+- **Bug U+16** — queued prompts looked dropped: the busy-path stamped a `pending: true` user message that rendered too dim to read. Queued prompts now render with the same accent + colour as non-queued prompts the moment the user presses Enter (#126).
+
+### Removed
+- **`ensureBuiltInPresets` disk-copy mechanism** (#117) — replaced with bundled-resolution + user-override.
+- Three unreferenced helper scripts and one broken sprint-only bench (`run-context-fix-bench.sh`).
+
+### Known Issues (rc.1)
+- **Bug U+4** — phase-blocked task does not surface an actionable reason in the chat (the reason is in the debug log).
+- **Bug U+6** — session continuity is invisible: the TUI does not show a "resuming session X" signal on launch even though the session is correctly resumed.
+- **Bug U+11** — smaller models (e.g. minimax-m2.7) sometimes still call tools on ambiguous prompts despite the system-prompt rule. Larger models follow it reliably.
+- **Bug U+13** — agent may claim a file does not exist before reading it.
+- **Bug U+14** — agent may infer task content from prior context when prompts arrive in rapid succession (medium-model behaviour).
+- 9 dependabot PRs deferred for batch review post-rc.1.
+
 ## [0.3.0] - 2026-04-18
 
 Sprint correctness and context-sharing release. Closes out a two-day debug session that moved the CLI Task Manager benchmark sprint/solo output-token ratio from **2.08× (pre-PR-74)** to **0.66× (post-PR-84)** — a **68 % reduction**. Sprint is now meaningfully cheaper than solo on the reference benchmark, with honest claim-vs-disk quality.

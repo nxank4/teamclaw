@@ -19,6 +19,7 @@ import { createWorkspaceCommand } from "./workspace.js";
 import { createThemeCommand } from "./theme.js";
 import { createTeamCommand } from "./team.js";
 import { createAgentsCommand } from "./agents.js";
+import { registerCrewCommands } from "../../tui/slash/crew-commands.js";
 export { createPlanCommand, type PlanCommandDeps } from "./plan.js";
 
 export function registerAllCommands(
@@ -38,6 +39,7 @@ export function registerAllCommands(
   registry.register(createThemeCommand());
   registry.register(createTeamCommand());
   registry.register(createAgentsCommand());
+  registerCrewCommands(registry);
   // /mode and /plan registered later in app/index.ts after appModeSystem is created
   if (compactDeps) {
     registry.register(createCompactCommand(compactDeps));

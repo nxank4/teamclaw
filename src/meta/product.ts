@@ -13,3 +13,11 @@ export const PRODUCT_TAGLINE_LONG =
 /** Short variant for space-constrained slots (package.json, GitHub repo description, header lines). */
 export const PRODUCT_TAGLINE_SHORT =
   "Terminal AI coding with a team of agents, not just one.";
+
+/**
+ * Card-friendly headline for the launch welcome banner — short enough
+ * to keep the boxed layout compact on standard terminal widths. Keep
+ * this distinct from PRODUCT_TAGLINE_SHORT, which is still the source
+ * of truth for README / --help / onboarding intro.
+ */
+export const PRODUCT_TAGLINE_HEADLINE = "Crew AI for your terminal";

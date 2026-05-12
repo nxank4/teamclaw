@@ -23,6 +23,7 @@ export const SUBCOMMANDS: Record<string, string[]> = {
     replay: ["list", "tag", "untag", "prune", "clean", "export", "diff"],
     audit: ["list", "open"],
     agent: ["add", "list", "show", "remove", "validate", "test"],
+    crew: ["list", "show", "create", "edit", "delete", "validate", "clone"],
     forecast: ["accuracy"],
     heatmap: [],
     diff: [],
