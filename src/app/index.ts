@@ -217,7 +217,7 @@ interface PrintModeArgs {
   workdir?: string;
 }
 
-function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: string } {
+export function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: string } {
   let goal: string | null = null;
   let mode: "solo" | "crew" = "solo";
   let crewName: string | undefined;
