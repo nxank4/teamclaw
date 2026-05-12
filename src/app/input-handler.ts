@@ -54,8 +54,8 @@ export function setupInputHandler(
   registry: CommandRegistry,
   ctx: AppContext,
   state: PromptQueueState,
-  appModeSystem: AppModeSystem,
-  updateModeDisplay: () => void,
+  _appModeSystem: AppModeSystem,
+  _updateModeDisplay: () => void,
 ): void {
   layout.editor.onSubmit = async (text: string, attachedFiles?: string[]) => {
     state.welcomeMessageActive = false;
@@ -71,21 +71,7 @@ export function setupInputHandler(
         }
         const result = registry.lookup(`/${parsed.name} ${parsed.args}`);
         if (result) {
-          if (parsed.name === "sprint" && parsed.args.trim() && ctx.chatSession) {
-            const title = ctx.chatSession.getState().title;
-            if (title === "Untitled session" || title === "New session") {
-              const { generateSessionName } = await import("../session/session-name.js");
-              ctx.chatSession.setTitle(generateSessionName(parsed.args));
-            }
-            const prevMode = appModeSystem.getMode();
-            appModeSystem.setMode("sprint");
-            updateModeDisplay();
-            await result.command.execute(result.args, msgCtx);
-            appModeSystem.setMode(prevMode);
-            updateModeDisplay();
-          } else {
-            await result.command.execute(result.args, msgCtx);
-          }
+          await result.command.execute(result.args, msgCtx);
         } else if (ctx.router && ctx.chatSession) {
           const slashResult = await ctx.router.handleSlashCommand(ctx.chatSession.id, `/${parsed.name} ${parsed.args}`);
           if (slashResult) {
@@ -196,12 +182,20 @@ export function setupInputHandler(
         state.agentBusy = true;
         try {
           if (ctx.router && ctx.chatSession) {
-            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.appModeSystem);
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.appModeSystem, ctx);
           } else {
             await handleChatFallback(fullPrompt, layout, msgCtx);
           }
         } finally {
           state.agentBusy = false;
+          // Drain the queue here, AFTER the dispatch has fully
+          // returned. Draining inside the router's AgentDone handler
+          // (where this lived before) raced the surrounding await:
+          // the next prompt could start before the current one
+          // finished tearing down, so the two ran in parallel and
+          // their output interleaved. Now the next prompt cannot start
+          // until the current turn's finally block runs.
+          ctx.onQueueDrain?.();
         }
         break;
       }
@@ -231,12 +225,15 @@ export function setupInputHandler(
     state.agentBusy = true;
     try {
       if (ctx.router && ctx.chatSession) {
-        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.appModeSystem);
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.appModeSystem, ctx);
       } else {
         await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
       }
     } finally {
       state.agentBusy = false;
+      // Re-trigger draining so a chain of queued prompts plays out one
+      // at a time. Same reasoning as the message-case finally above.
+      ctx.onQueueDrain?.();
     }
   };
 

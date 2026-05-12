@@ -34,7 +34,16 @@ export function statusDot(status: StatusDotKind): string {
 
 // ── Inline Spinner ───────────────────────────────────────────────
 
-const BRAILLE_FRAMES = ICONS.brailleFrames;
+/**
+ * Cadence shared with the top-level ThinkingIndicator and the
+ * tree-node spinner — every animated symbol in the TUI ticks at the
+ * same 200ms beat so two visible spinners can never drift out of
+ * phase. PR #119 introduced the 4-frame box at 200ms; PR #120 unifies
+ * the rest of the TUI on the same cadence.
+ */
+export const SPINNER_INTERVAL_MS = 200;
+
+const SPINNER_FRAMES = ICONS.boxFrames;
 
 export interface InlineSpinner {
   /** Returns the current spinner frame string (colored). */
@@ -44,21 +53,21 @@ export interface InlineSpinner {
 }
 
 /**
- * Create a lightweight inline spinner that auto-advances every 80ms.
- * Call `frame()` each render to get the current character.
- * Call `stop()` when loading is complete.
+ * Create a lightweight inline spinner that auto-advances at the
+ * shared cadence. Call `frame()` each render to get the current
+ * character. Call `stop()` when loading is complete.
  */
 export function createSpinner(colorFn?: (s: string) => string): InlineSpinner {
   const color = colorFn ?? ctp.teal;
   let idx = 0;
 
-  const timer = setInterval(() => { idx++; }, 80);
+  const timer = setInterval(() => { idx++; }, SPINNER_INTERVAL_MS);
   // Don't block process exit
   if (timer.unref) timer.unref();
 
   return {
     frame() {
-      return color(BRAILLE_FRAMES[idx % BRAILLE_FRAMES.length]!);
+      return color(SPINNER_FRAMES[idx % SPINNER_FRAMES.length]!);
     },
     stop() {
       clearInterval(timer);

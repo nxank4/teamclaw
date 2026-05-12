@@ -25,7 +25,7 @@ export interface ChatMessage {
   /** Queued message not yet processed — rendered dimmed. */
   pending?: boolean;
   /** Visual tag for special rendering (e.g., tool approval background tint). */
-  tag?: "tool-approval";
+  tag?: "tool-approval" | "thinking";
 }
 
 /** Lines above which a message is considered collapsible. */
@@ -71,16 +71,32 @@ function renderToolInTree(
   view: ToolCallView, lines: string[], branch: string, vert: string, width: number,
 ): void {
   const rendered = view.render(width);
-  for (let r = 0; r < rendered.length; r++) {
-    const prefix = r === 0 ? " " + branch + " " : " " + vert + "  ";
-    lines.push(prefix + rendered[r]!.trimStart());
+  // Multi-line tool input (heredocs, multi-line bash) leaves embedded
+  // newlines inside a single rendered entry. Split each entry into
+  // sublines and prefix EVERY subline with the tree branch char so
+  // wrapped lines stay indented under the node instead of falling
+  // flush-left and breaking the visual hierarchy.
+  let isFirst = true;
+  for (const r of rendered) {
+    const sublines = r.split("\n");
+    for (const sub of sublines) {
+      const prefix = isFirst ? " " + branch + " " : " " + vert + "  ";
+      lines.push(prefix + sub.trimStart());
+      isFirst = false;
+    }
   }
 }
 
-/** Check if a line is a baked tool summary (starts with ✓, ✗, ⏳, or ○). */
+/**
+ * Check if a line is a baked tool summary. Matches the icons every
+ * `ToolCallView` produces: terminal states (✓ ✗ ⏳ ○ ◼) plus every
+ * spinner frame ever used inline — legacy braille (⠋…⠏) for backward
+ * compatibility with already-baked sessions, and the canonical box
+ * spinner (❏ ❐ ❑ ❒) shared across the unified spinner set.
+ */
 function isToolLine(line: string): boolean {
   const stripped = stripAnsi(line).trimStart();
-  return /^[✓✗⏳○⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(stripped);
+  return /^[✓✗⏳○◼⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏❏❐❑❒]/.test(stripped);
 }
 
 /** Split baked agent message content into tool lines and text blocks. */
@@ -163,6 +179,13 @@ export class MessagesComponent implements Component {
 
     const hasLiveTools = this.toolCallOrder.length > 0;
     const msgCount = this.messages.length;
+    // Tree rendering attaches to the most recent agent/assistant message
+    // when tool calls are live — not necessarily the last message. During
+    // a crew run, the runtime pushes system messages below the thinking
+    // placeholder ("→ auto-advancing to next phase.", pause/abort
+    // banners, reanchor prompts). Requiring the agent to be globally last
+    // makes the tree disappear the instant any of those land. Bug U+3.
+    const liveAgentIdx = hasLiveTools ? this.findLastAgentIndex() : -1;
 
     // ── Pass 1: Build height map + message boundaries ──────────────
     // For each message, get its rendered height from cache or compute it.
@@ -182,8 +205,7 @@ export class MessagesComponent implements Component {
       this.messageBoundaries.push(cumulativeHeight);
 
       const isLastMsg = i === msgCount - 1;
-      const isAgent = msg.role === "agent" || msg.role === "assistant";
-      const isLiveToolMsg = isLastMsg && isAgent && hasLiveTools;
+      const isLiveToolMsg = i === liveAgentIdx;
       const isStreaming = isLastMsg && this.renderCache.get(i) === undefined &&
         (msg.role === "agent" || msg.role === "assistant");
 
@@ -273,9 +295,7 @@ export class MessagesComponent implements Component {
         allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
       }
 
-      const isLastMsg = i === msgCount - 1;
-      const isAgent = msg.role === "agent" || msg.role === "assistant";
-      if (isLastMsg && isAgent && hasLiveTools) {
+      if (i === liveAgentIdx) {
         const outputLines = this.renderAgentWithLiveTools(msg, width, maxBubbleWidth);
         allLines.push(...outputLines);
         allLines.push("");
@@ -333,15 +353,14 @@ export class MessagesComponent implements Component {
   /** Legacy render-all path (when viewport info not available). */
   private renderAll(width: number, maxBubbleWidth: number, hasLiveTools: boolean): string[] {
     const allLines: string[] = [];
+    const liveAgentIdx = hasLiveTools ? this.findLastAgentIndex() : -1;
     for (let i = 0; i < this.messages.length; i++) {
       const msg = this.messages[i]!;
       if (i > 0 && msg.role === "system" && this.messages[i - 1]!.role === "system") {
         allLines.push(separator({ width: Math.min(30, maxBubbleWidth - 4), padding: 2 }));
       }
       this.messageBoundaries[i] = allLines.length;
-      const isLastMsg = i === this.messages.length - 1;
-      const isAgent = msg.role === "agent" || msg.role === "assistant";
-      if (isLastMsg && isAgent && hasLiveTools) {
+      if (i === liveAgentIdx) {
         allLines.push(...this.renderAgentWithLiveTools(msg, width, maxBubbleWidth));
         allLines.push("");
         continue;
@@ -378,6 +397,17 @@ export class MessagesComponent implements Component {
       case "assistant":
       case "agent": {
         const nameLabel = msg.agentName ?? "OpenPawl";
+
+        // Inline render for thinking placeholder: badge + spinner on one line.
+        // Once the first token streams in, router-wiring swaps this for an
+        // untagged message and the multi-line layout below takes over.
+        if (msg.tag === "thinking") {
+          const inline = (msg.content || "").trim();
+          return inline
+            ? ["  " + agentBadge(nameLabel) + "  " + inline]
+            : ["  " + agentBadge(nameLabel)];
+        }
+
         const badgeLines: string[] = [];
 
         const contentLines: string[] = [];
@@ -612,6 +642,15 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /** Index of the most recent agent/assistant message, or -1 if none. */
+  private findLastAgentIndex(): number {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const r = this.messages[i]!.role;
+      if (r === "agent" || r === "assistant") return i;
+    }
+    return -1;
+  }
+
   /** Remove the last message matching a given tag. Returns true if found. */
   removeLastByTag(tag: string): boolean {
     for (let i = this.messages.length - 1; i >= 0; i--) {
@@ -652,6 +691,24 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /**
+   * Replace the last message's content only if its tag matches.
+   * Returns true if a replace happened, false if the last message is
+   * untagged or has a different tag.
+   *
+   * Used by the thinking spinner so its 150ms tick does not clobber a
+   * tool-approval prompt that landed on top of the thinking placeholder.
+   */
+  replaceLastByTag(tag: ChatMessage["tag"], content: string): boolean {
+    if (this.messages.length === 0) return false;
+    const idx = this.messages.length - 1;
+    if (this.messages[idx]!.tag !== tag) return false;
+    this.messages[idx]!.content = content;
+    this.renderCache.delete(idx);
+    this.heightCache.delete(idx);
+    return true;
+  }
+
   /** Replace the last message entirely (e.g., swap thinking for agent message). */
   replaceLastWith(msg: ChatMessage): void {
     if (this.messages.length > 0) {
@@ -683,6 +740,25 @@ export class MessagesComponent implements Component {
     }
   }
 
+  /**
+   * Append text to the most recent agent/assistant message, even if
+   * non-agent messages (tool-approval prompts, system notices) have
+   * been pushed on top. Returns true if an agent message was found.
+   *
+   * Used by the streaming token path so a tool-approval system message
+   * pushed between two streamed chunks does not cause a second
+   * "Assistant:" header to render — the second chunk continues the
+   * existing agent message instead of starting a new one.
+   */
+  appendToLastAgent(chunk: string): boolean {
+    const idx = this.findLastAgentIndex();
+    if (idx === -1) return false;
+    this.messages[idx]!.content += chunk;
+    this.renderCache.delete(idx);
+    this.heightCache.delete(idx);
+    return true;
+  }
+
   /** Start tracking a new tool call with a spinner. */
   startToolCall(executionId: string, toolName: string, inputSummary: string, agentId: string): void {
     if (this.activeToolCalls.has(executionId)) return;
@@ -702,6 +778,36 @@ export class MessagesComponent implements Component {
     const view = this.activeToolCalls.get(executionId);
     if (!view) return;
     view.complete({ success, summary: outputSummary, duration, diff });
+  }
+
+  /**
+   * Move the most recent tool call matching toolName + agentId into a
+   * new status. Used by the wiring layer to flip a node from
+   * `running` (the LLM dispatched the call) into `pending` while the
+   * user is being asked for approval, then back to `running` once the
+   * executor actually starts. Walks tool order in reverse so an older
+   * matching call cannot accidentally win when the LLM repeats a
+   * tool.
+   */
+  setToolCallStatus(
+    toolName: string,
+    agentId: string,
+    status: "pending" | "running",
+  ): boolean {
+    for (let i = this.toolCallOrder.length - 1; i >= 0; i--) {
+      const id = this.toolCallOrder[i]!;
+      const view = this.activeToolCalls.get(id);
+      if (!view) continue;
+      if (view.toolName !== toolName) continue;
+      if (view.agentId !== agentId) continue;
+      // Skip already-finished views; we are only interested in the
+      // currently-in-flight call. This means a fresh call to the same
+      // tool wins over an earlier completed/failed one.
+      if (view.status !== "pending" && view.status !== "running") continue;
+      view.setStatus(status);
+      return true;
+    }
+    return false;
   }
 
   /** Advance all running tool call spinners (call from timer). */

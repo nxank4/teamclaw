@@ -64,6 +64,8 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     appModeSystem: null,
     memoryCleanup: null,
     onQueueDrain: null,
+    toolRegistry: null,
+    toolExecutor: null,
   };
 
   // Register commands

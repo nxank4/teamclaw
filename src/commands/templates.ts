@@ -530,7 +530,7 @@ async function runInit(): Promise<void> {
     message: "Template ID (kebab-case):",
     placeholder: "my-research-team",
     validate: (v) => {
-      if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(v)) return "Must be kebab-case";
+      if (!v || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(v)) return "Must be kebab-case";
     },
   });
   if (isCancel(idInput)) { cancel("Cancelled."); process.exit(0); }
@@ -547,7 +547,7 @@ async function runInit(): Promise<void> {
     message: "Description (max 200 chars):",
     placeholder: "Research and synthesize market intelligence",
     validate: (v) => {
-      if (v.length > 200) return "Max 200 characters";
+      if (v && v.length > 200) return "Max 200 characters";
     },
   });
   if (isCancel(descInput)) { cancel("Cancelled."); process.exit(0); }

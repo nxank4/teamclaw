@@ -24,9 +24,16 @@ import { Dispatcher } from "./dispatch-strategy.js";
 import type { AgentRunner } from "./dispatch-strategy.js";
 import { RouterEvent, DISPATCH_EVENTS } from "./event-types.js";
 import { parseMentions } from "./mention-parser.js";
-import { buildCollabChain } from "./collab-dispatch.js";
 import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
+import { runCrew } from "../crew/crew-runner.js";
+import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
+import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
+import type { CheckpointCoordinator } from "../crew/checkpoints.js";
+import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
+import type { ToolExecutor } from "./agent-turn.js";
+import type { ToolDef } from "../engine/llm.js";
+import type { NativeToolDefinition } from "../providers/stream-types.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -129,7 +136,34 @@ export class PromptRouter extends EventEmitter {
   async route(
     sessionId: string,
     prompt: string,
-    options?: { appMode?: AppMode },
+    options?: {
+      appMode?: AppMode;
+      /**
+       * Override the active CheckpointCoordinator for crew dispatch.
+       * When omitted, falls back to {@link getActiveCheckpointCoordinator}
+       * (which returns whatever the host has registered, or null — in
+       * which case `runCrew` builds its own headless coordinator).
+       */
+      checkpointCoordinator?: CheckpointCoordinator;
+      /** Crew preset name. Defaults to FULL_STACK_PRESET. */
+      crewName?: string;
+      /** Working directory for crew tool calls. Defaults to process.cwd(). */
+      workdir?: string;
+      /** Cancellation signal piped through to the crew runner. */
+      abortSignal?: AbortSignal;
+      /**
+       * Real tool executor for crew agents. Without this, the LLM emits
+       * tool calls but no disk effect happens. The TUI host passes the
+       * same instance it builds for solo dispatch.
+       */
+      executeTool?: ToolExecutor;
+      /** Tool schema lookup for crew agents. Forwarded to runCrew. */
+      getToolSchemas?: (toolNames: string[]) => ToolDef[];
+      /** Native tool defs lookup. Forwarded to runCrew. */
+      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
+      /** Test seam — defaults to the real {@link runCrew}. */
+      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
+    },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
     const pendingDecision = this.pendingConfirmation.get(sessionId);
@@ -160,40 +194,12 @@ export class PromptRouter extends EventEmitter {
     // 3. Parse mentions
     const mentions = parseMentions(prompt, this.registry.getIds());
 
-    // 3b. Collab mode check
+    // 3b. Crew mode → invoke runCrew. Closes the PR #106 stub that was
+    // missed across the rest of Phase 1 (the runner shipped in PRs
+    // #109–#113 but the router-side dispatch was never re-wired).
     const appMode = options?.appMode;
-    if ((appMode === "collab" || mentions.forceCollab) && !mentions.hasExplicitRouting) {
-      const chain = buildCollabChain(mentions.cleanedPrompt, { force: appMode === "collab" });
-      if (chain) {
-        const agents = chain.steps.map((step, i) => ({
-          agentId: step.agentId,
-          role: step.role,
-          task: step.instruction,
-          tools: this.registry.get(step.agentId)?.defaultTools ?? [],
-          priority: i,
-        }));
-        const decision: RouteDecision = {
-          strategy: "collab",
-          agents,
-          requiresConfirmation: false,
-        };
-        const activeSession = this.sessionManager.getActive();
-        const sessionHistory = activeSession
-          ? activeSession.buildContextMessages()
-              .filter(m => m.role !== "system")
-              .map(m => ({ role: m.role, content: m.content }))
-          : [];
-        const dispatchResult = await this.dispatcher.dispatch(sessionId, mentions.cleanedPrompt, decision, sessionHistory);
-        if (dispatchResult.isOk()) {
-          const results = dispatchResult.value.agentResults;
-          const lastAgent = results[results.length - 1];
-          if (lastAgent && lastAgent.agentId !== "system") {
-            this.lastAgentBySession.set(sessionId, lastAgent.agentId);
-          }
-        }
-        return dispatchResult;
-      }
-      // Chain returned null — fall through to solo dispatch
+    if (appMode === "crew") {
+      return await this.dispatchCrew(sessionId, prompt, options);
     }
 
     // 4. Classify intent
@@ -254,11 +260,19 @@ export class PromptRouter extends EventEmitter {
 
     // 8. Build session history for context
     const activeSession = this.sessionManager.getActive();
-    const sessionHistory = activeSession
-      ? activeSession.buildContextMessages()
-          .filter(m => m.role !== "system")
-          .map(m => ({ role: m.role, content: m.content }))
-      : [];
+    const allMessages = activeSession ? activeSession.buildContextMessages() : [];
+    // The input handler appends the current user prompt to the chat
+    // session before calling route() (so the UI renders it
+    // immediately). Drop that trailing user turn here so priorMessages
+    // contains only PRIOR turns — without this, the LLM sees the same
+    // user message twice (once in history, once as userMessage) and
+    // replies with things like "It looks like you sent 'abc' twice".
+    const lastIdx = allMessages.length - 1;
+    const stripCurrent = lastIdx >= 0 && allMessages[lastIdx]!.role === "user";
+    const priorOnly = stripCurrent ? allMessages.slice(0, -1) : allMessages;
+    const sessionHistory = priorOnly
+      .filter(m => m.role !== "system")
+      .map(m => ({ role: m.role, content: m.content }));
 
     // 9. Dispatch
     const dispatchResult = await this.dispatcher.dispatch(sessionId, mentions.cleanedPrompt, decision, sessionHistory);
@@ -273,6 +287,111 @@ export class PromptRouter extends EventEmitter {
     }
 
     return dispatchResult;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CREW DISPATCH
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private async dispatchCrew(
+    sessionId: string,
+    prompt: string,
+    options?: {
+      checkpointCoordinator?: CheckpointCoordinator;
+      crewName?: string;
+      workdir?: string;
+      abortSignal?: AbortSignal;
+      executeTool?: ToolExecutor;
+      getToolSchemas?: (toolNames: string[]) => ToolDef[];
+      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
+      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
+    },
+  ): Promise<Result<DispatchResult, RouterError>> {
+    const start = Date.now();
+    this.emit(RouterEvent.AgentStart, sessionId, "crew");
+
+    const runCrewFn = options?.runCrewImpl ?? runCrew;
+
+    try {
+      const coord =
+        options?.checkpointCoordinator ?? getActiveCheckpointCoordinator() ?? undefined;
+      const crewName = options?.crewName ?? FULL_STACK_PRESET;
+      const workdir = options?.workdir ?? process.cwd();
+
+      const result: CrewRunResult = await runCrewFn({
+        options: { goal: prompt, crew_name: crewName, workdir },
+        session_id: sessionId,
+        workdir,
+        checkpointCoordinator: coord,
+        executeTool: options?.executeTool,
+        getToolSchemas: options?.getToolSchemas,
+        getNativeTools: options?.getNativeTools,
+        signal: options?.abortSignal,
+        // Crew progress observability — the runtime fires this on
+        // every subagent tool-call lifecycle event. Map it onto the
+        // existing RouterEvent.AgentTool channel so the TUI's
+        // onAgentTool handler in router-wiring can render tool views
+        // exactly the way it does for solo dispatch. The agent_id is
+        // the actual subagent (planner / coder / tester / …) so each
+        // gets its own color and status-bar segment text. §5.6
+        // isolation is preserved: this is observability, not context
+        // bubbling — subagent prompts still reset per invocation.
+        onProgress: (event) => {
+          this.emit(
+            RouterEvent.AgentTool,
+            sessionId,
+            event.agent_id,
+            event.tool_name,
+            event.status,
+            event.details,
+          );
+        },
+      });
+
+      const md = renderCrewResultMarkdown(result);
+      const duration = Date.now() - start;
+      const tokensUsed = result.status === "plan_failed" ? 0 : result.tokens_used;
+
+      this.emit(RouterEvent.AgentDone, sessionId, "crew", {
+        success: result.status === "completed",
+      });
+
+      const dispatchResult: DispatchResult = {
+        strategy: "orchestrated",
+        agentResults: [
+          {
+            agentId: "crew",
+            success: result.status === "completed",
+            response: md,
+            toolCalls: [],
+            duration,
+            inputTokens: 0,
+            outputTokens: tokensUsed,
+          },
+        ],
+        totalDuration: duration,
+        totalInputTokens: 0,
+        totalOutputTokens: tokensUsed,
+      };
+
+      // Mirror the dispatcher path (dispatch-strategy.ts:112): emit Done
+      // so the TUI's onDispatchDone handler runs — that's where the
+      // status-bar token-pair display is updated. Without this, the
+      // status bar stays at "idle" (or worse, the last tool name) and
+      // the TUI looks frozen even though the run completed cleanly.
+      this.emit(RouterEvent.Done, sessionId, dispatchResult);
+
+      return ok(dispatchResult);
+    } catch (e) {
+      const cause = e instanceof Error ? e.message : String(e);
+      // AgentDone (with success: false) covers the TUI cleanup —
+      // onAgentDone in router-wiring stops the thinking indicator and
+      // resets the status bar. The caller (prompt-handler) renders the
+      // error from the returned err; emitting RouterEvent.Error here
+      // would duplicate the error message in the chat stream.
+      this.emit(RouterEvent.AgentDone, sessionId, "crew", { success: false });
+      return err({ type: "dispatch_failed", agentId: "crew", cause });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -322,12 +441,10 @@ export class PromptRouter extends EventEmitter {
       "  @tester          Route to Tester",
       "  @debugger        Route to Debugger",
       "  @researcher      Route to Researcher",
-      "  @collab          Force collab mode (multi-agent chain)",
       "",
-      "Modes: Shift+Tab to cycle (solo/collab/sprint) | /mode to pick",
+      "Modes: Shift+Tab to cycle (solo/crew) | /mode to pick",
       "",
       "Example: @coder write a login form",
-      "Example: @collab implement auth with OAuth2",
     ];
     return ok(lines.join("\n"));
   }
@@ -507,4 +624,66 @@ export class PromptRouter extends EventEmitter {
     this.lastAgentBySession.clear();
     this.pendingConfirmation.clear();
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CREW RESULT RENDERING
+// ═════════════════════════════════════════════════════════════════════════════
+
+function renderCrewResultMarkdown(result: CrewRunResult): string {
+  if (result.status === "plan_failed") {
+    return [
+      `# Crew run failed during planning`,
+      ``,
+      `Crew: \`${result.crew_name}\``,
+      `Reason: \`${result.error.reason}\``,
+      ``,
+      result.error.message,
+    ].join("\n");
+  }
+  if (result.status === "plan_only") {
+    return [
+      `# Crew planning complete`,
+      ``,
+      `Crew: \`${result.crew_name}\` — ${result.phases.length} phase(s) planned, ${result.tokens_used} tokens`,
+      ``,
+      ...result.phases.map(
+        (p, i) => `${i + 1}. **${p.name}** (\`${p.id}\`, tier ${p.complexity_tier}, ${p.tasks.length} tasks)`,
+      ),
+    ].join("\n");
+  }
+  // completed | halted | aborted
+  const lines: string[] = [];
+  const heading =
+    result.status === "completed"
+      ? "Crew run completed"
+      : result.status === "aborted"
+        ? "Crew run aborted"
+        : "Crew run halted";
+  lines.push(`# ${heading}`);
+  lines.push("");
+  lines.push(`Crew: \`${result.crew_name}\` · ended_by: \`${result.ended_by}\` · ${result.tokens_used} tokens`);
+  lines.push("");
+  for (const p of result.phases) {
+    const counts = {
+      done: p.tasks.filter((t) => t.status === "completed").length,
+      failed: p.tasks.filter((t) => t.status === "failed").length,
+      blocked: p.tasks.filter((t) => t.status === "blocked").length,
+    };
+    lines.push(
+      `- **${p.name}** (\`${p.id}\`, tier ${p.complexity_tier}) — ` +
+        `${counts.done} done, ${counts.failed} failed, ${counts.blocked} blocked`,
+    );
+  }
+  if (result.reanchor) {
+    lines.push("");
+    lines.push("## Re-anchor prompt");
+    lines.push("");
+    lines.push(result.reanchor.markdown);
+  }
+  if (result.new_goal_pending) {
+    lines.push("");
+    lines.push(`> User edited goal: ${result.new_goal_pending}`);
+  }
+  return lines.join("\n");
 }

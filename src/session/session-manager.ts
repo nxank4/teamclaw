@@ -182,7 +182,25 @@ export class SessionManager extends EventEmitter {
     return ok(session);
   }
 
-  async resumeLatest(): Promise<Result<Session | null, SessionError>> {
+  /**
+   * Resume the most recently updated session. When `workspacePath` is
+   * provided, restrict the lookup to sessions created in that workspace
+   * — this is the path the TUI takes on launch so a session for
+   * `~/projects/foo` cannot leak into a fresh launch from
+   * `~/projects/bar`. Without the scope, "previously discussed" topics
+   * from another project bleed into a fresh prompt.
+   */
+  async resumeLatest(workspacePath?: string): Promise<Result<Session | null, SessionError>> {
+    if (workspacePath) {
+      const wsResult = await this.store.listByWorkspace(workspacePath);
+      if (wsResult.isErr()) return err(wsResult.error);
+      const candidate = wsResult.value.find(
+        (s) => s.status !== "archived" && s.status !== "crashed",
+      );
+      if (!candidate) return ok(null);
+      return this.resume(candidate.id);
+    }
+
     const listResult = await this.store.list({
       sortBy: "updatedAt",
       sortOrder: "desc",
