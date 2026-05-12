@@ -31,13 +31,15 @@ import { createAutocompleteProvider } from "./autocomplete.js";
 import { setLoggerMuted, logger, isDebugMode } from "../core/logger.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { ICONS } from "../tui/constants/icons.js";
-import { AppModeSystem } from "../tui/keybindings/app-mode.js";
+import { AppModeSystem, type AppMode } from "../tui/keybindings/app-mode.js";
 
 export interface LaunchOptions {
   /** Custom terminal for testing (VirtualTerminal). */
   terminal?: Terminal;
   /** Custom sessions directory for testing. */
   sessionsDir?: string;
+  /** Initial app mode. Defaults to "solo". Session-only; not persisted. */
+  initialMode?: AppMode;
 }
 
 /**
@@ -96,7 +98,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   );
 
   // ── Mode system ─────────────────────────────────────────────────
-  const appModeSystem = new AppModeSystem();
+  const appModeSystem = new AppModeSystem(opts?.initialMode);
   ctx.appModeSystem = appModeSystem;
   const updateModeDisplay = () => {
     const info = appModeSystem.getModeInfo();
