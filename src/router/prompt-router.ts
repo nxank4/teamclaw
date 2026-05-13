@@ -630,7 +630,7 @@ export class PromptRouter extends EventEmitter {
 // CREW RESULT RENDERING
 // ═════════════════════════════════════════════════════════════════════════════
 
-function renderCrewResultMarkdown(result: CrewRunResult): string {
+export function renderCrewResultMarkdown(result: CrewRunResult): string {
   if (result.status === "plan_failed") {
     return [
       `# Crew run failed during planning`,

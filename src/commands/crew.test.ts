@@ -12,10 +12,15 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  _testing,
   cloneCrew,
   collectCrews,
   runCrewCommand,
 } from "./crew.js";
+import type {
+  CrewRunResult,
+  RunCrewArgs,
+} from "../crew/crew-runner.js";
 import {
   FULL_STACK_PRESET,
   MANIFEST_FILENAME,
@@ -151,5 +156,83 @@ describe("openpawl crew dispatch", () => {
     expect(process.exitCode).toBe(1);
     // Built-in is still on disk (the CLI never touched the bundled dir).
     expect(builtInPresetExists(FULL_STACK_PRESET)).toBe(true);
+  });
+});
+
+describe("openpawl crew run", () => {
+  function completedResult(): CrewRunResult {
+    return {
+      status: "completed",
+      session_id: "test-session",
+      crew_name: FULL_STACK_PRESET,
+      goal: "test goal",
+      phases: [],
+      plan_artifact_id: "a-1",
+      phase_summary_artifact_ids: ["a-2"],
+      tokens_used: 100,
+      ended_by: "all_phases_complete",
+    };
+  }
+
+  function planFailedResult(): CrewRunResult {
+    return {
+      status: "plan_failed",
+      session_id: "test-session",
+      crew_name: FULL_STACK_PRESET,
+      goal: "test goal",
+      error: {
+        reason: "dependency_cycle",
+        message: "cycle detected",
+        detail: { cycle: ["a", "b", "a"] },
+      },
+      attempts: 2,
+    };
+  }
+
+  it("starts a run with the named preset (forwards goal + crewName)", async () => {
+    if (!builtInPresetExists(FULL_STACK_PRESET)) return;
+    let captured: RunCrewArgs | null = null;
+    process.exitCode = 0;
+    await _testing.runCrewPreset(FULL_STACK_PRESET, ["write", "hello", "world"], async (args) => {
+      captured = args;
+      return completedResult();
+    });
+    expect(captured).not.toBeNull();
+    expect(captured!.options.goal).toBe("write hello world");
+    expect(captured!.options.crew_name).toBe(FULL_STACK_PRESET);
+    expect(captured!.options.workdir).toBe(process.cwd());
+  });
+
+  it("returns exit code 0 on completed status", async () => {
+    if (!builtInPresetExists(FULL_STACK_PRESET)) return;
+    process.exitCode = 99;
+    await _testing.runCrewPreset(FULL_STACK_PRESET, ["x"], async () => completedResult());
+    expect(process.exitCode).toBe(0);
+  });
+
+  it("forwards exit code 1 from runCrewHeadless on plan_failed", async () => {
+    if (!builtInPresetExists(FULL_STACK_PRESET)) return;
+    process.exitCode = 0;
+    await _testing.runCrewPreset(FULL_STACK_PRESET, ["x"], async () => planFailedResult());
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("rejects unknown preset name with exit code 1", async () => {
+    process.exitCode = 0;
+    await runCrewCommand(["run", "does-not-exist", "do", "a", "thing"]);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("missing name exits 1", async () => {
+    process.exitCode = 0;
+    await runCrewCommand(["run"]);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("missing goal exits 1", async () => {
+    if (!builtInPresetExists(FULL_STACK_PRESET)) return;
+    process.exitCode = 0;
+    await runCrewCommand(["run", FULL_STACK_PRESET]);
+    expect(process.exitCode).toBe(1);
   });
 });

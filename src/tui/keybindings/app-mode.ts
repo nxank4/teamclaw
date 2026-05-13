@@ -10,6 +10,17 @@ import type { StyleFn } from "../themes/theme.js";
 
 export type AppMode = "solo" | "crew";
 
+/**
+ * Validate a raw user-supplied mode string. Returns the parsed
+ * AppMode value or null. Case-sensitive — case-insensitive matches
+ * are rejected so we never accept variants like "Solo" that don't
+ * match the canonical lowercase enum.
+ */
+export function parseAppMode(value: string | undefined): AppMode | null {
+  if (value === "solo" || value === "crew") return value;
+  return null;
+}
+
 export interface AppModeInfo {
   mode: AppMode;
   displayName: string;
@@ -26,7 +37,11 @@ const APP_MODE_DEFS: AppModeInfo[] = [
 const CYCLE_ORDER: AppMode[] = ["solo", "crew"];
 
 export class AppModeSystem {
-  private currentMode: AppMode = "solo";
+  private currentMode: AppMode;
+
+  constructor(initialMode: AppMode = "solo") {
+    this.currentMode = initialMode;
+  }
 
   getMode(): AppMode {
     return this.currentMode;

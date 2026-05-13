@@ -9,9 +9,16 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "react-vendor": ["react", "react-dom"],
-          "reactflow-vendor": ["reactflow", "@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
+        manualChunks: (id) => {
+          if (id.includes("/node_modules/react/") || id.includes("/node_modules/react-dom/")) {
+            return "react-vendor";
+          }
+          if (
+            id.includes("/node_modules/reactflow/") ||
+            id.includes("/node_modules/@dnd-kit/")
+          ) {
+            return "reactflow-vendor";
+          }
         },
       },
     },

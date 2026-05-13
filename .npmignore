@@ -16,3 +16,5 @@ tsconfig.json
 *.tsbuildinfo
 bun.lock
 CHANGELOG.md
+dist/*.map
+dist/**/*.map

@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { PALETTE_IDS, type PaletteId } from "./palettes";
 
-const STORAGE_KEY = "teamclaw-theme";
-const PALETTE_STORAGE_KEY = "teamclaw-palette";
-const FONT_SIZE_STORAGE_KEY = "teamclaw-font-size";
+const STORAGE_KEY = "openpawl-theme";
+const PALETTE_STORAGE_KEY = "openpawl-palette";
+const FONT_SIZE_STORAGE_KEY = "openpawl-font-size";
 
 export type ThemePreference = "light" | "dark" | "system";
 

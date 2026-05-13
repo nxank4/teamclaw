@@ -237,7 +237,7 @@ export async function runLogsDebug(args: string[]): Promise<void> {
   // List available sessions if no debug dir exists
   if (!existsSync(DEBUG_DIR)) {
     logger.warn("No debug logs found.");
-    logger.plain(pc.dim("Enable debug logging: OPENPAWL_DEBUG=true openpawl run --headless ..."));
+    logger.plain(pc.dim('Enable debug logging: OPENPAWL_DEBUG=true openpawl -p "<your prompt>"'));
     return;
   }
 

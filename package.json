@@ -1,25 +1,26 @@
 {
   "name": "openpawl",
-  "version": "0.4.0-rc.1",
+  "version": "0.4.0-rc.2",
   "description": "Terminal AI coding with a team of agents, not just one.",
   "type": "module",
   "license": "MIT",
+  "author": "Codepawl",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/codepawl/openpawl.git"
   },
-  "homepage": "https://github.com/codepawl/openpawl",
+  "homepage": "https://github.com/codepawl/openpawl#readme",
   "keywords": [
     "ai",
-    "coding",
-    "agent",
-    "multi-agent",
-    "terminal",
+    "agents",
+    "cli",
     "tui",
+    "claude",
+    "multi-agent",
+    "coding",
+    "developer-tools",
     "llm",
-    "orchestration",
-    "team",
-    "vibe-coding"
+    "anthropic"
   ],
   "workspaces": [
     "src/web/client",
@@ -32,15 +33,14 @@
     "openpawl": "dist/cli.js"
   },
   "files": [
-    "dist/",
+    "dist/**/*",
+    "!dist/**/*.map",
     "README.md",
-    "LICENSE",
-    "CLAUDE.md"
+    "LICENSE"
   ],
   "scripts": {
     "dev": "tsup --watch",
     "dev:cli": "tsx src/cli.ts",
-    "dev:work": "tsx src/cli.ts work",
     "dev:web": "tsx src/cli.ts web",
     "build": "tsup && bun run --cwd src/web/client build && rm -rf dist/presets && cp -r src/crew/presets dist/presets",
     "typecheck": "tsc --noEmit",
@@ -50,7 +50,6 @@
     "test:watch": "bun test --watch",
     "lint": "eslint src/",
     "web": "tsup && NODE_ENV=production node dist/cli.js web",
-    "work": "tsup && node dist/cli.js work --web",
     "test:file": "bun test",
     "benchmark": "tsx scripts/testing/benchmark.ts"
   },
@@ -83,8 +82,7 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "overrides": {
-    "langsmith": ">=0.4.6",
-    "zod-validation-error": "^4.0.0"
+    "langsmith": ">=0.4.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
