@@ -10,8 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js >= 20](https://img.shields.io/badge/Node.js-%3E%3D%2020-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Tests](https://img.shields.io/badge/tests-860_passing-brightgreen)](#)
-[![LOC](https://img.shields.io/badge/source-510_files%20·%2082.2k_LOC-informational)](#)
+[![Tests](https://img.shields.io/badge/tests-885_passing-brightgreen)](#)
+[![LOC](https://img.shields.io/badge/source-559_files%20·%2090.9k_LOC-informational)](#)
 
 OpenPawl orchestrates a team of specialized AI agents toward your goals — with memory, learning, and structure that persists across sessions.
 
@@ -40,8 +40,6 @@ OpenPawl is TUI-first. Run `openpawl` to launch the interactive shell — solo m
 For non-interactive runs, `openpawl -p "<prompt>"` does what `claude -p` does: print the response and exit. Add `--mode crew` to run the full crew pipeline without the TUI; pair it with `--crew <name>` to select a preset. `openpawl crew run <name> <goal>` is the ergonomic alias for the same crew operation. Launch the TUI directly in either mode with `openpawl --mode <solo|crew>` — useful when crew is your default.
 
 ## Screenshots
-
-> All screenshots from real sessions using **opencode-go** provider with **minimax-m2.7** model.
 
 ### Welcome
 
@@ -74,6 +72,13 @@ A team of agents — planner, coder, reviewer, tester — works together on the 
 ## Install
 
 ```bash
+npm install -g openpawl
+# or: bun add -g openpawl
+```
+
+Or the standalone installer (writes to `~/.openpawl`):
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/install.sh | sh
 ```
 
@@ -101,7 +106,7 @@ Bare `openpawl` launches the interactive TUI in solo mode. `-p` is the single no
 | Mode | How it works | Status |
 |------|-------------|--------|
 | **Solo** | Single agent responds to prompts with tool calling | ✅ Working |
-| **Crew** | Multi-agent: planner decomposes → tier-gated phases → discussion meeting → drift supervisor | ✅ Working (rc.1) |
+| **Crew** | Multi-agent: planner decomposes → tier-gated phases → discussion meeting → drift supervisor | ✅ Working (rc.2) |
 
 Cycle modes with `Shift+Tab` (or `/mode <solo|crew>`) in the TUI. Launch directly in a mode with `openpawl --mode <solo|crew>`. Both modes run end-to-end interactively *and* non-interactively (`-p "<prompt>" --mode <solo|crew>`).
 

@@ -5,11 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 OpenPawl orchestrates AI agent teams for coding tasks via a TUI. Two app
-modes: **solo** (single agent) and **crew** (multi-agent — scaffolding
-removed in `2a22da9` (PR #99); crew design spec at `dc305c9`,
-implementation pending). Memory persists across sessions via
-LanceDB. Decision journal, drift detection, post-mortem learning, and
-session briefing keep context alive between runs.
+modes: **solo** (single agent) and **crew** (multi-agent — planner →
+tier-gated phase executor → optional discussion meeting → drift
+supervisor; implemented and shipping in v0.4.0-rc.2). Memory persists
+across sessions via LanceDB. Decision journal, drift detection,
+post-mortem learning, and session briefing keep context alive between
+runs.
 
 ## Commands
 
@@ -19,7 +20,7 @@ Runtime: Node >= 20, Bun.
 - `bun run build` — `tsup` + web client build
 - `bun run typecheck` — `tsc --noEmit`
 - `bun run lint` — `eslint src/`
-- `bun run test` — Bun test runner (467 tests across 44 files)
+- `bun run test` — Bun test runner (885 pass / 19 skip / 0 fail across 86 files)
 - `bun run test:e2e` — `tests/e2e/` only
 - `bun run test:watch` / `bun run test:coverage`
 - `bun run dev` — tsup watch mode
@@ -129,7 +130,7 @@ Primary interactive entry point is `openpawl work` (alias for the TUI session).
 ## App Modes
 
 - **Solo**: prompt → single agent → tools → response
-- **Crew**: multi-agent — `prompt-router.ts` currently rejects with "Crew mode not yet implemented" until the new scaffold lands
+- **Crew**: multi-agent — `prompt-router.ts` dispatches into `runCrew` (planner → tier-gated phase executor → discussion meeting → drift supervisor → context compaction → Hebbian injection). Built-in preset: `full-stack`.
 
 Shift+Tab cycles modes. The legacy `collab` and `sprint` modes were removed in commit `2a22da9` (`chore(crew): nuke sprint and collab scaffolding`).
 
@@ -146,7 +147,7 @@ Shift+Tab cycles modes. The legacy `collab` and `sprint` modes were removed in c
 
 ## Testing
 
-- `bun test` runs the suite (currently 448 pass / 19 skip / 0 fail across 44 files)
+- `bun test` runs the suite (currently 885 pass / 19 skip / 0 fail across 86 files)
 - Test before pushing when touching logic
 - `OPENPAWL_DEBUG=true` for trace logs, `OPENPAWL_PROFILE=true` for profiling
 

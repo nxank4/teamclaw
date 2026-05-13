@@ -219,9 +219,9 @@ openpawl crew delete my-team
 
 ---
 
-## Limitations (rc.1)
+## Limitations (rc.2)
 
-These are known issues in v0.4.0-rc.1 that don't block the release but are on the post-rc.1 list:
+These are known issues in v0.4.0-rc.2 that don't block the release but are on the post-rc list:
 
 - **Bug U+11**: smaller models (e.g. minimax-m2.7) sometimes still call tools on ambiguous prompts despite the system-prompt rule. Larger models follow the rule reliably.
 - **Bug U+6**: session continuity is invisible — the TUI does not show a "resuming session X" signal on launch. The session is correctly resumed; only the visual cue is missing.
