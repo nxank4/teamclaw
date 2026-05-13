@@ -57,7 +57,7 @@ export function CompositionSettings() {
 
       <p className="text-xs text-stone-500 dark:text-stone-400">
         When autonomous mode is enabled, the coordinator selects agents based on goal keywords.
-        Configure via <code className="text-amber-600 dark:text-amber-400">team_mode</code> in teamclaw.config.json or <code className="text-amber-600 dark:text-amber-400">--team autonomous</code>.
+        Configure via <code className="text-amber-600 dark:text-amber-400">team_mode</code> in openpawl.config.json or <code className="text-amber-600 dark:text-amber-400">--team autonomous</code>.
       </p>
 
       <div>
