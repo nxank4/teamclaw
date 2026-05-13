@@ -4,22 +4,23 @@
   "description": "Terminal AI coding with a team of agents, not just one.",
   "type": "module",
   "license": "MIT",
+  "author": "Codepawl",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/codepawl/openpawl.git"
   },
-  "homepage": "https://github.com/codepawl/openpawl",
+  "homepage": "https://github.com/codepawl/openpawl#readme",
   "keywords": [
     "ai",
-    "coding",
-    "agent",
-    "multi-agent",
-    "terminal",
+    "agents",
+    "cli",
     "tui",
+    "claude",
+    "multi-agent",
+    "coding",
+    "developer-tools",
     "llm",
-    "orchestration",
-    "team",
-    "vibe-coding"
+    "anthropic"
   ],
   "workspaces": [
     "src/web/client",
@@ -32,10 +33,10 @@
     "openpawl": "dist/cli.js"
   },
   "files": [
-    "dist/",
+    "dist/**/*",
+    "!dist/**/*.map",
     "README.md",
-    "LICENSE",
-    "CLAUDE.md"
+    "LICENSE"
   ],
   "scripts": {
     "dev": "tsup --watch",
