@@ -212,7 +212,7 @@ async function createCrew(nameArg: string | undefined): Promise<void> {
   if (!name) {
     const answer = await promptText({
       message: "Crew name (lowercase letters, digits, dashes):",
-      validate: (v) => (AGENT_ID_PATTERN.test(v) ? undefined : "Use lowercase letters, digits, and dashes only."),
+      validate: (v) => (AGENT_ID_PATTERN.test(v ?? "") ? undefined : "Use lowercase letters, digits, and dashes only."),
     });
     if (isCancel(answer)) {
       logger.plain("Cancelled.");
@@ -236,7 +236,7 @@ async function createCrew(nameArg: string | undefined): Promise<void> {
 
   const description = await promptText({
     message: "One-line description:",
-    validate: (v) => (v.trim().length > 0 ? undefined : "Description cannot be empty."),
+    validate: (v) => ((v ?? "").trim().length > 0 ? undefined : "Description cannot be empty."),
   });
   if (isCancel(description)) {
     logger.plain("Cancelled.");
@@ -247,7 +247,7 @@ async function createCrew(nameArg: string | undefined): Promise<void> {
     message: "Agent ids (comma-separated, minimum 2):",
     placeholder: "planner, coder",
     validate: (v) => {
-      const ids = v.split(",").map((s) => s.trim()).filter(Boolean);
+      const ids = (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
       if (ids.length < 2) return "At least 2 agents are required.";
       for (const id of ids) {
         if (!AGENT_ID_PATTERN.test(id)) return `Invalid id '${id}'. Use lowercase letters, digits, and dashes.`;
