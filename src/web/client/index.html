@@ -3,17 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      if (localStorage.getItem('teamclaw-theme') === 'dark' || (!('teamclaw-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      if (localStorage.getItem('openpawl-theme') === 'dark' || (!('openpawl-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark');
       } else {
         document.documentElement.classList.remove('dark');
       }
-      var p = localStorage.getItem('teamclaw-palette');
+      var p = localStorage.getItem('openpawl-palette');
       if (p && p !== 'default') document.documentElement.dataset.palette = p;
     </script>
-    <link rel="icon" type="image/svg+xml" href="/teamclaw.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TeamClaw</title>
+    <title>OpenPawl</title>
   </head>
   <body>
     <div id="root"></div>

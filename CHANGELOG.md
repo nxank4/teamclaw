@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+## [0.4.0-rc.2] - 2026-05-13
+
+Polish + CLI mechanic consolidation release. The non-interactive surface collapses from `openpawl run --headless` into the `-p` print mode, mirroring Claude Code's mechanic. Crew mode gains a first-class `openpawl crew run <name> <goal>` entry point and a `--mode` global flag for direct TUI launch. README ground-truth sync. Deferred dependabot PRs from the rc.1 known-issues list landed.
+
+### Added
+- **`-p` print mode covers both solo and crew** (#138). `openpawl -p "<goal>"` runs solo non-interactively; `openpawl -p "<goal>" --mode crew [--crew <name>]` runs crew. Replaces the parallel `openpawl run --headless` path. Default crew preset is `full-stack`; pass `--crew <name>` to pick a user preset.
+- **`openpawl crew run <name> <goal>`** (#139). Explicit subcommand for non-interactive crew runs with a named preset. Shares the same `runCrewHeadless` helper as `-p --mode crew`. Fails fast on unknown preset name.
+- **`--mode <solo|crew>` global flag** (#140). Launches the bare-`openpawl` TUI directly in the requested mode. No persistence — flag affects current session only. Default stays solo. Shift+Tab still cycles modes mid-session.
+- **Dependabot retarget** (#134). Future dep PRs now base on `staging` instead of `main`, matching the dev-branch workflow.
+
+### Changed
+- **README rewritten to ground truth** (#141). New "Mechanic at a glance" section near the top. Daily-usage covers interactive (Shift+Tab, /mode, slash commands), non-interactive (`-p`, `crew run`), and crew management. All references to deprecated paths (`openpawl work`, `run --headless`, `--mode sprint`, `--mode collab`) removed.
+- **Vite stack bumped together** (#136). `vite 7 → 8` + `@vitejs/plugin-react 5 → 6` landed as a coordinated batch to avoid plugin-version mismatch.
+- **Headless `runCrew` local stub unshadowed** (#137). The placeholder symbol in `src/app/headless.ts` no longer collides with the real exported `runCrew` from `src/crew/crew-runner.ts`. Pure cleanup, no behavior change.
+
+### Removed
+- **`openpawl run --headless` command** (#138). Folded into `-p` print mode. Migration: replace `openpawl run --headless --mode solo "<goal>"` with `openpawl -p "<goal>"`, and `openpawl run --headless --mode crew "<goal>"` with `openpawl -p "<goal>" --mode crew`.
+- **Orphan `work` command** (#137). Was unreachable since the TeamClaw → OpenPawl rename; help text and `dev:work` npm script removed.
+- **`--mode sprint` deprecation alias** (#137). Removed alongside the `--mode collab` migration error. Both modes had been retired in rc.1.
+- **Stale `run --headless` references in user-facing output** (#142). `src/handoff/resume-generator.ts` and `src/commands/logs-debug.ts` now print the `-p` equivalent.
+
+### Migration from rc.1
+- `openpawl run --headless --mode solo "<goal>"` → `openpawl -p "<goal>"`
+- `openpawl run --headless --mode crew "<goal>"` → `openpawl -p "<goal>" --mode crew`
+- `openpawl run --headless --mode crew --crew <name> "<goal>"` → `openpawl crew run <name> "<goal>"` or `openpawl -p "<goal>" --mode crew --crew <name>`
+- Programmatic users who imported `runHeadless` from `src/app/headless.ts` should use `runSoloHeadless` / `runCrewHeadless` from `src/app/run-solo-headless.ts` / `src/app/run-crew-headless.ts`.
+
+### Known Issues (carried from rc.1)
+- Bug U+4 — phase-blocked task does not surface actionable reason in chat.
+- Bug U+6 — session continuity invisible on TUI launch.
+- Bug U+11 — smaller models call tools on ambiguous prompts despite system-prompt rule.
+- Bug U+13 — agent may claim file does not exist before reading.
+- Bug U+14 — agent may infer task content from prior context on rapid prompts.
+- 3 remaining dependabot HIGH-risk PRs (#93 typescript 5→6, #130 @types/node 22→25, #132 zod 3→4) deferred to rc.3.
+
 ## [0.4.0-rc.1] - 2026-05-09
 
 Crew mode end-to-end. Phase 1 of the v0.4 design spec lands in this release: planner → tier-gated phase executor → discussion meeting → drift supervisor → context compaction → Hebbian injection. UX polish across solo and crew, observability into subagent tool calls, and the bundled built-in preset story (no more on-disk auto-copy).

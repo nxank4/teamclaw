@@ -92,7 +92,7 @@ function Topbar({
       <div className="flex items-center gap-2">
         <ClawLogo size={24} />
         <span className={`inline-block h-2 w-2 rounded-full ${statusColor.replace("text-", "bg-")}${connectionStatus === "open" ? " animate-breathe" : ""}`} />
-        <span className="text-sm font-semibold text-stone-800 dark:text-stone-100">TeamClaw</span>
+        <span className="text-sm font-semibold text-stone-800 dark:text-stone-100">OpenPawl</span>
       </div>
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-3">
         {connectionStatus === "open" && (
@@ -270,7 +270,7 @@ function Dashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [settingsDismissed, setSettingsDismissed] = useState(
-    () => localStorage.getItem("teamclaw-settings-dismissed") === "true",
+    () => localStorage.getItem("openpawl-settings-dismissed") === "true",
   );
   const cycle_count = useWsStore((s) => s.cycle_count);
   const alerts = useWsStore((s) => s.alerts);
@@ -280,7 +280,7 @@ function Dashboard() {
     minHeight: 120,
     maxHeight: window.innerHeight * 0.7,
     initialHeight: 280,
-    storageKey: "teamclaw-panel-height",
+    storageKey: "openpawl-panel-height",
   });
 
   const notificationCount = alerts.filter((a) => !a.read).length + (pendingApproval ? 1 : 0);
@@ -311,7 +311,7 @@ function Dashboard() {
           <ServerRestartBanner />
           <ApprovalBanner />
           {cycle_count === 0 && !settingsDismissed ? (
-            <DashboardSettings onDismiss={() => { setSettingsDismissed(true); localStorage.setItem("teamclaw-settings-dismissed", "true"); }} />
+            <DashboardSettings onDismiss={() => { setSettingsDismissed(true); localStorage.setItem("openpawl-settings-dismissed", "true"); }} />
           ) : (
             <>
               <PreviewPanel />

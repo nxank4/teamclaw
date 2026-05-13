@@ -32,6 +32,7 @@ import {
   validateManifest,
 } from "../crew/manifest/index.js";
 import type { CrewManifest } from "../crew/manifest/index.js";
+import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
@@ -65,6 +66,9 @@ export async function runCrewCommand(args: string[]): Promise<void> {
     case "clone":
       cloneCrew(args[1], args[2]);
       return;
+    case "run":
+      await runCrewPreset(args[1], args.slice(2));
+      return;
     default:
       logger.error(`Unknown subcommand: ${sub}`);
       logger.plain('Run "openpawl crew --help" for usage.');
@@ -82,6 +86,7 @@ function printHelp(): void {
   logger.plain("  delete <name>              Remove a user crew (built-ins are protected)");
   logger.plain("  validate <name>            Validate a crew manifest");
   logger.plain("  clone <built-in> <new>     Fork a built-in preset into ~/.openpawl/crews/<new>");
+  logger.plain("  run <name> <goal>          Start a crew run with the named preset");
   logger.plain("");
   logger.plain("Built-in presets: " + BUILT_IN_PRESETS.join(", "));
 }
@@ -207,7 +212,7 @@ async function createCrew(nameArg: string | undefined): Promise<void> {
   if (!name) {
     const answer = await promptText({
       message: "Crew name (lowercase letters, digits, dashes):",
-      validate: (v) => (v && AGENT_ID_PATTERN.test(v) ? undefined : "Use lowercase letters, digits, and dashes only."),
+      validate: (v) => (AGENT_ID_PATTERN.test(v ?? "") ? undefined : "Use lowercase letters, digits, and dashes only."),
     });
     if (isCancel(answer)) {
       logger.plain("Cancelled.");
@@ -231,7 +236,7 @@ async function createCrew(nameArg: string | undefined): Promise<void> {
 
   const description = await promptText({
     message: "One-line description:",
-    validate: (v) => (v && v.trim().length > 0 ? undefined : "Description cannot be empty."),
+    validate: (v) => ((v ?? "").trim().length > 0 ? undefined : "Description cannot be empty."),
   });
   if (isCancel(description)) {
     logger.plain("Cancelled.");
@@ -417,6 +422,51 @@ function validateCrew(name: string | undefined): void {
   }
 }
 
+// ─── run ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Start a crew run with the named preset. Reuses `runCrewHeadless` so
+ * the behavior matches `openpawl -p "<goal>" --mode crew --crew <name>`
+ * exactly — this is the ergonomic surface for the same operation.
+ *
+ * The optional `runCrewImpl` parameter is a test seam forwarded through
+ * to `runCrewHeadless`. Production callers should leave it undefined.
+ */
+async function runCrewPreset(
+  name: string | undefined,
+  goalArgs: string[],
+  runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>,
+): Promise<void> {
+  if (!name) {
+    logger.error("Usage: openpawl crew run <name> <goal>");
+    process.exitCode = 1;
+    return;
+  }
+  const goal = goalArgs.join(" ").trim();
+  if (!goal) {
+    logger.error("Usage: openpawl crew run <name> <goal>");
+    process.exitCode = 1;
+    return;
+  }
+
+  // Fail-fast preset validation — same UX as `crew validate`.
+  if (!resolveCrewDir(name)) {
+    const available = collectCrews().map((c) => c.name).join(", ") || "(none)";
+    logger.error(`No crew named '${name}'. Available: ${available}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const { runCrewHeadless } = await import("../app/run-crew-headless.js");
+  const result = await runCrewHeadless({
+    goal,
+    crewName: name,
+    workdir: process.cwd(),
+    runCrewImpl,
+  });
+  process.exitCode = result.exitCode;
+}
+
 // ─── clone ───────────────────────────────────────────────────────────────────
 
 export function cloneCrew(
@@ -495,6 +545,7 @@ function resolveCrewDir(name: string): string | null {
 export const _testing = {
   collectCrews,
   resolveCrewDir,
+  runCrewPreset,
   scaffoldCrew,
   FULL_STACK_PRESET,
 };

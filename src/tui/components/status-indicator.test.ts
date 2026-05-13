@@ -3,9 +3,9 @@
  *
  * createSpinner used to tick at 80ms with the 10-frame braille set;
  * the model-view + any other inline caller is now expected to advance
- * at the shared 200ms beat using the same 4-frame box (❏ ❐ ❑ ❒) the
- * top-level ThinkingIndicator uses, so two visible spinners can never
- * drift out of phase.
+ * at the shared 200ms beat using the same 4-frame corner-rotation
+ * set (▖ ▘ ▝ ▗) the top-level ThinkingIndicator uses, so two visible
+ * spinners can never drift out of phase.
  */
 import { describe, expect, it } from "bun:test";
 

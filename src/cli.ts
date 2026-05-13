@@ -10,6 +10,7 @@ import { logger } from "./core/logger.js";
 import { COMMANDS, findClosestCommand, findClosestSubcommand } from "./cli/fuzzy-matcher.js";
 import { handleUnknownCommand, handleUnknownSubcommand } from "./cli/unknown-command.js";
 import { findCommand, generateHelp, generateCommandHelp, getAllCommandNames } from "./cli/command-registry.js";
+import { parseAppMode, type AppMode } from "./tui/keybindings/app-mode.js";
 
 
 function printHelp(): void {
@@ -85,6 +86,32 @@ async function main(): Promise<void> {
       }
     }
 
+    // ── Global TUI flag: --mode <solo|crew> ──────────────────────────────
+    // Consumed by bare `openpawl` and `openpawl -c` (TUI launches). Print
+    // mode (-p / --print) owns its own --mode flag, so skip the global
+    // splice when -p is present to avoid eating the print-mode token.
+    let initialMode: AppMode | undefined;
+    {
+        const hasPrintFlag = args.includes("-p") || args.includes("--print");
+        if (!hasPrintFlag) {
+            const modeIdx = args.indexOf("--mode");
+            if (modeIdx !== -1) {
+                const raw = args[modeIdx + 1];
+                if (!raw) {
+                    logger.error("--mode requires a value (solo|crew)");
+                    process.exit(1);
+                }
+                const parsed = parseAppMode(raw);
+                if (!parsed) {
+                    logger.error(`unknown --mode "${raw}". Valid: solo | crew.`);
+                    process.exit(1);
+                }
+                initialMode = parsed;
+                args.splice(modeIdx, 2);
+            }
+        }
+    }
+
     // ── TUI entry points (before any commander parsing) ──────────────────
 
     // No args → first-run check, then launch interactive TUI
@@ -98,20 +125,16 @@ async function main(): Promise<void> {
         _mark("before import app/index.js");
         const { launchTUI } = await import("./app/index.js");
         _mark("after import app/index.js");
-        await launchTUI();
+        await launchTUI({ initialMode });
         return;
     }
 
-    // -p / --print <prompt> → non-interactive print mode
+    // -p / --print <prompt> [--mode solo|crew] [--crew <name>] [--workdir <path>]
+    //   → non-interactive print mode (the single non-interactive entry point)
     const printIdx = args.findIndex((a) => a === "-p" || a === "--print");
     if (printIdx !== -1) {
-        const prompt = args[printIdx + 1];
-        if (!prompt) {
-            logger.error("Usage: openpawl -p <prompt>");
-            process.exit(1);
-        }
         const { runPrintMode } = await import("./app/index.js");
-        await runPrintMode(prompt);
+        await runPrintMode(args.slice(printIdx + 1));
         return;
     }
 
@@ -122,7 +145,7 @@ async function main(): Promise<void> {
             process.exit(1);
         }
         const { launchTUI } = await import("./app/index.js");
-        await launchTUI();
+        await launchTUI({ initialMode });
         return;
     }
 
@@ -365,15 +388,6 @@ async function main(): Promise<void> {
     } else if (cmd === "uninstall") {
         const { runUninstall } = await import("./commands/uninstall.js");
         await runUninstall(args.slice(1));
-
-    } else if (cmd === "run") {
-        if (args.slice(1).includes("--headless")) {
-            const { runHeadless } = await import("./app/headless.js");
-            await runHeadless(args.slice(1));
-        } else {
-            logger.error("Usage: openpawl run --headless --goal \"<prompt>\" [--runs N]");
-            process.exit(1);
-        }
 
     } else {
         const match = findClosestCommand(rawCmd);

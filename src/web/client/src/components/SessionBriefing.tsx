@@ -53,7 +53,7 @@ export function SessionBriefing({
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
             <h3 style={{ margin: 0, color: "var(--cyan, #00d4ff)", fontSize: "1rem" }}>
-              {isFirstTime ? "Welcome to TeamClaw" : "Previously on TeamClaw"}
+              {isFirstTime ? "Welcome to OpenPawl" : "Previously on OpenPawl"}
             </h3>
             <button
               onClick={handleDismiss}
