@@ -24,7 +24,8 @@ Runtime: Node >= 20, Bun.
 - `bun run test:e2e` — `tests/e2e/` only
 - `bun run test:watch` / `bun run test:coverage`
 - `bun run dev` — tsup watch mode
-- `bun run dev:cli` / `dev:work` / `dev:web` — tsx-driven entry points
+- `bun run dev:cli` / `dev:web` — tsx-driven entry points
+- `bun run web` — production web dashboard build + serve
 - `bun run benchmark` — `scripts/testing/benchmark.ts`
 
 Out-of-band test scripts (live in `scripts/testing/`, not `src/testing/`):
@@ -33,7 +34,11 @@ Out-of-band test scripts (live in `scripts/testing/`, not `src/testing/`):
 - `bun run tsx scripts/testing/stress-test.ts`
 - `bun run tsx scripts/testing/provider-test.ts`
 
-Headless run: `openpawl run --headless --goal "..." [--runs N] [--mode solo] [--workdir path]`. Only `--mode solo` is wired today.
+Headless / non-interactive run (the single non-interactive entry):
+`openpawl -p "<prompt>" [--mode solo|crew] [--crew <name>] [--workdir <path>]`.
+Solo and crew are both wired. `openpawl crew run <name> <goal>` is the positional alias for the crew path.
+Special case: `openpawl -p "/status"` runs a provider health check (no LLM call).
+Bare `openpawl` (no args) launches the interactive TUI; `openpawl --mode crew` launches the TUI directly in crew.
 
 Debug:
 - `OPENPAWL_DEBUG=true openpawl ...` — structured JSONL logs
@@ -51,15 +56,16 @@ Top-level commands (see `src/cli/command-registry.ts` for the source of truth):
 `heatmap`, `forecast`, `diff`, `score`, `sessions`, `memory`, `cache`,
 `logs`, `profile`, `clean`, `update`, `uninstall`.
 
-Primary interactive entry point is `openpawl work` (alias for the TUI session).
+Primary interactive entry point is bare `openpawl` (no args). `openpawl -c` / `--continue` also launches the TUI (user resumes via `/sessions`).
 
 ## Architecture
 
 ### Entry Points
-- `src/cli.ts` (~380 lines) — CLI bootstrap, proxy auto-detection, command dispatch
+- `src/cli.ts` — CLI bootstrap, proxy auto-detection, command dispatch
 - `src/cli/command-registry.ts` — single registry of all CLI commands
-- `src/app/index.ts` (226 lines) — TUI app orchestrator, delegates to ~13 sub-modules
-- `src/app/headless.ts` — headless solo runs
+- `src/app/index.ts` — TUI app orchestrator + `runPrintMode` (handles `-p` non-interactive)
+- `src/app/run-solo-headless.ts` / `src/app/run-crew-headless.ts` — non-interactive solo and crew paths
+- `src/app/crew-session.ts` — interactive crew session driver
 
 ### App sub-modules (`src/app/`)
 `init-session-router.ts`, `router-wiring.ts`, `input-handler.ts`,
