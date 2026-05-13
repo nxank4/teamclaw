@@ -140,7 +140,7 @@ export async function runSetup(options?: SetupOptions): Promise<void> {
       apiKey = handleCancel(
         await p.password({
           message: `API key for ${meta?.name ?? selectedProvider}`,
-          validate: (v) => (v.length < 5 ? "Key too short" : undefined),
+          validate: (v) => ((v ?? "").length < 5 ? "Key too short" : undefined),
         }),
       ) as string;
     }
