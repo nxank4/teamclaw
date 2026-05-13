@@ -56,7 +56,7 @@ export function CustomAgentsSettings() {
       </h3>
 
       <p className="text-xs text-stone-500 dark:text-stone-400">
-        Register custom agents via <code className="text-amber-600 dark:text-amber-400">teamclaw agent add &lt;file&gt;</code>.
+        Register custom agents via <code className="text-amber-600 dark:text-amber-400">openpawl agent add &lt;file&gt;</code>.
         Custom agents participate in task dispatch alongside built-in workers.
       </p>
 
