@@ -10,8 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js >= 20](https://img.shields.io/badge/Node.js-%3E%3D%2020-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Tests](https://img.shields.io/badge/tests-860_passing-brightgreen)](#)
-[![LOC](https://img.shields.io/badge/source-510_files%20·%2082.2k_LOC-informational)](#)
+[![Tests](https://img.shields.io/badge/tests-885_passing-brightgreen)](#)
+[![LOC](https://img.shields.io/badge/source-559_files%20·%2090.9k_LOC-informational)](#)
 
 OpenPawl orchestrates a team of specialized AI agents toward your goals — with memory, learning, and structure that persists across sessions.
 
@@ -40,8 +40,6 @@ OpenPawl is TUI-first. Run `openpawl` to launch the interactive shell — solo m
 For non-interactive runs, `openpawl -p "<prompt>"` does what `claude -p` does: print the response and exit. Add `--mode crew` to run the full crew pipeline without the TUI; pair it with `--crew <name>` to select a preset. `openpawl crew run <name> <goal>` is the ergonomic alias for the same crew operation. Launch the TUI directly in either mode with `openpawl --mode <solo|crew>` — useful when crew is your default.
 
 ## Screenshots
-
-> All screenshots from real sessions using **opencode-go** provider with **minimax-m2.7** model.
 
 ### Welcome
 
@@ -74,6 +72,13 @@ A team of agents — planner, coder, reviewer, tester — works together on the 
 ## Install
 
 ```bash
+npm install -g openpawl
+# or: bun add -g openpawl
+```
+
+Or the standalone installer (writes to `~/.openpawl`):
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/install.sh | sh
 ```
 
@@ -88,6 +93,7 @@ openpawl --mode crew                        # interactive TUI (crew)
 openpawl -p "Build auth"                    # non-interactive solo
 openpawl -p "Build auth" --mode crew        # non-interactive crew (full-stack preset)
 openpawl crew run full-stack "Build auth"   # crew run, explicit preset
+openpawl -c                                 # resume the most recent session
 openpawl standup                            # daily summary
 openpawl think "SSE or WebSocket?"          # rubber duck mode
 ```
@@ -101,7 +107,7 @@ Bare `openpawl` launches the interactive TUI in solo mode. `-p` is the single no
 | Mode | How it works | Status |
 |------|-------------|--------|
 | **Solo** | Single agent responds to prompts with tool calling | ✅ Working |
-| **Crew** | Multi-agent: planner decomposes → tier-gated phases → discussion meeting → drift supervisor | ✅ Working (rc.1) |
+| **Crew** | Multi-agent: planner decomposes → tier-gated phases → discussion meeting → drift supervisor | ✅ Working (rc.2) |
 
 Cycle modes with `Shift+Tab` (or `/mode <solo|crew>`) in the TUI. Launch directly in a mode with `openpawl --mode <solo|crew>`. Both modes run end-to-end interactively *and* non-interactively (`-p "<prompt>" --mode <solo|crew>`).
 
@@ -215,7 +221,7 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 |---------|-------------|
 | _(bare)_ `openpawl` | Launch interactive TUI (solo by default; `--mode crew` to start in crew) |
 | `solo` / `chat` | Aliases for the bare TUI launch |
-| `-p "<prompt>"` | Non-interactive print mode; add `--mode crew [--crew <name>] [--workdir <path>]` |
+| `-p "<prompt>"` | Non-interactive print mode; add `--mode crew [--crew <name>] [--workdir <path>]`. Global flags: `--provider <name>`, `--model <name>`, `--mock-llm` |
 | `standup` | Daily standup summary |
 | `think` | Rubber duck mode — structured debate |
 | `clarity` | Check goal clarity |
@@ -285,6 +291,10 @@ Five seed templates ship offline. Community templates at [openpawl-templates](ht
 | `/debate` | Multi-perspective analysis |
 | `/research` | Deep research mode |
 | `/compact` | Toggle compact/expanded view |
+| `/plan` | Ask the agent to plan before executing |
+| `/workspace` | Manage workspace-local configuration |
+| `/error` | Show technical details for last error |
+| `/dev` | Toggle dev mode (performance overlay + logging) |
 
 Inside an active crew run, the runtime checkpoint controls become available:
 
@@ -303,23 +313,27 @@ Inside an active crew run, the runtime checkpoint controls become available:
 ```mermaid
 graph TD
     U[User Prompt] --> R[Prompt Router]
-
     R -->|solo| A1[Single Agent + Tools]
-    R -->|crew| CR[Crew Orchestrator]
-
+    R -->|crew| PL[Planner]
+    PL --> PHX[Phase Executor<br/>tier-gated, parallel]
+    PHX --> DS{Drift Supervisor}
+    DS -->|conflict| ABORT[Halt + report]
+    DS -->|ok| MTG[Discussion Meeting<br/>before tier 3]
+    MTG --> PHX
+    PHX -->|all phases done| CMP[Compaction + Hebbian inject]
     A1 --> LLM[LLM Multi-Turn Loop]
-    CR --> LLM
-
+    CMP --> LLM
     LLM --> TC[Tool Calls]
     TC -->|file_write/edit| DIFF[Inline Diff]
     TC -->|shell_exec| SH[Shell]
     TC -->|web_search| WS[Web]
-
-    LLM --> MS[(Memory Store)]
+    LLM --> MS[(LanceDB + Hebbian)]
     MS -->|next run| LLM
 ```
 
-Solo mode dispatches a single agent through an LLM multi-turn loop with native tool calling. Crew mode runs a 12-node graph: planner → tier-gated phase executor → optional discussion meeting → drift supervisor → context compaction → Hebbian-injection — see [docs/CREW.md](./docs/CREW.md) for the runtime, [docs/design/crew-v0.4.md](./docs/design/crew-v0.4.md) for the design spec. Memory: LanceDB vector store + hebbian associative layer carries patterns and lessons across runs. Context compression keeps long conversations within token limits.
+Solo mode dispatches a single agent through an LLM multi-turn loop with native tool calling. Crew mode runs a graph: planner → tier-gated phase executor with drift gating → discussion meeting before tier 3 → compaction + Hebbian injection on completion — see [docs/CREW.md](./docs/CREW.md) for the runtime, [docs/design/crew-v0.4.md](./docs/design/crew-v0.4.md) for the design spec. Memory: LanceDB vector store + Hebbian associative layer carries patterns and lessons across runs. Context compression keeps long conversations within token limits.
+
+Beyond the runtime, OpenPawl ships cross-session subsystems that carry state between runs: `src/journal/` (decision journal with supersession), `src/drift/` (goal–decision conflict detection), `src/briefing/` (session "previously on…"), `src/handoff/` (CONTEXT.md generation), and `src/think/` + `src/debate/` (multi-perspective reasoning). These feed into and out of the same LanceDB + Hebbian memory store.
 
 ## Comparison
 
@@ -343,13 +357,15 @@ OpenPawl focuses on multi-agent workflows and persistent learning. For single-ag
 | Layer | Technology |
 |-------|------------|
 | Runtime | Node.js >= 20, Bun |
-| Terminal UI | Custom TUI engine (Catppuccin Mocha theme) |
+| Terminal UI | Custom TUI engine; themes: Catppuccin (Mocha/Latte/Frappe/Macchiato), Nord, Gruvbox (Dark/Light), Rose Pine, Tokyo Night (+ Storm), High Contrast |
 | LLM engine | Native API tool calling, multi-turn streaming |
-| LLM providers | Anthropic, OpenAI, AWS Bedrock, Vertex AI, OpenRouter, Ollama |
+| LLM providers | OAuth: ChatGPT, GitHub Copilot, Gemini · API key: Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, Mistral, xAI, Cerebras, Together, Fireworks, Moonshot, Z.AI, MiniMax, Cohere, Perplexity · Cloud: AWS Bedrock, Vertex AI, Azure OpenAI · Local: Ollama, LM Studio · plus custom OpenAI-compatible endpoint |
 | Vector memory | LanceDB (embedded) |
 | Diff engine | LCS-based line diff (no external deps) |
 | Validation | Zod |
+| Error handling | `neverthrow` Result types (no thrown exceptions across boundaries) |
 | Build | tsup + Vite (web client) |
+| Web dashboard | React 19 + ReactFlow + Tailwind + Zustand (under `src/web/client/`, separate workspace) |
 | Tests | Bun test runner |
 | JSON parsing | Safe JSON parser with recovery |
 
