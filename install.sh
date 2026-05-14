@@ -1,6 +1,6 @@
 #!/bin/sh
 # OpenPawl Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/nxank4/openpawl/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/install.sh | sh
 #
 # Flags:
 #   --dry-run      Show what would be done without doing it
@@ -13,7 +13,7 @@
 set -e
 
 # --- Configuration ---
-GITHUB_REPO="nxank4/openpawl"
+GITHUB_REPO="codepawl/openpawl"
 GITHUB_URL="https://github.com/${GITHUB_REPO}"
 INSTALL_DIR="${HOME}/.openpawl"
 BIN_DIR="${INSTALL_DIR}/bin"
@@ -311,21 +311,21 @@ try_npm_install() {
     info "Trying npm global install..."
 
     if [ "$DRY_RUN" = true ]; then
-        dry "npm install -g @openpawl/cli@${VERSION}"
+        dry "npm install -g @codepawl/openpawl@${VERSION}"
         return 0
     fi
 
     # Check if the package exists on npm
-    _npm_view=$(npm view "@openpawl/cli" version 2>/dev/null) || true
+    _npm_view=$(npm view "@codepawl/openpawl" version 2>/dev/null) || true
     if [ -z "$_npm_view" ]; then
-        info "Package @openpawl/cli not found on npm, trying next method..."
+        info "Package @codepawl/openpawl not found on npm, trying next method..."
         return 1
     fi
 
     if [ "$VERSION" = "main" ]; then
-        npm install -g "@openpawl/cli" 2>/dev/null || return 1
+        npm install -g "@codepawl/openpawl" 2>/dev/null || return 1
     else
-        npm install -g "@openpawl/cli@${VERSION}" 2>/dev/null || return 1
+        npm install -g "@codepawl/openpawl@${VERSION}" 2>/dev/null || return 1
     fi
 
     INSTALL_METHOD="npm"

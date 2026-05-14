@@ -72,8 +72,8 @@ A team of agents — planner, coder, reviewer, tester — works together on the 
 ## Install
 
 ```bash
-npm install -g openpawl
-# or: bun add -g openpawl
+npm install -g @codepawl/openpawl
+# or: bun add -g @codepawl/openpawl
 ```
 
 Or the standalone installer (writes to `~/.openpawl`):
