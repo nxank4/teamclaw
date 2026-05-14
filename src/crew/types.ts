@@ -33,6 +33,38 @@ export const TaskErrorKindSchema = z.enum([
 ]);
 export type TaskErrorKind = z.infer<typeof TaskErrorKindSchema>;
 
+// Why-the-task-is-blocked classifier. Distinct from TaskErrorKind:
+// TaskErrorKind says *how the agent failed* (env vs. agent logic vs.
+// timeout) and is the input the retry policy consumes. BlockReasonCode
+// says *which gate stopped this task* once retries are exhausted — what
+// the user needs to read on the screen to take action. The two overlap
+// for env_error / timeout / agent_logic_max_retries (where the
+// classification carries through into details.kind) but diverge for
+// budget, capability, lock, dep, validator, and abort sources.
+export const BlockReasonCodeSchema = z.enum([
+  "budget_task_exceeded",
+  "budget_phase_exceeded",
+  "budget_session_exceeded",
+  "dep_failed",
+  "capability_denied",
+  "write_lock_timeout",
+  "validator_failed",
+  "timeout",
+  "env_error",
+  "agent_logic_max_retries",
+  "user_abort",
+  "abort_signal",
+  "unknown",
+]);
+export type BlockReasonCode = z.infer<typeof BlockReasonCodeSchema>;
+
+export const BlockReasonSchema = z.object({
+  code: BlockReasonCodeSchema,
+  message: z.string().min(1),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+export type BlockReason = z.infer<typeof BlockReasonSchema>;
+
 export const CrewTaskSchema = z.object({
   id: z.string().min(1),
   phase_id: z.string().min(1),
@@ -46,8 +78,7 @@ export const CrewTaskSchema = z.object({
   result: z.string().optional(),
   files_created: z.array(z.string()).default([]),
   files_modified: z.array(z.string()).default([]),
-  error: z.string().optional(),
-  error_kind: TaskErrorKindSchema.optional(),
+  blocked_reason: BlockReasonSchema.optional(),
   input_tokens: z.number().default(0),
   output_tokens: z.number().default(0),
   max_tokens_per_task: z.number().int().positive().default(50_000),

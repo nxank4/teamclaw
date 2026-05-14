@@ -37,6 +37,7 @@ import {
 } from "./error-classify.js";
 import { buildHebbianBlock, type HebbianRecaller } from "./hebbian-injection.js";
 import { KnownFilesRegistry } from "./known-files.js";
+import { blockReason, markTaskBlocked } from "./block-reason.js";
 import type { AgentDefinition, CrewManifest } from "./manifest/index.js";
 import {
   runSubagent as defaultRunSubagent,
@@ -261,6 +262,14 @@ interface RunOnceOutcome {
   tokens_output: number;
   summary: string;
   tool_calls: ToolCallSummary[];
+  /**
+   * Populated when {@link status} === "budget_blocked": the pre-flight
+   * budget check carries scope+cap+current, which the caller turns into
+   * a structured `blockReason.budgetTask/Phase/Session` at the
+   * markTaskBlocked site. Without this the caller would have to
+   * string-parse `summary`.
+   */
+  budget_block?: { scope: "task" | "phase" | "session"; cap: number; current: number };
 }
 
 const PROMPT_TOKEN_HEURISTIC = (text: string): number => Math.ceil(text.length / 4);
@@ -302,6 +311,11 @@ async function runTaskOnce(args: {
       tokens_output: 0,
       summary: budgetCheck.message,
       tool_calls: [],
+      budget_block: {
+        scope: budgetCheck.scope,
+        cap: budgetCheck.cap,
+        current: budgetCheck.current,
+      },
       signal: {
         source: "agent_error",
         message: `budget_exceeded(${budgetCheck.scope}): ${budgetCheck.message}`,
@@ -446,8 +460,7 @@ async function executeTaskWithRetries(args: {
 
   while (true) {
     if (args.signal?.aborted) {
-      args.task.status = "blocked";
-      args.task.error = "phase aborted";
+      markTaskBlocked(args.task, blockReason.abortSignal("phase"));
       break;
     }
 
@@ -509,9 +522,15 @@ async function executeTaskWithRetries(args: {
     }
 
     if (outcome.status === "budget_blocked") {
-      args.task.status = "blocked";
-      args.task.error = outcome.summary;
-      args.task.error_kind = "unknown";
+      const b = outcome.budget_block;
+      const reason = b
+        ? b.scope === "task"
+          ? blockReason.budgetTask(b.current, b.cap)
+          : b.scope === "phase"
+          ? blockReason.budgetPhase(b.current, 0, b.cap)
+          : blockReason.budgetSession(b.current, b.cap)
+        : blockReason.unknown(outcome.summary);
+      markTaskBlocked(args.task, reason);
       args.task.input_tokens = totalIn;
       args.task.output_tokens = totalOut;
       args.task.wall_time_ms = Date.now() - startedAt;
@@ -531,20 +550,30 @@ async function executeTaskWithRetries(args: {
         signal.source === "shell_exec" ? signal.exit_code : undefined,
     });
 
-    args.task.error = classification.reason;
-    args.task.error_kind = classification.kind;
-
     const retryAllowed = !dlRecord.blocked && shouldRetry(classification, attempt);
     if (!retryAllowed) {
       // Final outcome: env_* or timeout → blocked. agent_logic / unknown
-      // that ran out of retries → failed.
+      // that ran out of retries → blocked too (was "failed" before the
+      // blocked_reason refactor; promoted because the task is terminally
+      // stuck and the structured reason gives the user something
+      // actionable to look at).
+      const isTimeout = classification.kind === "timeout";
       const isEnv =
         classification.kind === "env_command_not_found" ||
         classification.kind === "env_missing_dep" ||
         classification.kind === "env_perm" ||
-        classification.kind === "env_port_in_use" ||
-        classification.kind === "timeout";
-      args.task.status = dlRecord.blocked ? "blocked" : isEnv ? "blocked" : "failed";
+        classification.kind === "env_port_in_use";
+
+      const shellSignal =
+        signal.source === "shell_exec"
+          ? { exit_code: signal.exit_code, stderr: signal.stderr }
+          : undefined;
+      const reason = isTimeout
+        ? blockReason.timeout(Math.max(1, Math.floor((Date.now() - startedAt) / 1000)))
+        : isEnv
+        ? blockReason.envError(classification.kind, shellSignal)
+        : blockReason.agentLogicMaxRetries(attempt + 1, classification.reason);
+      markTaskBlocked(args.task, reason);
       args.task.input_tokens = totalIn;
       args.task.output_tokens = totalOut;
       args.task.wall_time_ms = Date.now() - startedAt;
@@ -673,9 +702,14 @@ export async function executePhase(
         // remaining pendings blocked with a clear reason and stop.
         for (const t of args.phase.tasks) {
           if (t.status === "pending") {
-            t.status = "blocked";
-            t.error = "blocked: dependency did not complete";
-            t.error_kind = "unknown";
+            const failedDep = t.depends_on.find((d) => {
+              const dep = args.phase.tasks.find((x) => x.id === d);
+              return dep && (dep.status === "blocked" || dep.status === "failed");
+            });
+            const upstream = failedDep
+              ? args.phase.tasks.find((x) => x.id === failedDep)?.blocked_reason
+              : undefined;
+            markTaskBlocked(t, blockReason.depFailed(failedDep ?? "?", upstream));
           }
         }
         break;
@@ -688,9 +722,12 @@ export async function executePhase(
         wave.map(async (task) => {
           const agentDef = agentById.get(task.assigned_agent);
           if (!agentDef) {
-            task.status = "failed";
-            task.error = `agent '${task.assigned_agent}' not found in manifest`;
-            task.error_kind = "agent_logic";
+            markTaskBlocked(
+              task,
+              blockReason.unknown(
+                `agent '${task.assigned_agent}' not found in manifest`,
+              ),
+            );
             return;
           }
           // Hebbian injection is best-effort: errors return empty,
@@ -731,17 +768,13 @@ export async function executePhase(
     if (endedBy !== "all_complete") {
       for (const t of args.phase.tasks) {
         if (t.status === "pending" || t.status === "in_progress") {
-          t.status = "blocked";
-          t.error =
+          const reason =
             endedBy === "session_budget"
-              ? "session_budget_exhausted"
+              ? blockReason.budgetSession(args.budget_tracker.sessionTokensUsed(), args.budget_tracker.sessionCap())
               : endedBy === "user_abort"
-              ? "user_abort"
-              : "phase_time_budget_exceeded";
-          t.error_kind =
-            endedBy === "session_budget" || endedBy === "user_abort"
-              ? "unknown"
-              : "timeout";
+              ? blockReason.userAbort("phase")
+              : blockReason.timeout(Math.floor((args.phase_time_budget_ms ?? 0) / 1000));
+          markTaskBlocked(t, reason);
         }
       }
     }

@@ -426,7 +426,11 @@ function stubExecutePhase(
         for (const t of args.phase.tasks) {
           if (t.status === "pending") {
             t.status = "blocked";
-            t.error = "session_budget_exhausted";
+            t.blocked_reason = {
+              code: "budget_session_exceeded",
+              message: "Session token cap reached (stub).",
+              details: { scope: "session" },
+            };
           }
         }
       }
@@ -503,10 +507,12 @@ describe("runCrew — planning + phase loop", () => {
     expect(r.phase_summary_artifact_ids).toHaveLength(1); // only phase 1 ran
     expect(phaseExec.callCount()).toBe(1); // phase 2 never started
 
-    // Phase 2's tasks are marked blocked with session_budget_exhausted.
+    // Phase 2's tasks are marked blocked with the structured
+    // budget_session_exceeded reason — the TUI uses .code to discriminate
+    // and .message to render the row.
     const p2 = r.phases[1]!;
     expect(p2.tasks.every((t) => t.status === "blocked")).toBe(true);
-    expect(p2.tasks.every((t) => t.error === "session_budget_exhausted")).toBe(true);
+    expect(p2.tasks.every((t) => t.blocked_reason?.code === "budget_session_exceeded")).toBe(true);
   });
 
   it("plan_failed bypasses phase loop entirely", async () => {
@@ -864,7 +870,13 @@ describe("runCrew — drift integration", () => {
     expect(r.reanchor?.markdown).toContain("Add a /health endpoint");
     // Phase 2 (the next phase) had its pending tasks marked blocked.
     expect(r.phases[1]?.tasks.every((t) => t.status === "blocked")).toBe(true);
-    expect(r.phases[1]?.tasks.every((t) => t.error === "drift_halt")).toBe(true);
+    expect(
+      r.phases[1]?.tasks.every(
+        (t) =>
+          t.blocked_reason?.code === "user_abort" &&
+          t.blocked_reason.details?.where === "drift_halt",
+      ),
+    ).toBe(true);
   });
 
   it("drift module throwing degrades to ok (run completes)", async () => {

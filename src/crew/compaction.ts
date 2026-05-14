@@ -153,7 +153,7 @@ function buildCompactionPrompt(args: {
         (t.files_created.length || t.files_modified.length
           ? ` — files: ${[...t.files_created, ...t.files_modified].join(", ")}`
           : "") +
-        (t.error ? ` — error: ${t.error.slice(0, 200)}` : ""),
+        (t.blocked_reason ? ` — blocked: ${t.blocked_reason.message.slice(0, 200)}` : ""),
     )
     .join("\n");
 

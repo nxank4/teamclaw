@@ -66,6 +66,7 @@ import {
   type ExecutePhaseArgs,
   type ExecutePhaseResult,
 } from "./phase-executor.js";
+import { blockReason, markTaskBlocked } from "./block-reason.js";
 import { parsePlan, type ParseError } from "./plan-parser.js";
 import {
   runSubagent as defaultRunSubagent,
@@ -546,9 +547,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            t.status = "blocked";
-            t.error = "user_abort";
-            t.error_kind = "unknown";
+            markTaskBlocked(t, blockReason.userAbort("run"));
           }
         }
       }
@@ -562,9 +561,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            t.status = "blocked";
-            t.error = "session aborted";
-            t.error_kind = "unknown";
+            markTaskBlocked(t, blockReason.abortSignal("run"));
           }
         }
       }
@@ -782,13 +779,13 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
     if (phaseResult.ended_by === "session_budget") {
       endedBy = "session_budget";
       // Mark remaining phases blocked.
+      const sessionUsed = budgetTracker.sessionTokensUsed();
+      const sessionCap = budgetTracker.sessionCap();
       for (let j = i + 1; j < planResult.phases.length; j++) {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            t.status = "blocked";
-            t.error = "session_budget_exhausted";
-            t.error_kind = "unknown";
+            markTaskBlocked(t, blockReason.budgetSession(sessionUsed, sessionCap));
           }
         }
       }
@@ -829,14 +826,13 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         endedBy = "drift_halt_user_abort";
       }
       // Mark remaining phases blocked.
+      const where =
+        endedBy === "drift_halt_edit_goal" ? "drift_halt_edit_goal" : "drift_halt";
       for (let j = i + 1; j < planResult.phases.length; j++) {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            t.status = "blocked";
-            t.error =
-              endedBy === "drift_halt_edit_goal" ? "drift_halt_edit_goal" : "drift_halt";
-            t.error_kind = "unknown";
+            markTaskBlocked(t, blockReason.userAbort(where));
           }
         }
       }
@@ -868,9 +864,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
           const p = planResult.phases[j]!;
           for (const t of p.tasks) {
             if (t.status === "pending") {
-              t.status = "blocked";
-              t.error = "user_abort";
-              t.error_kind = "unknown";
+              markTaskBlocked(t, blockReason.userAbort("phase_gate"));
             }
           }
         }

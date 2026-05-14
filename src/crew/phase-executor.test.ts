@@ -362,7 +362,8 @@ describe("executePhase — error paths", () => {
     const ctx = makeContext(phase);
     await executePhase({ ...ctx, runSubagentImpl: stub.impl });
     expect(phase.tasks[0]?.status).toBe("blocked");
-    expect(phase.tasks[0]?.error_kind).toBe("env_command_not_found");
+    expect(phase.tasks[0]?.blocked_reason?.code).toBe("env_error");
+    expect(phase.tasks[0]?.blocked_reason?.details?.kind).toBe("env_command_not_found");
     expect(stub.callCount()).toBe(1);
   });
 
@@ -422,7 +423,7 @@ describe("executePhase — budget enforcement", () => {
     expect(r.ended_by).toBe("session_budget");
     expect(phase.tasks[0]?.status).toBe("completed");
     expect(phase.tasks[1]?.status).toBe("blocked");
-    expect(phase.tasks[1]?.error).toContain("session_budget_exhausted");
+    expect(phase.tasks[1]?.blocked_reason?.code).toBe("budget_session_exceeded");
   });
 
   it("per-task budget rejection blocks the task before LLM call", async () => {
@@ -434,7 +435,8 @@ describe("executePhase — budget enforcement", () => {
     const r = await executePhase({ ...ctx, runSubagentImpl: stub.impl });
     expect(r.task_count.blocked).toBe(1);
     expect(phase.tasks[0]?.status).toBe("blocked");
-    expect(phase.tasks[0]?.error).toContain("task");
+    expect(phase.tasks[0]?.blocked_reason?.code).toBe("budget_task_exceeded");
+    expect(phase.tasks[0]?.blocked_reason?.details?.scope).toBe("task");
     expect(stub.callCount()).toBe(0); // never called the LLM
   });
 });
@@ -467,6 +469,6 @@ describe("executePhase — phase time budget", () => {
     });
     expect(r.ended_by).toBe("time_budget");
     expect(phase.tasks[1]?.status).toBe("blocked");
-    expect(phase.tasks[1]?.error_kind).toBe("timeout");
+    expect(phase.tasks[1]?.blocked_reason?.code).toBe("timeout");
   });
 });
