@@ -119,6 +119,19 @@ export interface SubagentProgressEvent {
 
 export type SubagentProgressEmitter = (event: SubagentProgressEvent) => void;
 
+/**
+ * Per-token streaming sink for the subagent's LLM output. Fired
+ * directly by {@link runAgentTurn}'s onChunk path during real LLM
+ * calls. Deterministic non-LLM paths (e.g. facilitator fallback
+ * templates) do not invoke this. Argument order matches the rest
+ * of the pipeline: agentId first, then the token chunk.
+ *
+ * §5.6 isolation is preserved: tokens are observability, not
+ * context — the subagent's prompt history still resets per
+ * invocation and the parent's transcript is unchanged.
+ */
+export type SubagentTokenEmitter = (agentId: string, token: string) => void;
+
 export class SubagentDepthExceeded extends Error {
   constructor(
     public readonly agent_id: string,
@@ -177,6 +190,14 @@ export interface RunSubagentArgs {
    * crew activity in real time. See {@link SubagentProgressEvent}.
    */
   onProgress?: SubagentProgressEmitter;
+  /**
+   * Per-token streaming sink, forwarded straight into
+   * {@link runAgentTurn}. When the host wires this, every token
+   * emitted by the underlying LLM stream is surfaced live, exactly
+   * the way solo dispatch does it. Optional — when absent,
+   * behaviour is unchanged.
+   */
+  onToken?: SubagentTokenEmitter;
   /** Test seam — defaults to the real {@link runAgentTurn}. */
   runAgentTurnImpl?: (args: RunAgentTurnArgs) => Promise<RunAgentTurnResult>;
 }
@@ -233,6 +254,7 @@ export async function runSubagent(
     lockTimeoutMs,
     onDebug,
     onProgress,
+    onToken,
     runAgentTurnImpl = defaultRunAgentTurn,
   } = args;
 
@@ -385,6 +407,7 @@ export async function runSubagent(
       executeTool: wrappedExecutor,
       preToolHook,
       onToolCall: onToolCallForward,
+      onToken,
       model: model ?? agent_def.model,
       maxTurns,
       signal,

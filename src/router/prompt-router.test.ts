@@ -234,6 +234,56 @@ describe("PromptRouter — crew dispatch event flow", () => {
       status: "running",
     });
   });
+
+  it("emits RouterEvent.AgentToken when subagents stream tokens", async () => {
+    // Token-cadence analogue of the onProgress → AgentTool bridge
+    // above. Solo dispatch streams tokens via the dispatcher's
+    // emitToken path; crew bypasses the dispatcher and emits
+    // directly from dispatchCrew. This test pins down that the
+    // subagent's agent_id propagates through so the TUI can
+    // attribute each token to the right agent badge.
+    const sessionMgr = createSessionManager({ sessionsDir: homeDir });
+    await sessionMgr.initialize();
+
+    const router = new PromptRouter({}, sessionMgr, null, stubAgentRunner);
+
+    type Tok = { sessionId: string; agentId: string; token: string };
+    const tokens: Tok[] = [];
+    router.on(
+      RouterEvent.AgentToken,
+      (sessionId: string, agentId: string, token: string) => {
+        tokens.push({ sessionId, agentId, token });
+      },
+    );
+
+    const stubRunCrew: (args: RunCrewArgs) => Promise<CrewRunResult> = async (
+      args,
+    ) => {
+      args.onToken?.("planner", "tok1");
+      args.onToken?.("coder", "tok2");
+      return {
+        status: "completed",
+        session_id: "sid",
+        crew_name: "full-stack",
+        goal: "test",
+        phases: [],
+        plan_artifact_id: "plan-1",
+        phase_summary_artifact_ids: [],
+        tokens_used: 100,
+        ended_by: "all_phases_complete",
+      };
+    };
+
+    await router.route("sid", "create hello.ts", {
+      appMode: "crew",
+      runCrewImpl: stubRunCrew,
+    });
+
+    expect(tokens).toEqual([
+      { sessionId: "sid", agentId: "planner", token: "tok1" },
+      { sessionId: "sid", agentId: "coder", token: "tok2" },
+    ]);
+  });
 });
 
 describe("PromptRouter — solo dispatch context isolation", () => {

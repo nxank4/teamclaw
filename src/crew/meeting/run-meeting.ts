@@ -45,6 +45,7 @@ import {
   type RunSubagentArgs,
   type SubagentProgressEmitter,
   type SubagentResult,
+  type SubagentTokenEmitter,
 } from "../subagent-runner.js";
 import { WriteLockManager } from "../write-lock.js";
 import type { CrewManifest } from "../manifest/index.js";
@@ -107,6 +108,8 @@ export interface RunDiscussionMeetingArgs {
   signal?: AbortSignal;
   /** Observability sink for subagent tool-call lifecycle events. */
   onProgress?: SubagentProgressEmitter;
+  /** Per-token streaming sink, forwarded to every reflection + facilitator subagent. */
+  onToken?: SubagentTokenEmitter;
 }
 
 const DEFAULT_TASK_BUDGET = 50_000;
@@ -131,6 +134,7 @@ async function gatherOneReflection(args: {
   signal?: AbortSignal;
   runSubagent: (a: RunSubagentArgs) => Promise<SubagentResult>;
   onProgress?: SubagentProgressEmitter;
+  onToken?: SubagentTokenEmitter;
 }): Promise<ReflectionAttemptOutcome> {
   let prompt = args.prompt;
   let rejected = 0;
@@ -149,6 +153,7 @@ async function gatherOneReflection(args: {
       },
       signal: args.signal,
       onProgress: args.onProgress,
+      onToken: args.onToken,
     });
     const parsed = parseReflection(result.summary);
     if (parsed.ok) {
@@ -186,6 +191,7 @@ async function runFacilitatorWithRetry(args: {
   signal?: AbortSignal;
   runSubagent: (a: RunSubagentArgs) => Promise<SubagentResult>;
   onProgress?: SubagentProgressEmitter;
+  onToken?: SubagentTokenEmitter;
 }): Promise<{ markdown: string; used_fallback: boolean; tokens_used: number }> {
   let tokens = 0;
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -204,6 +210,7 @@ async function runFacilitatorWithRetry(args: {
       },
       signal: args.signal,
       onProgress: args.onProgress,
+      onToken: args.onToken,
     });
     tokens += result.tokens_used;
     const parsed = parseFacilitatorOutput(result.summary);
@@ -365,6 +372,7 @@ export async function runDiscussionMeeting(
         signal: args.signal,
         runSubagent,
         onProgress: args.onProgress,
+        onToken: args.onToken,
       });
     }),
   );
@@ -446,6 +454,7 @@ export async function runDiscussionMeeting(
               signal: args.signal,
               runSubagent,
               onProgress: args.onProgress,
+              onToken: args.onToken,
             });
           }),
       );
@@ -530,6 +539,7 @@ Revise your reflection given the peer perspectives above. Disagree with at least
           sessionId: args.session_id,
           signal: args.signal,
           onProgress: args.onProgress,
+          onToken: args.onToken,
           runSubagent,
         });
       }),
@@ -576,6 +586,7 @@ Revise your reflection given the peer perspectives above. Disagree with at least
     signal: args.signal,
     runSubagent,
     onProgress: args.onProgress,
+    onToken: args.onToken,
   });
 
   let markdown = facilitatorOutcome.markdown;

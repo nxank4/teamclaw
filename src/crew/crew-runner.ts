@@ -72,6 +72,7 @@ import {
   type RunSubagentArgs,
   type SubagentProgressEmitter,
   type SubagentResult,
+  type SubagentTokenEmitter,
 } from "./subagent-runner.js";
 import type { CrewPhase, CrewRunOptions } from "./types.js";
 import { WriteLockManager } from "./write-lock.js";
@@ -186,6 +187,13 @@ export interface RunPlanningArgs {
    * progress is observability, not context. Optional.
    */
   onProgress?: SubagentProgressEmitter;
+  /**
+   * Per-token streaming sink, forwarded to every {@link runSubagent}
+   * invocation so the host (router → TUI) can render agent thinking
+   * in real time — the token-level analogue of {@link onProgress}.
+   * Optional; when absent, behaviour is unchanged.
+   */
+  onToken?: SubagentTokenEmitter;
 }
 
 export interface RunCrewArgs extends RunPlanningArgs {
@@ -370,6 +378,7 @@ export async function runPlanning(args: RunPlanningArgs): Promise<CrewRunResult>
       getToolSchemas: args.getToolSchemas,
       getNativeTools: args.getNativeTools,
       onProgress: args.onProgress,
+      onToken: args.onToken,
       model: planner.model,
     });
     totalTokens += result.tokens_used;
@@ -578,6 +587,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         model_context_window: args.model_context_window,
         signal: args.signal,
         onProgress: args.onProgress,
+        onToken: args.onToken,
       });
     } catch (err) {
       debugLog("warn", "crew", "compaction:exception", {
@@ -636,6 +646,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
       signal: args.signal,
       phase_time_budget_ms: phaseTimeBudget,
       onProgress: args.onProgress,
+      onToken: args.onToken,
     });
 
     phase.completed_at = Date.now();
@@ -662,6 +673,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         runSubagentImpl: runSubagent,
         signal: args.signal,
         onProgress: args.onProgress,
+        onToken: args.onToken,
       });
       if (meetingResult.skipped_reason === null) {
         meetingNotesArtifactId =
