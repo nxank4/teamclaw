@@ -12,7 +12,7 @@ import { logger } from "../core/logger.js";
 import { isCancel, confirm } from "@clack/prompts";
 import { VERSION } from "../version.js";
 
-const GITHUB_REPO = "nxank4/openpawl";
+const GITHUB_REPO = "codepawl/openpawl";
 const GITHUB_API_RELEASES = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const GITHUB_RAW_PKG = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/package.json`;
 
@@ -119,7 +119,7 @@ function execShell(cmd: string, cwd?: string): void {
 
 async function updateNpm(): Promise<void> {
     logger.plain("Updating via npm...");
-    execShell("npm install -g @openpawl/cli@latest");
+    execShell("npm install -g @codepawl/openpawl@latest");
 }
 
 async function updateSource(tag: string): Promise<void> {

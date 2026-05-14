@@ -1,6 +1,6 @@
 #!/bin/sh
 # OpenPawl Uninstaller
-# Usage: curl -fsSL https://raw.githubusercontent.com/nxank4/openpawl/main/uninstall.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/codepawl/openpawl/main/uninstall.sh | sh
 #
 # Flags:
 #   --yes          Skip confirmation prompts
@@ -117,7 +117,7 @@ remove_binary() {
         case "$_npm_bin" in
             */node_modules/*)
                 warn "Found npm global install at ${_npm_bin}"
-                warn "Remove with: npm uninstall -g @openpawl/cli"
+                warn "Remove with: npm uninstall -g @codepawl/openpawl"
                 ;;
             "${BIN_DIR}/openpawl")
                 # Already handled above

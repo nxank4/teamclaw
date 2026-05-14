@@ -5,7 +5,7 @@ Thanks for your interest in contributing.
 ## Setup
 
 ```bash
-git clone https://github.com/nxank4/openpawl.git
+git clone https://github.com/codepawl/openpawl.git
 cd openpawl
 bun install
 bun run build
@@ -41,7 +41,7 @@ See [CLAUDE.md](./CLAUDE.md) for the full architecture guide.
 
 ## Reporting Issues
 
-Use [GitHub Issues](https://github.com/nxank4/openpawl/issues).
+Use [GitHub Issues](https://github.com/codepawl/openpawl/issues).
 
 ## Security
 
