@@ -314,9 +314,30 @@ export function wireRouterEvents(
     return true;
   };
 
+  const onAgentTaskBlocked = (
+    _sessionId: string,
+    agentId: string,
+    _taskId: string,
+    taskName: string,
+    reason: { code: string; message: string },
+  ): void => {
+    // One-shot ⊘ line as soon as the task-blocked transition fires —
+    // gives the user real-time visibility instead of waiting for the
+    // phase-summary table at the phase boundary. The structured reason
+    // is also serialized into the phase summary artifact, so this
+    // line is just the live mirror.
+    layout.messages.addTaskBlockedLine({
+      agentId,
+      taskName,
+      reasonMessage: reason.message,
+    });
+    layout.tui.requestRender();
+  };
+
   router.on(RouterEvent.AgentStart, onAgentStart);
   router.on(RouterEvent.AgentToken, onAgentToken);
   router.on(RouterEvent.AgentTool, onAgentTool);
+  router.on(RouterEvent.AgentTaskBlocked, onAgentTaskBlocked);
   router.on(RouterEvent.AgentDone, onAgentDone);
   router.on(RouterEvent.Done, onDispatchDone);
   router.on(RouterEvent.Error, onDispatchError);
@@ -327,6 +348,7 @@ export function wireRouterEvents(
       router.off(RouterEvent.AgentStart, onAgentStart);
       router.off(RouterEvent.AgentToken, onAgentToken);
       router.off(RouterEvent.AgentTool, onAgentTool);
+      router.off(RouterEvent.AgentTaskBlocked, onAgentTaskBlocked);
       router.off(RouterEvent.AgentDone, onAgentDone);
       router.off(RouterEvent.Done, onDispatchDone);
       router.off(RouterEvent.Error, onDispatchError);

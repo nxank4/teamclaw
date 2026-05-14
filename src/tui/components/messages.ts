@@ -682,6 +682,19 @@ export class MessagesComponent implements Component {
     this.messages.push(msg);
   }
 
+  /**
+   * Surface a one-shot task-blocked line in the chat stream as a
+   * system note: `⊘ <agent>: <task> blocked: <reason>`. Used by the
+   * router-wiring handler for RouterEvent.AgentTaskBlocked so the
+   * user sees blocks live, not just at phase-summary time.
+   */
+  addTaskBlockedLine(args: { agentId: string; taskName: string; reasonMessage: string }): void {
+    const glyph = defaultTheme.error(ICONS.blocked);
+    const head = `${glyph} ${args.agentId}: ${args.taskName}`;
+    const tail = defaultTheme.dim(` blocked: ${args.reasonMessage}`);
+    this.addMessage({ role: "system", content: `${head}${tail}` });
+  }
+
   /** Replace the last message's content entirely (for thinking indicator). */
   replaceLast(content: string): void {
     if (this.messages.length > 0) {

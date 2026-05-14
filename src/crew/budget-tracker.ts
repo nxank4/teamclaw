@@ -139,6 +139,10 @@ export class BudgetTracker {
     return this.sessionTotal;
   }
 
+  sessionCap(): number {
+    return this.opts.max_tokens_per_session;
+  }
+
   phaseTokensUsed(phase_id: string): number {
     return this.phaseTotals.get(phase_id) ?? 0;
   }

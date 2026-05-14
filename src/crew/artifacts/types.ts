@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 
-import { CrewPhaseSchema, CrewTaskSchema } from "../types.js";
+import { BlockReasonSchema, CrewPhaseSchema, CrewTaskSchema } from "../types.js";
 
 export const ARTIFACT_KINDS = [
   "plan",
@@ -87,6 +87,17 @@ export const PhaseSummaryArtifactPayloadSchema = z.object({
   key_decisions: z.array(z.string()).default([]),
   agent_confidences: z.record(z.string(), z.number().min(0).max(100)).default({}),
   meeting_notes_artifact_id: z.string().min(1).optional(),
+  // Per-task structured block reasons. Empty array when no tasks were
+  // blocked. Old artifact JSONL files written before this field existed
+  // load with an empty array via .default([]).
+  blocked_reasons: z
+    .array(
+      z.object({
+        task_id: z.string().min(1),
+        reason: BlockReasonSchema,
+      }),
+    )
+    .default([]),
 });
 export type PhaseSummaryArtifactPayload = z.infer<
   typeof PhaseSummaryArtifactPayloadSchema

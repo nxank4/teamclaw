@@ -358,6 +358,22 @@ export class PromptRouter extends EventEmitter {
         onToken: (agentId, token) => {
           this.emit(RouterEvent.AgentToken, sessionId, agentId, token);
         },
+        // Task-blocked lifecycle — fires once per task that
+        // transitions into the blocked state, carrying the
+        // structured BlockReason. The TUI's onAgentTaskBlocked
+        // handler renders the inline ⊘ line under the responsible
+        // agent in real time, rather than waiting for the
+        // phase-summary table at the phase boundary.
+        onTaskBlocked: (event) => {
+          this.emit(
+            RouterEvent.AgentTaskBlocked,
+            sessionId,
+            event.agent_id,
+            event.task_id,
+            event.task_name,
+            event.reason,
+          );
+        },
       });
 
       const md = renderCrewResultMarkdown(result);

@@ -59,6 +59,7 @@ const payload: PhaseSummaryArtifactPayload = {
   files_modified: ["src/server.ts"],
   key_decisions: [],
   agent_confidences: { coder: 80, reviewer: 65 },
+  blocked_reasons: [],
 };
 
 describe("renderPhaseSummary", () => {
@@ -172,6 +173,7 @@ describe("renderPhaseSummary", () => {
           files_modified: [],
           key_decisions: [],
           agent_confidences: {},
+          blocked_reasons: [],
         },
       }),
     );
@@ -199,5 +201,108 @@ describe("PhaseSummaryView", () => {
       payload,
     });
     expect(view.getProps().payload.phase_id).toBe("p1");
+  });
+});
+
+describe("renderPhaseSummary — blocked_reason sub-line", () => {
+  function blockedPhase(reasonMessage: string): ReturnType<typeof CrewPhaseSchema.parse> {
+    return CrewPhaseSchema.parse({
+      id: "p1",
+      name: "Blocked phase",
+      description: "Demo",
+      complexity_tier: "2",
+      tasks: [
+        {
+          id: "t1",
+          phase_id: "p1",
+          description: "Run a thing",
+          assigned_agent: "coder",
+          depends_on: [],
+          status: "blocked",
+          blocked_reason: {
+            code: "budget_session_exceeded",
+            message: reasonMessage,
+            details: { scope: "session" },
+          },
+        },
+      ],
+    });
+  }
+
+  it("renders blocked_reason under a blocked task with ↳ glyph", () => {
+    const lines = renderPhaseSummary({
+      phase: blockedPhase("Session token cap reached (10000 / 5000)."),
+      payload: { ...payload, tasks_blocked: 1 },
+    });
+    const out = joined(lines);
+    // Task row + ↳ row both present, with the reason message visible.
+    expect(out).toContain("t1");
+    expect(out).toContain("↳");
+    expect(out).toContain("Session token cap reached");
+  });
+
+  it("wraps long blocked_reason messages with hanging indent", () => {
+    // Message long enough to force wrapping at a typical 80-col width.
+    const long =
+      "Session token cap reached (123456 / 50000). Increase max_tokens_per_session in the manifest, or split the goal into shorter runs so the planner stays within budget.";
+    const lines = renderPhaseSummary({
+      phase: blockedPhase(long),
+      payload: { ...payload, tasks_blocked: 1 },
+    });
+    const stripped = lines.map((s) => s.replace(/\x1b\[[0-9;]*m/g, ""));
+    // Find every line that contains a fragment of the reason text — the
+    // first one has the ↳ glyph; the continuation line(s) should share
+    // the same leading indent (no ↳) so they line up under the message.
+    const reasonLines = stripped.filter((l) => /Session|max_tokens|split/.test(l));
+    expect(reasonLines.length).toBeGreaterThan(1); // wrapped at least once
+    // Indent of every continuation matches the first reason line's
+    // indent (allowing the ↳ glyph itself to take its single col).
+    const firstIndent = reasonLines[0]!.match(/^ +/)?.[0].length ?? 0;
+    expect(firstIndent).toBeGreaterThan(0);
+    for (const l of reasonLines.slice(1)) {
+      const ind = l.match(/^ +/)?.[0].length ?? 0;
+      expect(ind).toBe(firstIndent);
+    }
+  });
+
+  it("omits the ↳ line for completed / failed tasks", () => {
+    // The default fixturePhase has one completed + one failed task and
+    // no blocked task; no ↳ row should appear.
+    const lines = renderPhaseSummary({
+      phase: fixturePhase(),
+      payload,
+    });
+    const out = joined(lines);
+    expect(out).not.toContain("↳");
+  });
+
+  it("handles a blocked task with no blocked_reason (defensive)", () => {
+    // A task in the blocked state but without the structured reason
+    // (e.g. produced by older code paths) must not crash the renderer
+    // and must not emit a stray ↳ line.
+    const phase = CrewPhaseSchema.parse({
+      id: "p1",
+      name: "Empty reason",
+      description: "Demo",
+      complexity_tier: "2",
+      tasks: [
+        {
+          id: "t1",
+          phase_id: "p1",
+          description: "Task",
+          assigned_agent: "coder",
+          depends_on: [],
+          status: "blocked",
+          // intentionally no blocked_reason
+        },
+      ],
+    });
+    const lines = renderPhaseSummary({
+      phase,
+      payload: { ...payload, tasks_blocked: 1 },
+    });
+    const out = joined(lines);
+    expect(out).toContain("t1");
+    expect(out).not.toContain("↳");
   });
 });
