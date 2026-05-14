@@ -7,7 +7,7 @@
   "description": "Plan. Build. Review. Remember. Repeat. Your AI dev team in the terminal.",
   "type": "module",
   "license": "MIT",
-  "author": "Codepawl",
+  "author": "CodePawl",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/codepawl/openpawl.git"
