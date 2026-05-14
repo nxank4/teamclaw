@@ -37,7 +37,7 @@ import {
 } from "./error-classify.js";
 import { buildHebbianBlock, type HebbianRecaller } from "./hebbian-injection.js";
 import { KnownFilesRegistry } from "./known-files.js";
-import { blockReason, markTaskBlocked } from "./block-reason.js";
+import { blockReason, markTaskBlocked, type TaskBlockedEmitter } from "./block-reason.js";
 import type { AgentDefinition, CrewManifest } from "./manifest/index.js";
 import {
   runSubagent as defaultRunSubagent,
@@ -112,6 +112,8 @@ export interface ExecutePhaseArgs {
   onProgress?: SubagentProgressEmitter;
   /** Per-token streaming sink, forwarded down to every subagent. */
   onToken?: SubagentTokenEmitter;
+  /** Task-lifecycle sink — fires once per task-blocked transition. */
+  onTaskBlocked?: TaskBlockedEmitter;
 }
 
 export interface ExecutePhaseResult {
@@ -290,6 +292,7 @@ async function runTaskOnce(args: {
   getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
   onProgress?: SubagentProgressEmitter;
   onToken?: SubagentTokenEmitter;
+  onTaskBlocked?: TaskBlockedEmitter;
 }): Promise<RunOnceOutcome> {
   const estIn = PROMPT_TOKEN_HEURISTIC(args.prompt) + PROMPT_TOKEN_HEURISTIC(args.agentDef.prompt);
   const estOut = Math.min(8_000, Math.floor(args.task.max_tokens_per_task / 5));
@@ -447,6 +450,7 @@ async function executeTaskWithRetries(args: {
   getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
   onProgress?: SubagentProgressEmitter;
   onToken?: SubagentTokenEmitter;
+  onTaskBlocked?: TaskBlockedEmitter;
 }): Promise<void> {
   const startedAt = Date.now();
   args.task.status = "in_progress";
@@ -460,7 +464,7 @@ async function executeTaskWithRetries(args: {
 
   while (true) {
     if (args.signal?.aborted) {
-      markTaskBlocked(args.task, blockReason.abortSignal("phase"));
+      markTaskBlocked(args.task, blockReason.abortSignal("phase"), args.onTaskBlocked);
       break;
     }
 
@@ -489,6 +493,7 @@ async function executeTaskWithRetries(args: {
       getNativeTools: args.getNativeTools,
       onProgress: args.onProgress,
       onToken: args.onToken,
+      onTaskBlocked: args.onTaskBlocked,
     });
 
     totalIn += outcome.tokens_input;
@@ -530,7 +535,7 @@ async function executeTaskWithRetries(args: {
           ? blockReason.budgetPhase(b.current, 0, b.cap)
           : blockReason.budgetSession(b.current, b.cap)
         : blockReason.unknown(outcome.summary);
-      markTaskBlocked(args.task, reason);
+      markTaskBlocked(args.task, reason, args.onTaskBlocked);
       args.task.input_tokens = totalIn;
       args.task.output_tokens = totalOut;
       args.task.wall_time_ms = Date.now() - startedAt;
@@ -573,7 +578,7 @@ async function executeTaskWithRetries(args: {
         : isEnv
         ? blockReason.envError(classification.kind, shellSignal)
         : blockReason.agentLogicMaxRetries(attempt + 1, classification.reason);
-      markTaskBlocked(args.task, reason);
+      markTaskBlocked(args.task, reason, args.onTaskBlocked);
       args.task.input_tokens = totalIn;
       args.task.output_tokens = totalOut;
       args.task.wall_time_ms = Date.now() - startedAt;
@@ -709,7 +714,7 @@ export async function executePhase(
             const upstream = failedDep
               ? args.phase.tasks.find((x) => x.id === failedDep)?.blocked_reason
               : undefined;
-            markTaskBlocked(t, blockReason.depFailed(failedDep ?? "?", upstream));
+            markTaskBlocked(t, blockReason.depFailed(failedDep ?? "?", upstream), args.onTaskBlocked);
           }
         }
         break;
@@ -727,6 +732,7 @@ export async function executePhase(
               blockReason.unknown(
                 `agent '${task.assigned_agent}' not found in manifest`,
               ),
+              args.onTaskBlocked,
             );
             return;
           }
@@ -755,6 +761,7 @@ export async function executePhase(
             getNativeTools: args.getNativeTools,
             onProgress: args.onProgress,
             onToken: args.onToken,
+            onTaskBlocked: args.onTaskBlocked,
           });
           if (task.status === "completed") {
             args.known_files.addFromTaskResult(task);
@@ -774,7 +781,7 @@ export async function executePhase(
               : endedBy === "user_abort"
               ? blockReason.userAbort("phase")
               : blockReason.timeout(Math.floor((args.phase_time_budget_ms ?? 0) / 1000));
-          markTaskBlocked(t, reason);
+          markTaskBlocked(t, reason, args.onTaskBlocked);
         }
       }
     }

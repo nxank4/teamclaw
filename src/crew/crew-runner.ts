@@ -66,7 +66,7 @@ import {
   type ExecutePhaseArgs,
   type ExecutePhaseResult,
 } from "./phase-executor.js";
-import { blockReason, markTaskBlocked } from "./block-reason.js";
+import { blockReason, markTaskBlocked, type TaskBlockedEmitter } from "./block-reason.js";
 import { parsePlan, type ParseError } from "./plan-parser.js";
 import {
   runSubagent as defaultRunSubagent,
@@ -195,6 +195,14 @@ export interface RunPlanningArgs {
    * Optional; when absent, behaviour is unchanged.
    */
   onToken?: SubagentTokenEmitter;
+  /**
+   * Task-lifecycle sink — fires exactly once per task-blocked
+   * transition (with the agent_id, task_id, task_name, and the
+   * structured BlockReason). The host (router → TUI) uses this to
+   * render the inline ⊘ line under the responsible agent in real
+   * time, rather than waiting for the phase-summary table.
+   */
+  onTaskBlocked?: TaskBlockedEmitter;
 }
 
 export interface RunCrewArgs extends RunPlanningArgs {
@@ -547,7 +555,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            markTaskBlocked(t, blockReason.userAbort("run"));
+            markTaskBlocked(t, blockReason.userAbort("run"), args.onTaskBlocked);
           }
         }
       }
@@ -561,7 +569,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            markTaskBlocked(t, blockReason.abortSignal("run"));
+            markTaskBlocked(t, blockReason.abortSignal("run"), args.onTaskBlocked);
           }
         }
       }
@@ -644,6 +652,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
       phase_time_budget_ms: phaseTimeBudget,
       onProgress: args.onProgress,
       onToken: args.onToken,
+      onTaskBlocked: args.onTaskBlocked,
     });
 
     phase.completed_at = Date.now();
@@ -794,7 +803,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            markTaskBlocked(t, blockReason.budgetSession(sessionUsed, sessionCap));
+            markTaskBlocked(t, blockReason.budgetSession(sessionUsed, sessionCap), args.onTaskBlocked);
           }
         }
       }
@@ -841,7 +850,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         const p = planResult.phases[j]!;
         for (const t of p.tasks) {
           if (t.status === "pending") {
-            markTaskBlocked(t, blockReason.userAbort(where));
+            markTaskBlocked(t, blockReason.userAbort(where), args.onTaskBlocked);
           }
         }
       }
@@ -873,7 +882,7 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
           const p = planResult.phases[j]!;
           for (const t of p.tasks) {
             if (t.status === "pending") {
-              markTaskBlocked(t, blockReason.userAbort("phase_gate"));
+              markTaskBlocked(t, blockReason.userAbort("phase_gate"), args.onTaskBlocked);
             }
           }
         }

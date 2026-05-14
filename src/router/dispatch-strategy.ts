@@ -19,6 +19,7 @@ import type {
 } from "./router-types.js";
 import { AgentRegistry } from "./agent-registry.js";
 import { RouterEvent } from "./event-types.js";
+import type { BlockReason } from "../crew/types.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,13 @@ export interface DispatcherEvents {
   "dispatch:agent:start": (sessionId: string, agentId: string) => void;
   "dispatch:agent:token": (sessionId: string, agentId: string, token: string) => void;
   "dispatch:agent:tool": (sessionId: string, agentId: string, toolName: string, status: string, details?: Record<string, unknown>) => void;
+  "dispatch:agent:task:blocked": (
+    sessionId: string,
+    agentId: string,
+    taskId: string,
+    taskName: string,
+    reason: BlockReason,
+  ) => void;
   "dispatch:agent:done": (sessionId: string, agentId: string, result: AgentResult) => void;
   "dispatch:done": (sessionId: string, result: DispatchResult) => void;
   "dispatch:error": (sessionId: string, error: RouterError) => void;

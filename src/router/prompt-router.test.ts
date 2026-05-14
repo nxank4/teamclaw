@@ -284,6 +284,79 @@ describe("PromptRouter — crew dispatch event flow", () => {
       { sessionId: "sid", agentId: "coder", token: "tok2" },
     ]);
   });
+
+  it("emits RouterEvent.AgentTaskBlocked when a task transitions to blocked", async () => {
+    // Task-lifecycle bridge — every markTaskBlocked call in the crew
+    // chain fires onTaskBlocked, which dispatchCrew re-emits as
+    // RouterEvent.AgentTaskBlocked. The TUI's onAgentTaskBlocked
+    // handler renders the inline ⊘ line under the responsible agent.
+    const sessionMgr = createSessionManager({ sessionsDir: homeDir });
+    await sessionMgr.initialize();
+
+    const router = new PromptRouter({}, sessionMgr, null, stubAgentRunner);
+
+    type Blocked = {
+      sessionId: string;
+      agentId: string;
+      taskId: string;
+      taskName: string;
+      reasonCode: string;
+    };
+    const blocks: Blocked[] = [];
+    router.on(
+      RouterEvent.AgentTaskBlocked,
+      (
+        sessionId: string,
+        agentId: string,
+        taskId: string,
+        taskName: string,
+        reason: { code: string; message: string },
+      ) => {
+        blocks.push({ sessionId, agentId, taskId, taskName, reasonCode: reason.code });
+      },
+    );
+
+    const stubRunCrew: (args: RunCrewArgs) => Promise<CrewRunResult> = async (
+      args,
+    ) => {
+      args.onTaskBlocked?.({
+        agent_id: "coder",
+        task_id: "t1",
+        task_name: "Create src/health.ts",
+        reason: {
+          code: "budget_session_exceeded",
+          message: "Session cap reached.",
+          details: { scope: "session" },
+        },
+      });
+      return {
+        status: "halted",
+        session_id: "sid",
+        crew_name: "full-stack",
+        goal: "test",
+        phases: [],
+        plan_artifact_id: "plan-1",
+        phase_summary_artifact_ids: [],
+        tokens_used: 100,
+        ended_by: "session_budget",
+      };
+    };
+
+    await router.route("sid", "create hello.ts", {
+      appMode: "crew",
+      runCrewImpl: stubRunCrew,
+    });
+
+    expect(blocks).toEqual([
+      {
+        sessionId: "sid",
+        agentId: "coder",
+        taskId: "t1",
+        taskName: "Create src/health.ts",
+        reasonCode: "budget_session_exceeded",
+      },
+    ]);
+  });
 });
 
 describe("PromptRouter — solo dispatch context isolation", () => {

@@ -18,9 +18,36 @@ import type { TaskErrorKind } from "./types.js";
 import type { BlockReason, CrewTask } from "./types.js";
 import type { WriteLockTimeoutError } from "./write-lock.js";
 
-export function markTaskBlocked(task: CrewTask, reason: BlockReason): void {
+/**
+ * Fired exactly once per task-blocked transition so the host (router →
+ * TUI) can render the inline ⊘ line in real time, without waiting for
+ * the phase-summary table at the phase boundary. Parallel to the
+ * existing onProgress (tool-call) and onToken (LLM stream) callbacks
+ * threaded through the crew chain, but task-lifecycle rather than
+ * subagent-lifecycle. The task fields are denormalized onto the event
+ * so consumers don't have to chase a CrewTask reference.
+ */
+export interface TaskBlockedEvent {
+  agent_id: string;
+  task_id: string;
+  task_name: string;
+  reason: BlockReason;
+}
+export type TaskBlockedEmitter = (event: TaskBlockedEvent) => void;
+
+export function markTaskBlocked(
+  task: CrewTask,
+  reason: BlockReason,
+  emit?: TaskBlockedEmitter,
+): void {
   task.status = "blocked";
   task.blocked_reason = reason;
+  emit?.({
+    agent_id: task.assigned_agent,
+    task_id: task.id,
+    task_name: task.description,
+    reason,
+  });
 }
 
 export const blockReason = {
