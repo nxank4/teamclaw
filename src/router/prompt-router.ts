@@ -346,6 +346,18 @@ export class PromptRouter extends EventEmitter {
             event.details,
           );
         },
+        // Crew token-level streaming — token-cadence analogue of
+        // onProgress above. Every LLM-backed subagent (planner,
+        // coder, tester, reflection, facilitator, compactor)
+        // surfaces its stream here, attributed by the subagent's
+        // own agent_id so the TUI's onAgentToken handler in
+        // router-wiring (which already drives solo) can render
+        // each agent's thinking under the correct badge. The
+        // deterministic facilitator-fallback path is naturally a
+        // no-op because it never invokes runAgentTurn.
+        onToken: (agentId, token) => {
+          this.emit(RouterEvent.AgentToken, sessionId, agentId, token);
+        },
       });
 
       const md = renderCrewResultMarkdown(result);
