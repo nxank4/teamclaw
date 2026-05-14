@@ -32,19 +32,21 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   );
 }
 
-const BANNED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-
 function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split(".");
-  if (keys.some((k) => BANNED_KEYS.has(k))) return;
+  for (const k of keys) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") return;
+  }
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
-    if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
-      target[keys[i]] = {};
+    const k = keys[i]!;
+    const own = Object.prototype.hasOwnProperty.call(target, k);
+    if (!own || typeof target[k] !== "object" || target[k] === null) {
+      target[k] = {};
     }
-    target = target[keys[i]] as Record<string, unknown>;
+    target = target[k] as Record<string, unknown>;
   }
-  target[keys[keys.length - 1]] = value;
+  target[keys[keys.length - 1]!] = value;
 }
 
 function coerce(value: string): unknown {
@@ -61,6 +63,9 @@ export function getSettingValue(key: string): unknown {
 }
 
 export function setSettingValue(key: string, value: string): void {
+  if (!ALLOWED_KEYS.has(key)) {
+    throw new Error(`Unknown settings key: ${key}`);
+  }
   const config = readGlobalConfigWithDefaults();
   const obj = config as unknown as Record<string, unknown>;
   setNestedValue(obj, key, coerce(value));
