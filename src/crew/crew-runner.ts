@@ -747,6 +747,15 @@ export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
         files_modified: phaseResult.files_modified,
         key_decisions: [],
         agent_confidences: {},
+        // Surface every blocked task's structured reason so the
+        // artifact stays self-describing. Audit / replay consumers
+        // can render `↳ message` without going back to the raw
+        // task list. Order matches the phase's task array.
+        blocked_reasons: phase.tasks.flatMap((t) =>
+          t.status === "blocked" && t.blocked_reason
+            ? [{ task_id: t.id, reason: t.blocked_reason }]
+            : [],
+        ),
         ...(meetingNotesArtifactId
           ? { meeting_notes_artifact_id: meetingNotesArtifactId }
           : {}),

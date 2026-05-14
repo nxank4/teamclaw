@@ -108,6 +108,7 @@ function seedSummary(
         files_modified: [],
         key_decisions: [],
         agent_confidences: {},
+        blocked_reasons: [],
         ...payloadOverride,
       },
     },

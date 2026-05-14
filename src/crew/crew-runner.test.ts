@@ -570,6 +570,41 @@ describe("runCrew — planning + phase loop", () => {
     // Meeting fields default empty until next PR overlays them.
     expect(first.key_decisions).toEqual([]);
     expect(first.agent_confidences).toEqual({});
+    // No blocked tasks → blocked_reasons is the schema's empty default.
+    expect(first.blocked_reasons).toEqual([]);
+  });
+
+  it("PhaseSummaryArtifact serializes blocked_reasons for every blocked task", async () => {
+    // The session-budget cascade marks every task in remaining phases
+    // blocked with budget_session_exceeded. The artifact must carry
+    // that structured reason so audit / replay surfaces can render
+    // the ↳ row without going back to the in-memory task list.
+    const subagent = stubSubagent([happyPlanJson()]);
+    const phaseExec = stubExecutePhase([{ ended_by: "session_budget" }]);
+
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: subagent.impl,
+      executePhaseImpl: phaseExec.impl,
+      runDiscussionMeetingImpl: noopMeetingImpl,
+    });
+    if (r.status !== "halted") throw new Error("expected halted");
+
+    // Phase 1 ran (with one blocked task per the stub) — the artifact
+    // for that phase must carry the blocked_reasons entry.
+    const lines = readFileSync(artifactJsonlPath(r.session_id, homeDir), "utf-8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    const summaries = lines.filter((a) => a.kind === "phase_summary");
+    expect(summaries).toHaveLength(1);
+
+    const p1 = summaries[0]!.payload;
+    expect(p1.blocked_reasons.length).toBeGreaterThan(0);
+    expect(p1.blocked_reasons[0]?.reason.code).toBe("budget_session_exceeded");
+    expect(p1.blocked_reasons[0]?.task_id).toBeTruthy();
   });
 
   it("CrewRunner.run delegates to runCrew", async () => {

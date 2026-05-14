@@ -59,6 +59,7 @@ const payload: PhaseSummaryArtifactPayload = {
   files_modified: ["src/server.ts"],
   key_decisions: [],
   agent_confidences: { coder: 80, reviewer: 65 },
+  blocked_reasons: [],
 };
 
 describe("renderPhaseSummary", () => {
@@ -172,6 +173,7 @@ describe("renderPhaseSummary", () => {
           files_modified: [],
           key_decisions: [],
           agent_confidences: {},
+          blocked_reasons: [],
         },
       }),
     );
