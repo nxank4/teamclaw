@@ -390,6 +390,13 @@ export async function initSessionRouter(
     const resumeResult = await ctx.sessionMgr.resumeLatest(process.cwd());
     if (resumeResult.isOk() && resumeResult.value) {
       ctx.chatSession = resumeResult.value;
+      const { buildResumeBannerContent } = await import("./resume-banner.js");
+      layout.messages.addMessage({
+        role: "system",
+        content: buildResumeBannerContent(resumeResult.value),
+        timestamp: new Date(),
+      });
+      layout.tui.requestRender();
     } else {
       const createResult = await ctx.sessionMgr.create(process.cwd());
       ctx.chatSession = createResult.isOk() ? createResult.value : null;
