@@ -21,6 +21,7 @@ import { renderMarkdown } from "./markdown.js";
 import { renderPanel } from "./panel.js";
 import { ICONS } from "../constants/icons.js";
 import { defaultTheme } from "../themes/default.js";
+import { wrapText } from "../utils/wrap.js";
 import { formatDuration } from "../../utils/formatters.js";
 import type { PhaseSummaryArtifactPayload } from "../../crew/artifacts/types.js";
 import type { CrewPhase, CrewTask } from "../../crew/types.js";
@@ -120,6 +121,11 @@ function renderTaskTable(phase: CrewPhase, contentWidth: number): string[] {
   ].join("");
   lines.push(header);
 
+  // Hanging indent for the blocked-reason sub-line: icon glyph (2 cols
+  // accounting for trailing space) + id column + its trailing space.
+  const reasonIndent = " ".repeat(2 + idW + 1);
+  const reasonWidth = Math.max(20, contentWidth - reasonIndent.length);
+
   for (const t of phase.tasks) {
     const icon = statusIcon(t.status);
     const idStr = truncate(t.id, idW).padEnd(idW);
@@ -132,6 +138,16 @@ function renderTaskTable(phase: CrewPhase, contentWidth: number): string[] {
     lines.push(
       `${icon} ${color(idStr)} ${descStr} ${defaultTheme.muted(agentStr)} ${defaultTheme.dim(tokensStr)} ${defaultTheme.dim(timeStr)}`,
     );
+    // Surface the structured block reason under the row so the user
+    // doesn't have to dig through debug logs to see why the run stalled.
+    // Only blocked tasks with a populated reason render the ↳ line;
+    // completed / failed / in_progress rows stay one-line.
+    if (t.status === "blocked" && t.blocked_reason) {
+      const wrapped = wrapText(`↳ ${t.blocked_reason.message}`, reasonWidth);
+      for (const w of wrapped) {
+        lines.push(`${reasonIndent}${defaultTheme.dim(w)}`);
+      }
+    }
   }
   return lines;
 }
