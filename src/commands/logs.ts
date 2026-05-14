@@ -1,11 +1,11 @@
 /**
- * Logs Command — View gateway, web dashboard, and work session logs.
+ * Logs Command — View gateway, web dashboard, and debug logs.
  *
  * Usage:
  *   openpawl logs                  # Show all available log files
  *   openpawl logs gateway          # View gateway logs
  *   openpawl logs web              # View web dashboard logs
- *   openpawl logs work             # View work session logs
+ *   openpawl logs debug            # Structured debug log viewer
  *   openpawl logs gateway -f       # Follow (tail -f) gateway logs
  *   openpawl logs gateway -n 50    # Show last 50 lines
  */
@@ -40,12 +40,6 @@ function getLogSources(): LogSource[] {
       label: "Web Dashboard",
       path: path.join(cwd, ".openpawl", "web.log"),
       description: "Fastify web server + WebSocket telemetry",
-    },
-    {
-      name: "work",
-      label: "Work Session",
-      path: path.join(homeDir, ".openpawl", "logs"),
-      description: "Work runner session history (per-session files in ~/.openpawl/logs/)",
     },
     {
       name: "debug",
@@ -126,15 +120,6 @@ function followLog(filePath: string): void {
   });
 }
 
-function findLatestLog(dir: string, prefix: string): string | null {
-  if (!existsSync(dir)) return null;
-  const files = readdirSync(dir)
-    .filter((f) => f.startsWith(prefix) && f.endsWith(".log"))
-    .map((f) => ({ name: f, mtime: statSync(path.join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length > 0 ? path.join(dir, files[0].name) : null;
-}
-
 export async function runLogs(args: string[]): Promise<void> {
   const sourceName = args[0];
 
@@ -159,19 +144,10 @@ export async function runLogs(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Resolve directory-based log sources to the latest file
-  let resolvedPath = source.path;
-  if (source.name === "work") {
-    const latest = findLatestLog(source.path, "work-history-");
-    if (!latest) {
-      logger.warn(`No work history logs found in ${source.path}`);
-      logger.plain(pc.dim("Run `openpawl work` to create a session log."));
-      return;
-    }
-    resolvedPath = latest;
-  } else if (!existsSync(resolvedPath)) {
+  const resolvedPath = source.path;
+  if (!existsSync(resolvedPath)) {
     logger.warn(`Log file not found: ${resolvedPath}`);
-    logger.plain(pc.dim("The gateway may not have been started yet. Run `openpawl work` to start a session."));
+    logger.plain(pc.dim("Run a session to populate the log."));
     return;
   }
 
