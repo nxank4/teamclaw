@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { buildWelcomeContent } from "./welcome.js";
 import { VERSION } from "../version.js";
+import { PRODUCT_TAGLINE_SHORT } from "../meta/product.js";
 import { stripAnsi } from "../tui/utils/text-width.js";
 
 const ORIGINAL_COLUMNS = process.stdout.columns;
@@ -74,5 +75,17 @@ describe("buildWelcomeContent — Option C card layout", () => {
     expect(out).toContain("╭");
     expect(out).toContain("╰");
     expect(out).toContain("│");
+  });
+
+  it("renders PRODUCT_TAGLINE_SHORT in the card body at standard widths", () => {
+    setColumns(80);
+    const out = stripAnsi(buildWelcomeContent());
+    expect(out).toContain(PRODUCT_TAGLINE_SHORT);
+  });
+
+  it("renders PRODUCT_TAGLINE_SHORT in the narrow-terminal fallback", () => {
+    setColumns(40);
+    const out = stripAnsi(buildWelcomeContent());
+    expect(out).toContain(PRODUCT_TAGLINE_SHORT);
   });
 });

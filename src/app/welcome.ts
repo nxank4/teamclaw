@@ -11,7 +11,7 @@
  */
 
 import { VERSION } from "../version.js";
-import { PRODUCT_TAGLINE_HEADLINE } from "../meta/product.js";
+import { PRODUCT_TAGLINE_SHORT } from "../meta/product.js";
 import { ctp } from "../tui/themes/default.js";
 import { bold } from "../tui/core/ansi.js";
 
@@ -29,7 +29,7 @@ const HINT_LINE = `Or:  /help to see commands`;
 export function buildWelcomeContent(): string {
   const termWidth = process.stdout.columns ?? 80;
   const titleText = `OpenPawl v${VERSION}`;
-  const taglineText = PRODUCT_TAGLINE_HEADLINE;
+  const taglineText = PRODUCT_TAGLINE_SHORT;
 
   if (termWidth < NARROW_FALLBACK_WIDTH) {
     // No-box plain-text fallback — same content, no border decoration
