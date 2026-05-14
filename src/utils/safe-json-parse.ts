@@ -34,7 +34,15 @@ export function safeJsonParse<T>(raw: string): SafeParseResult<T> {
 
   // Layer 3: strip XML-like tool call wrappers (minimax/some providers)
   cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, "").trim();
-  cleaned = cleaned.replace(/<\/?[a-z_]+>/gi, "").trim();
+
+  // Loop until stable: a single-pass strip can leave a reformed tag
+  // (e.g. "<scr<script>ipt>" → "<script>"). CodeQL js/incomplete-multi-character-sanitization.
+  let prev: string;
+  do {
+    prev = cleaned;
+    cleaned = cleaned.replace(/<\/?[a-z_]+>/gi, "");
+  } while (cleaned !== prev);
+  cleaned = cleaned.trim();
 
   if (cleaned !== raw) {
     try {
