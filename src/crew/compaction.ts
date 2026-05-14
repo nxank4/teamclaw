@@ -43,6 +43,7 @@ import {
   type RunSubagentArgs,
   type SubagentProgressEmitter,
   type SubagentResult,
+  type SubagentTokenEmitter,
 } from "./subagent-runner.js";
 import { WriteLockManager } from "./write-lock.js";
 import type { CrewManifest } from "./manifest/index.js";
@@ -69,6 +70,8 @@ export interface CheckAndCompactArgs {
   signal?: AbortSignal;
   /** Observability sink for the compaction subagent's tool-call lifecycle. */
   onProgress?: SubagentProgressEmitter;
+  /** Per-token streaming sink, forwarded to the compaction subagent. */
+  onToken?: SubagentTokenEmitter;
 }
 
 export interface CompactedPhase {
@@ -300,6 +303,7 @@ export async function checkAndCompact(
         },
         signal: args.signal,
         onProgress: args.onProgress,
+        onToken: args.onToken,
       });
       summaryMarkdown = result.summary.trim();
       if (summaryMarkdown.length === 0) {

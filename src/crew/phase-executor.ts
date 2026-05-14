@@ -44,6 +44,7 @@ import {
   type SubagentDebugInfo,
   type SubagentProgressEmitter,
   type SubagentResult,
+  type SubagentTokenEmitter,
 } from "./subagent-runner.js";
 import type {
   ToolExecutor,
@@ -108,6 +109,8 @@ export interface ExecutePhaseArgs {
   max_parallel_tasks?: number;
   /** Observability sink for subagent tool-call lifecycle events. */
   onProgress?: SubagentProgressEmitter;
+  /** Per-token streaming sink, forwarded down to every subagent. */
+  onToken?: SubagentTokenEmitter;
 }
 
 export interface ExecutePhaseResult {
@@ -277,6 +280,7 @@ async function runTaskOnce(args: {
   getToolSchemas?: (toolNames: string[]) => ToolDef[];
   getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
   onProgress?: SubagentProgressEmitter;
+  onToken?: SubagentTokenEmitter;
 }): Promise<RunOnceOutcome> {
   const estIn = PROMPT_TOKEN_HEURISTIC(args.prompt) + PROMPT_TOKEN_HEURISTIC(args.agentDef.prompt);
   const estOut = Math.min(8_000, Math.floor(args.task.max_tokens_per_task / 5));
@@ -326,6 +330,7 @@ async function runTaskOnce(args: {
       model: args.agentDef.model,
       signal: args.signal,
       onProgress: args.onProgress,
+      onToken: args.onToken,
       onDebug: (info) => {
         debugInfo = info;
       },
@@ -427,6 +432,7 @@ async function executeTaskWithRetries(args: {
   getToolSchemas?: (toolNames: string[]) => ToolDef[];
   getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
   onProgress?: SubagentProgressEmitter;
+  onToken?: SubagentTokenEmitter;
 }): Promise<void> {
   const startedAt = Date.now();
   args.task.status = "in_progress";
@@ -469,6 +475,7 @@ async function executeTaskWithRetries(args: {
       getToolSchemas: args.getToolSchemas,
       getNativeTools: args.getNativeTools,
       onProgress: args.onProgress,
+      onToken: args.onToken,
     });
 
     totalIn += outcome.tokens_input;
@@ -710,6 +717,7 @@ export async function executePhase(
             getToolSchemas: args.getToolSchemas,
             getNativeTools: args.getNativeTools,
             onProgress: args.onProgress,
+            onToken: args.onToken,
           });
           if (task.status === "completed") {
             args.known_files.addFromTaskResult(task);
