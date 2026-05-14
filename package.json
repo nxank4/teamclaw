@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "description": "Terminal AI coding with a team of agents, not just one.",
+  "description": "Plan. Build. Review. Remember. Repeat. Your AI dev team in the terminal.",
   "type": "module",
   "license": "MIT",
   "author": "Codepawl",
@@ -16,21 +16,23 @@
   "keywords": [
     "ai",
     "agents",
+    "multi-agent",
     "cli",
     "tui",
     "claude",
-    "multi-agent",
-    "coding",
+    "coding-agent",
     "developer-tools",
     "llm",
-    "anthropic"
+    "anthropic",
+    "openai",
+    "terminal"
   ],
   "workspaces": [
     "src/web/client",
     "packages/*"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20"
   },
   "bin": {
     "openpawl": "dist/cli.js"
