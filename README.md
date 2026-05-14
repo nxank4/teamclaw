@@ -4,7 +4,7 @@
 
 # OpenPawl
 
-**Terminal AI coding with a team of agents, not just one. Chat-based, keyboard-first, open source.**
+**Plan. Build. Review. Remember. Repeat. Your AI dev team in the terminal.**
 
 [![CI](https://github.com/codepawl/openpawl/actions/workflows/ci.yml/badge.svg)](https://github.com/codepawl/openpawl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
