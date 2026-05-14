@@ -550,3 +550,69 @@ describe("runSubagent — onProgress observability channel", () => {
     expect(events).toHaveLength(0);
   });
 });
+
+describe("runSubagent — onToken observability channel", () => {
+  it("forwards every LLM token chunk with the subagent's id", async () => {
+    // Mirrors the onProgress channel above, but for per-token
+    // streaming. The crew dispatch path wires this to
+    // RouterEvent.AgentToken so the TUI can render subagent
+    // thinking in real time the way solo already does. The
+    // subagent's own id must propagate so each agent's stream is
+    // attributed to the right badge.
+    const chunks: Array<{ agentId: string; token: string }> = [];
+    const onToken = (agentId: string, token: string): void => {
+      chunks.push({ agentId, token });
+    };
+
+    const stub = async (turnArgs: RunAgentTurnArgs) => {
+      turnArgs.onToken?.(turnArgs.agentId, "hello ");
+      turnArgs.onToken?.(turnArgs.agentId, "world");
+      return {
+        text: "hello world",
+        toolCalls: [],
+        usage: { input: 100, output: 50 },
+      };
+    };
+
+    await runSubagent(
+      makeArgs({
+        agent_def: reviewer(),
+        runAgentTurnImpl: stub,
+        onToken,
+      }),
+    );
+
+    expect(chunks).toEqual([
+      { agentId: "reviewer", token: "hello " },
+      { agentId: "reviewer", token: "world" },
+    ]);
+  });
+
+  it("is a no-op when onToken is not provided (backwards compat)", async () => {
+    // runAgentTurn itself optional-chains onToken, but the
+    // subagent runner must keep that contract intact — passing
+    // undefined down, not a wrapper that would suppress errors.
+    let receivedOnToken: RunAgentTurnArgs["onToken"] | undefined =
+      ((): undefined => undefined)();
+    const stub = async (turnArgs: RunAgentTurnArgs) => {
+      receivedOnToken = turnArgs.onToken;
+      // Calling through the optional chain must not throw even
+      // when nothing is wired up.
+      turnArgs.onToken?.(turnArgs.agentId, "tok");
+      return {
+        text: "done",
+        toolCalls: [],
+        usage: { input: 100, output: 50 },
+      };
+    };
+
+    const r = await runSubagent(
+      makeArgs({
+        agent_def: reviewer(),
+        runAgentTurnImpl: stub,
+      }),
+    );
+    expect(r.tokens_used).toBe(150);
+    expect(receivedOnToken).toBeUndefined();
+  });
+});

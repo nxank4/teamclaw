@@ -1251,3 +1251,67 @@ describe("runCrew — executeTool threading", () => {
   });
 });
 
+describe("runPlanning + runCrew — onToken propagation", () => {
+  it("runPlanning threads onToken to the planner subagent", async () => {
+    // The planner is the very first subagent invoked. If onToken
+    // isn't threaded here, the TUI sees a frozen spinner during
+    // the entire planning phase — which is the longest blocking
+    // step in many crew runs.
+    const stub = stubSubagent([happyPlanJson()]);
+    const onToken = (): void => {};
+
+    await runPlanning({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: stub.impl,
+      onToken,
+    });
+
+    expect(stub.callCount()).toBe(1);
+    expect(stub.capturedArgs()[0]?.onToken).toBe(onToken);
+  });
+
+  it("runCrew threads onToken to every layer (subagent + phase + meeting)", async () => {
+    // The contract: onToken from the caller (router) reaches the
+    // planner subagent, the phase executor, and the discussion
+    // meeting. We verify each layer received the same callback
+    // reference — that's how AgentToken propagates from real
+    // crew runs to the TUI.
+    const stub = stubSubagent([happyPlanJson()]);
+
+    let phaseExecReceivedOnToken: unknown = "<not-captured>";
+    const phaseExec = stubExecutePhase([
+      { ended_by: "all_complete" },
+      { ended_by: "all_complete" },
+    ]);
+    const phaseExecCapture = async (args: Parameters<typeof phaseExec.impl>[0]) => {
+      phaseExecReceivedOnToken = (args as { onToken?: unknown }).onToken;
+      return phaseExec.impl(args);
+    };
+
+    let meetingReceivedOnToken: unknown = "<not-captured>";
+    const meetingCapture: typeof noopMeetingImpl = async (args) => {
+      meetingReceivedOnToken = (args as unknown as { onToken?: unknown }).onToken;
+      return noopMeetingImpl(args);
+    };
+
+    const onToken = (): void => {};
+
+    const r = await runCrew({
+      options: { goal: "x", crew_name: "full-stack", workdir: "." },
+      home_dir: homeDir,
+      manifest: fullStackManifest(),
+      runSubagentImpl: stub.impl,
+      executePhaseImpl: phaseExecCapture,
+      runDiscussionMeetingImpl: meetingCapture,
+      onToken,
+    });
+
+    expect(r.status).toBe("completed");
+    expect(stub.capturedArgs()[0]?.onToken).toBe(onToken);
+    expect(phaseExecReceivedOnToken).toBe(onToken);
+    expect(meetingReceivedOnToken).toBe(onToken);
+  });
+});
+
