@@ -223,3 +223,40 @@ describe("MessagesComponent.appendToLastAgent", () => {
   });
 });
 
+describe("MessagesComponent.addTaskBlockedLine", () => {
+  it("appends a system message with the ⊘ glyph, agent, task, and reason", () => {
+    // The handler in router-wiring fires this on every
+    // RouterEvent.AgentTaskBlocked. The line must carry enough text
+    // for the user to act on it without scrolling back to the phase
+    // summary or digging through debug logs.
+    const m = new MessagesComponent("test-messages");
+    m.addTaskBlockedLine({
+      agentId: "coder",
+      taskName: "Create src/health.ts",
+      reasonMessage: "Session token cap reached (10000 / 5000).",
+    });
+    const text = stripAnsi(m.render(80).join("\n"));
+    expect(text).toContain("⊘");
+    expect(text).toContain("coder");
+    expect(text).toContain("Create src/health.ts");
+    expect(text).toContain("Session token cap reached");
+    expect(text).toContain("blocked:");
+  });
+
+  it("renders the glyph in a colored theme style (ANSI escape present)", () => {
+    // Style smoke-test — without the colored glyph the line blends
+    // into normal system messages, which defeats the point of an
+    // inline alert. We don't pin the exact RGB code (theme-dependent)
+    // but we DO pin that an ANSI escape is emitted around the glyph.
+    const m = new MessagesComponent("test-messages");
+    m.addTaskBlockedLine({
+      agentId: "tester",
+      taskName: "t1",
+      reasonMessage: "x",
+    });
+    const raw = m.render(80).join("\n");
+    expect(stripAnsi(raw)).toContain("⊘");
+    expect(raw).toMatch(/\x1b\[/);
+  });
+});
+

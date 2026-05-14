@@ -56,6 +56,7 @@ export const ICONS = {
 
   // Misc
   aborted: "◼",     // ◼
+  blocked: "⊘",     // ⊘ — circled solidus, used for one-shot task-blocked lines
   hourglass: "⏳",   // ⏳
   memo: "📝",  // 📝
   gear: "⚙",        // ⚙
