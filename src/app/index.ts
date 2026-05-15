@@ -105,6 +105,11 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.statusBar.updateSegment(2, `${info.icon} ${info.shortName}`, info.color);
     layout.tui.requestRender();
   };
+  // Sync the chip with initialMode before first paint. Without this,
+  // `openpawl --mode crew` launches with the internal mode set to
+  // "crew" but the status-bar segment still showing the default solo
+  // chip — the user has to Shift+Tab twice to bring them back in sync.
+  updateModeDisplay();
 
   {
     const { createModeCommand } = await import("./commands/mode.js");

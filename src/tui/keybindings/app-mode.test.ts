@@ -36,6 +36,17 @@ describe("AppModeSystem constructor", () => {
     expect(sys.getMode()).toBe("crew");
   });
 
+  it("getModeInfo() reflects the initialMode for first-paint rendering", () => {
+    // Pins the contract that updateModeDisplay relies on in launchTUI:
+    // a crew-initialized system must surface the crew presentation so
+    // the status-bar chip can be set correctly before the first paint.
+    const sys = new AppModeSystem("crew");
+    const info = sys.getModeInfo();
+    expect(info.mode).toBe("crew");
+    expect(info.displayName).toBe("Crew");
+    expect(info.shortName).toBe("crew");
+  });
+
   it("respects initialMode='solo' explicitly", () => {
     const sys = new AppModeSystem("solo");
     expect(sys.getMode()).toBe("solo");
