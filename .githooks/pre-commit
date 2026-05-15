@@ -5,6 +5,18 @@
 
 set -e
 
+# Lockfile sync guard — block staging package.json without bun.lock.
+# Run before heavier checks so we fail fast on lockfile drift.
+if git diff --cached --name-only | grep -qx 'package.json'; then
+  if ! git diff --cached --name-only | grep -qx 'bun.lock'; then
+    echo "pre-commit: ERROR — package.json staged without bun.lock" >&2
+    echo "Run 'bun install' to sync the lockfile, then stage both files." >&2
+    echo "Skip once with: git commit --no-verify" >&2
+    exit 1
+  fi
+  echo "pre-commit: lockfile sync ok"
+fi
+
 echo "pre-commit: typecheck..."
 bunx tsc --noEmit
 
