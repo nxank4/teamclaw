@@ -65,7 +65,15 @@ export function wireRouterEvents(
   function pushCrewState(): void {
     const state = ensureCrewState();
     layout.crewProgress.setProps({ state, spinnerFrame: crewSpinnerFrame });
-    layout.tui.requestRender();
+    // Fast path (tui.ts:372). Only the bottom-fixed area changed —
+    // the chat is untouched on per-token CrewTokens events. Skipping
+    // the chat re-render here matters during streaming because the
+    // full-render path can grow expensive enough on long chats that
+    // many incoming chunks coalesce into one frame, masking the
+    // tick. The renderer detects bottom-height changes (e.g. when
+    // CrewPlanReady adds queued agents) and falls through to a full
+    // render automatically — see the guard at tui.ts:452.
+    layout.tui.requestFixedRender();
   }
 
   function startCrewSpinner(): void {
@@ -73,7 +81,7 @@ export function wireRouterEvents(
     crewSpinnerInterval = setInterval(() => {
       crewSpinnerFrame = (crewSpinnerFrame + 1) % 4;
       layout.crewProgress.setProps({ spinnerFrame: crewSpinnerFrame });
-      layout.tui.requestRender();
+      layout.tui.requestFixedRender();
     }, SPINNER_INTERVAL_MS);
   }
 

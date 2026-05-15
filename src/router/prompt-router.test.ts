@@ -286,6 +286,61 @@ describe("PromptRouter — crew dispatch event flow", () => {
     ]);
   });
 
+  it("dispatchCrew emits CrewTokens with a length-based output delta per chunk", async () => {
+    // Per-chunk +1 grossly under-counted real token usage because
+    // chunks span multiple tokens (Anthropic ≈1/chunk, OpenAI burst
+    // up to ~10). The estimate is `ceil(chunk.content.length / 4)` —
+    // robust for English/code. The wrapper's post-completion call
+    // reports input only so the live + completion totals never
+    // double-count output.
+    const sessionMgr = createSessionManager({ sessionsDir: homeDir });
+    await sessionMgr.initialize();
+
+    const router = new PromptRouter({}, sessionMgr, null, stubAgentRunner);
+
+    type Delta = { agentId: string; input: number; output: number };
+    const deltas: Delta[] = [];
+    router.on(
+      RouterEvent.CrewTokens,
+      (_sid: string, agentId: string, input: number, output: number) => {
+        deltas.push({ agentId, input, output });
+      },
+    );
+
+    const stubRunCrew: (args: RunCrewArgs) => Promise<CrewRunResult> = async (args) => {
+      // Three chunks: 4 chars (1 token), 16 chars (4 tokens), 1 char
+      // (clamped to 1 by Math.max(1, ...)).
+      args.onToken?.("coder", "abcd");
+      args.onToken?.("coder", "abcdefghijklmnop");
+      args.onToken?.("coder", "x");
+      return {
+        status: "completed",
+        session_id: "sid",
+        crew_name: "full-stack",
+        goal: "test",
+        phases: [],
+        plan_artifact_id: "plan-1",
+        phase_summary_artifact_ids: [],
+        tokens_used: 100,
+        ended_by: "all_phases_complete",
+      };
+    };
+
+    await router.route("sid", "do thing", {
+      appMode: "crew",
+      runCrewImpl: stubRunCrew,
+    });
+
+    // Filter to the coder agent (planner-buffered path is tested
+    // separately; we want the chunk-length math here).
+    const coderDeltas = deltas.filter((d) => d.agentId === "coder");
+    expect(coderDeltas).toEqual([
+      { agentId: "coder", input: 0, output: 1 },
+      { agentId: "coder", input: 0, output: 4 },
+      { agentId: "coder", input: 0, output: 1 },
+    ]);
+  });
+
   it("intercepts planner tokens and emits a readable markdown plan on CrewPlanReady", async () => {
     // The planner streams its plan as raw JSON. Forwarding those
     // tokens straight to AgentToken dumps an unreadable blob into

@@ -28,6 +28,7 @@ import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
 import { runCrew, PLANNER_AGENT_ID } from "../crew/crew-runner.js";
 import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
+import { debugLog } from "../debug/logger.js";
 import type { CrewPhase } from "../crew/types.js";
 import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
 import { agentDisplayName } from "../app/agent-display.js";
@@ -370,13 +371,19 @@ export class PromptRouter extends EventEmitter {
         // plan is ready, then replaced with a readable markdown
         // render. See onCrewPlanReady below.
         onToken: (agentId, token) => {
-          // Live token-footer tick: one output-delta per streamed
-          // token. The wrapper's post-completion onCrewTokens (see
-          // crew-runner.ts withCrewLifecycle) then reports the
-          // INPUT delta only, so live + completion don't double-
-          // count. Fires for the planner too even though planner
-          // tokens are otherwise buffered below.
-          this.emit(RouterEvent.CrewTokens, sessionId, agentId, 0, 1);
+          // Live token-footer tick. Chunks from the LLM stream are
+          // strings of variable length (Anthropic ≈ 1 token/chunk,
+          // OpenAI bursts up to ~10), so counting chunks as 1 each
+          // grossly under-represents real usage. Estimate from text
+          // length — the chars/4 rule is a robust approximation
+          // across UTF-8 English/code for the major providers. The
+          // wrapper's post-completion onCrewTokens (crew-runner.ts:377)
+          // reports INPUT only so live + completion never double-count.
+          const outputDelta = Math.max(1, Math.ceil(token.length / 4));
+          this.emit(RouterEvent.CrewTokens, sessionId, agentId, 0, outputDelta);
+          debugLog("debug", "crew", "crew:token_chunk", {
+            data: { agent_id: agentId, chunk_len: token.length, output_delta: outputDelta },
+          });
           if (agentId === PLANNER_AGENT_ID && !plannerPlanEmitted) {
             plannerJsonBuffer += token;
             return;

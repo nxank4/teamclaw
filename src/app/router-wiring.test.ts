@@ -32,6 +32,7 @@ interface StubLayout {
   messages: MessagesComponent;
   crewProgress: CrewProgressView;
   renderCount: number;
+  fixedRenderCount: number;
   statusUpdates: Array<{ idx: number; text: string }>;
   fixedHidden: Map<string, boolean>;
 }
@@ -44,6 +45,7 @@ function makeStubLayout(): StubLayout {
   });
   const state = {
     renderCount: 0,
+    fixedRenderCount: 0,
     statusUpdates: [] as Array<{ idx: number; text: string }>,
     fixedHidden: new Map<string, boolean>(),
   };
@@ -59,6 +61,9 @@ function makeStubLayout(): StubLayout {
       requestRender: () => {
         state.renderCount += 1;
       },
+      requestFixedRender: () => {
+        state.fixedRenderCount += 1;
+      },
       setFixedBottomHidden: (id: string, hidden: boolean) => {
         state.fixedHidden.set(id, hidden);
       },
@@ -69,6 +74,7 @@ function makeStubLayout(): StubLayout {
     messages,
     crewProgress,
     get renderCount() { return state.renderCount; },
+    get fixedRenderCount() { return state.fixedRenderCount; },
     get statusUpdates() { return state.statusUpdates; },
     get fixedHidden() { return state.fixedHidden; },
   };
@@ -178,6 +184,28 @@ describe("wireRouterEvents — crew display regressions", () => {
     // Subsequent same-agent tokens append to the existing bubble.
     router.emit(RouterEvent.AgentToken, "sid", "planner", "\n  t1 · Tester · ...");
     expect(countAgentMessages(stub.messages)).toBe(1);
+  });
+
+  it("CrewTokens uses the requestFixedRender fast path so the chat isn't re-rendered per chunk", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    // The crew overlay reveal triggered a full requestRender (panel
+    // visibility flipped, bottom-fixed height changed). Snapshot the
+    // counters and assert that subsequent token deltas don't fire
+    // requestRender again.
+    const fullBaseline = stub.renderCount;
+    const fixedBaseline = stub.fixedRenderCount;
+
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 5);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 2);
+
+    // Three fast-path renders, zero new full renders.
+    expect(stub.fixedRenderCount - fixedBaseline).toBe(3);
+    expect(stub.renderCount).toBe(fullBaseline);
   });
 
   it("CrewTokens ticks the footer per emitted token via dispatchCrew.onToken bridge", () => {
