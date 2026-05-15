@@ -374,7 +374,11 @@ function withCrewLifecycle(args: RunPlanningArgs): RunPlanningArgs {
         input: 0,
         output: result.tokens_used,
       };
-      args.onCrewTokens?.(agentId, breakdown.input, breakdown.output);
+      // Reconcile: output tokens are already counted live by
+      // dispatchCrew.onToken (one delta per streamed token), so the
+      // post-completion call reports the INPUT delta only. Reporting
+      // both here would double-count output against the live ticks.
+      args.onCrewTokens?.(agentId, breakdown.input, 0);
       if (agentId !== PLANNER_AGENT_ID) {
         const summary = result.summary?.split("\n")[0]?.slice(0, 60).trim() || "done";
         args.onCrewAgentDone?.(agentId, summary);

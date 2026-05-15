@@ -370,6 +370,13 @@ export class PromptRouter extends EventEmitter {
         // plan is ready, then replaced with a readable markdown
         // render. See onCrewPlanReady below.
         onToken: (agentId, token) => {
+          // Live token-footer tick: one output-delta per streamed
+          // token. The wrapper's post-completion onCrewTokens (see
+          // crew-runner.ts withCrewLifecycle) then reports the
+          // INPUT delta only, so live + completion don't double-
+          // count. Fires for the planner too even though planner
+          // tokens are otherwise buffered below.
+          this.emit(RouterEvent.CrewTokens, sessionId, agentId, 0, 1);
           if (agentId === PLANNER_AGENT_ID && !plannerPlanEmitted) {
             plannerJsonBuffer += token;
             return;
