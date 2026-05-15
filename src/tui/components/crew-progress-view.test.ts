@@ -60,14 +60,27 @@ describe("renderCrewProgress", () => {
     expect(out[2]).toMatch(/^└─/);
   });
 
-  it("token footer shows total of input + output via formatTokens", () => {
+  it("token footer shows input ↑ and output ↓ separately via formatTokens", () => {
     const state = createCrewRunState("");
     markAgentDone(state, "planner", "3 tasks");
     addTokens(state, "planner", 5000, 7400);
     const lines = renderCrewProgress({ state, spinnerFrame: 0 }).map(strip);
     const footer = lines[lines.length - 1]!;
-    expect(footer).toContain("tokens");
-    expect(footer).toContain("12k");
+    expect(footer).toContain("↑");
+    expect(footer).toContain("↓");
+    expect(footer).toContain("5.0k");
+    expect(footer).toContain("7.4k");
+    // No more literal "tokens" prefix.
+    expect(footer).not.toContain("tokens");
+  });
+
+  it("footer renders `↑ 0  ↓ 0` when no tokens have been counted yet", () => {
+    const state = createCrewRunState("");
+    markAgentRunning(state, "coder");
+    const lines = renderCrewProgress({ state, spinnerFrame: 0 }).map(strip);
+    const footer = lines[lines.length - 1]!;
+    expect(footer).toContain("↑ 0");
+    expect(footer).toContain("↓ 0");
   });
 
   it("running agent picks a frame from boxFrames keyed by spinnerFrame", () => {

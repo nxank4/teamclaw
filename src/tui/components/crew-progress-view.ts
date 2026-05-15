@@ -71,9 +71,9 @@ export function renderCrewProgress(props: CrewProgressViewProps): string[] {
     lines.push(`${branch} ${glyph} ${name} ${defaultTheme.dim("·")} ${metric}`);
   }
 
-  const totalTokens = props.state.totalInputTokens + props.state.totalOutputTokens;
-  const tokensLine = `   ${defaultTheme.dim("tokens")} ${defaultTheme.info(formatTokens(totalTokens))}`;
-  lines.push(tokensLine);
+  const inputCell = defaultTheme.info(`↑ ${formatTokens(props.state.totalInputTokens)}`);
+  const outputCell = defaultTheme.warning(`↓ ${formatTokens(props.state.totalOutputTokens)}`);
+  lines.push(`   ${inputCell}  ${outputCell}`);
 
   return lines;
 }
