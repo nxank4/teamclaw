@@ -8,6 +8,17 @@ import { RouterEvent, SessionEvent } from "../router/event-types.js";
 import { ThinkingIndicator } from "../tui/components/thinking-indicator.js";
 import { SPINNER_INTERVAL_MS } from "../tui/components/status-indicator.js";
 import { ToolCallTokenFilter } from "../tui/text/tool-call-filter.js";
+import {
+  addTokens,
+  createCrewRunState,
+  markAgentDone,
+  markAgentBlocked,
+  markAgentQueued,
+  markAgentRunning,
+  markComplete,
+  type CrewRunState,
+} from "./crew-run-state.js";
+import type { CrewPhase } from "../crew/types.js";
 import type { AppLayout } from "./layout.js";
 import type { PromptRouter } from "../router/prompt-router.js";
 import type { SessionManager } from "../session/session-manager.js";
@@ -37,6 +48,49 @@ export function wireRouterEvents(
   const thinking = new ThinkingIndicator();
   let thinkingMsgAdded = false;
 
+  // ── Crew progress overlay (sticky tree above the divider) ──────────────
+  // State + spinner are owned here so the router stays layout-agnostic.
+  // The panel is hidden by default; AgentStart("crew") flips it visible
+  // and AgentDone("crew") schedules a 3 s fade-out.
+  let crewState: CrewRunState | null = null;
+  let crewSpinnerFrame = 0;
+  let crewSpinnerInterval: ReturnType<typeof setInterval> | null = null;
+  let crewHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function ensureCrewState(goal: string = ""): CrewRunState {
+    if (!crewState) crewState = createCrewRunState(goal);
+    return crewState;
+  }
+
+  function pushCrewState(): void {
+    const state = ensureCrewState();
+    layout.crewProgress.setProps({ state, spinnerFrame: crewSpinnerFrame });
+    layout.tui.requestRender();
+  }
+
+  function startCrewSpinner(): void {
+    if (crewSpinnerInterval) return;
+    crewSpinnerInterval = setInterval(() => {
+      crewSpinnerFrame = (crewSpinnerFrame + 1) % 4;
+      layout.crewProgress.setProps({ spinnerFrame: crewSpinnerFrame });
+      layout.tui.requestRender();
+    }, SPINNER_INTERVAL_MS);
+  }
+
+  function stopCrewSpinner(): void {
+    if (crewSpinnerInterval) {
+      clearInterval(crewSpinnerInterval);
+      crewSpinnerInterval = null;
+    }
+  }
+
+  function clearCrewHideTimer(): void {
+    if (crewHideTimer) {
+      clearTimeout(crewHideTimer);
+      crewHideTimer = null;
+    }
+  }
+
   thinking.onUpdate = (text) => {
     if (!thinkingMsgAdded) return;
     // Only overwrite the spinner placeholder. If a `tool-approval` (or
@@ -55,6 +109,18 @@ export function wireRouterEvents(
     streamingForAgent = agentId;
     streamedContent = "";
     layout.messages.clearToolCalls();
+
+    if (agentId === "crew") {
+      // Fresh crew run — reset the live state and reveal the sticky
+      // overlay. A previous run's hide-timer is cancelled so a rapid
+      // re-dispatch never accidentally hides the new run.
+      clearCrewHideTimer();
+      crewState = createCrewRunState("");
+      crewSpinnerFrame = 0;
+      layout.crewProgress.setProps({ state: crewState, spinnerFrame: 0 });
+      layout.tui.setFixedBottomHidden("crew-progress", false);
+      startCrewSpinner();
+    }
     tokenFilter = new ToolCallTokenFilter((filtered) => {
       // Append to the most recent agent message in the stream, not the
       // literal last entry. Without this, a tool-approval system
@@ -210,6 +276,19 @@ export function wireRouterEvents(
   };
 
   const onAgentDone = (_sessionId: string, agentId: string, result?: { response?: string }) => {
+    if (agentId === "crew") {
+      if (crewState) markComplete(crewState);
+      pushCrewState();
+      stopCrewSpinner();
+      // Auto-hide after a few seconds so the user sees the final tree
+      // and totals, then the overlay collapses out of the layout.
+      clearCrewHideTimer();
+      crewHideTimer = setTimeout(() => {
+        layout.tui.setFixedBottomHidden("crew-progress", true);
+        layout.tui.requestRender();
+        crewHideTimer = null;
+      }, 3000);
+    }
     const responseText = result?.response || streamedContent;
     if (responseText && agentId !== "system") {
       onAssistantResponse?.(agentId, responseText);
@@ -265,6 +344,9 @@ export function wireRouterEvents(
     // sitting under a frozen spinner line.
     layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
+    stopCrewSpinner();
+    clearCrewHideTimer();
+    layout.tui.setFixedBottomHidden("crew-progress", true);
     layout.messages.clearToolCalls();
     layout.messages.addMessage({
       role: "error",
@@ -307,11 +389,63 @@ export function wireRouterEvents(
     // the spinner, so this remove is independent of that branch.
     layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
+    stopCrewSpinner();
+    clearCrewHideTimer();
+    layout.tui.setFixedBottomHidden("crew-progress", true);
     layout.messages.bakeToolCalls();
     layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
     layout.tui.requestRender();
 
     return true;
+  };
+
+  // ── Crew lifecycle listeners (drive the sticky tree) ───────────────────
+  const onCrewPlanReady = (_sessionId: string, phases: CrewPhase[]): void => {
+    const state = ensureCrewState();
+    const totalTasks = phases.reduce((n, p) => n + p.tasks.length, 0);
+    // Planner just finished producing the plan — promote it to done with
+    // the task-count metric. Per-task agents below this entry land as
+    // queued with their own "N tasks" tally.
+    markAgentDone(state, "planner", `${totalTasks} ${totalTasks === 1 ? "task" : "tasks"}`);
+    const taskCounts = new Map<string, number>();
+    for (const phase of phases) {
+      for (const task of phase.tasks) {
+        taskCounts.set(task.assigned_agent, (taskCounts.get(task.assigned_agent) ?? 0) + 1);
+      }
+    }
+    for (const [agentId, count] of taskCounts) {
+      markAgentQueued(state, agentId, `${count} ${count === 1 ? "task" : "tasks"}`);
+    }
+    pushCrewState();
+  };
+
+  const onCrewAgentStart = (_sessionId: string, agentId: string, _taskCount: number): void => {
+    const state = ensureCrewState();
+    markAgentRunning(state, agentId);
+    pushCrewState();
+  };
+
+  const onCrewAgentDone = (_sessionId: string, agentId: string, summary: string): void => {
+    const state = ensureCrewState();
+    markAgentDone(state, agentId, summary || "done");
+    pushCrewState();
+  };
+
+  const onCrewAgentBlocked = (_sessionId: string, agentId: string, reason: string): void => {
+    const state = ensureCrewState();
+    markAgentBlocked(state, agentId, reason);
+    pushCrewState();
+  };
+
+  const onCrewTokens = (
+    _sessionId: string,
+    agentId: string,
+    input: number,
+    output: number,
+  ): void => {
+    const state = ensureCrewState();
+    addTokens(state, agentId, input, output);
+    pushCrewState();
   };
 
   const onAgentTaskBlocked = (
@@ -341,10 +475,17 @@ export function wireRouterEvents(
   router.on(RouterEvent.AgentDone, onAgentDone);
   router.on(RouterEvent.Done, onDispatchDone);
   router.on(RouterEvent.Error, onDispatchError);
+  router.on(RouterEvent.CrewPlanReady, onCrewPlanReady);
+  router.on(RouterEvent.CrewAgentStart, onCrewAgentStart);
+  router.on(RouterEvent.CrewAgentDone, onCrewAgentDone);
+  router.on(RouterEvent.CrewAgentBlocked, onCrewAgentBlocked);
+  router.on(RouterEvent.CrewTokens, onCrewTokens);
 
   return {
     cleanup: () => {
       stopToolSpinner();
+      stopCrewSpinner();
+      clearCrewHideTimer();
       router.off(RouterEvent.AgentStart, onAgentStart);
       router.off(RouterEvent.AgentToken, onAgentToken);
       router.off(RouterEvent.AgentTool, onAgentTool);
@@ -352,6 +493,11 @@ export function wireRouterEvents(
       router.off(RouterEvent.AgentDone, onAgentDone);
       router.off(RouterEvent.Done, onDispatchDone);
       router.off(RouterEvent.Error, onDispatchError);
+      router.off(RouterEvent.CrewPlanReady, onCrewPlanReady);
+      router.off(RouterEvent.CrewAgentStart, onCrewAgentStart);
+      router.off(RouterEvent.CrewAgentDone, onCrewAgentDone);
+      router.off(RouterEvent.CrewAgentBlocked, onCrewAgentBlocked);
+      router.off(RouterEvent.CrewTokens, onCrewTokens);
     },
     cancelStreaming,
     isStreaming: () => streamingForAgent !== null,

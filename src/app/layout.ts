@@ -13,9 +13,11 @@ import {
   MessagesComponent,
   EditorComponent,
   DividerComponent,
+  CrewProgressView,
   type Terminal,
 } from "../tui/index.js";
 import { defaultTheme } from "../tui/themes/default.js";
+import { createCrewRunState } from "./crew-run-state.js";
 
 export interface AppLayout {
   tui: TUI;
@@ -23,12 +25,18 @@ export interface AppLayout {
   messages: MessagesComponent;
   editor: EditorComponent;
   divider: DividerComponent;
+  crewProgress: CrewProgressView;
 }
 
 export function createLayout(terminal?: Terminal): AppLayout {
   const tui = new TUI(terminal);
 
   const messages = new MessagesComponent("messages");
+  const crewProgress = new CrewProgressView("crew-progress", {
+    state: createCrewRunState(""),
+    spinnerFrame: 0,
+  });
+  crewProgress.hidden = true;
   const divider = new DividerComponent("divider");
   const editor = new EditorComponent("editor", "Type a prompt, /command, @file, or !shell...");
   const statusBar = new StatusBarComponent("status", defaultTheme.statusBarBg);
@@ -36,7 +44,10 @@ export function createLayout(terminal?: Terminal): AppLayout {
   // Scrollable region (fills remaining space above fixed bottom)
   tui.setScrollableContent(messages);
 
-  // Fixed at bottom (order: divider, editor, status bar)
+  // Fixed at bottom (top-to-bottom order: crew progress, divider, editor, status bar).
+  // crewProgress sits above the divider so the live agent tree always reads as part of the
+  // overlay region. Solo mode keeps it hidden via tui.setFixedBottomHidden.
+  tui.addFixedBottom(crewProgress);
   tui.addFixedBottom(divider);
   tui.addFixedBottom(editor);
   tui.addFixedBottom(statusBar);
@@ -49,5 +60,5 @@ export function createLayout(terminal?: Terminal): AppLayout {
 
   tui.setFocus(editor);
 
-  return { tui, statusBar, messages, editor, divider };
+  return { tui, statusBar, messages, editor, divider, crewProgress };
 }
