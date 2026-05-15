@@ -110,17 +110,6 @@ export function wireRouterEvents(
     streamedContent = "";
     layout.messages.clearToolCalls();
 
-    if (agentId === "crew") {
-      // Fresh crew run — reset the live state and reveal the sticky
-      // overlay. A previous run's hide-timer is cancelled so a rapid
-      // re-dispatch never accidentally hides the new run.
-      clearCrewHideTimer();
-      crewState = createCrewRunState("");
-      crewSpinnerFrame = 0;
-      layout.crewProgress.setProps({ state: crewState, spinnerFrame: 0 });
-      layout.tui.setFixedBottomHidden("crew-progress", false);
-      startCrewSpinner();
-    }
     tokenFilter = new ToolCallTokenFilter((filtered) => {
       // Append to the most recent agent message in the stream, not the
       // literal last entry. Without this, a tool-approval system
@@ -138,22 +127,36 @@ export function wireRouterEvents(
       thinkingMsgAdded = false;
     }
 
-    // Fresh dispatch — reset the per-run word history so this run can
-    // draw from the full P-themed pool again. Persists across stop/start
-    // within a run so idle gaps between subagents cycle to new words.
-    thinking.resetRun();
-    thinking.start();
-    layout.messages.addMessage({
-      role: "agent",
-      agentName: agentDisplayName(agentId),
-      agentColor: getAgentColorFn(agentId),
-      content: thinking.getCurrentText(),
-      timestamp: new Date(),
-      tag: "thinking",
-    });
-    thinkingMsgAdded = true;
+    if (agentId === "crew") {
+      // Crew dispatch — the CrewProgressView overlay below is the
+      // single source of progress. Do NOT also add the solo
+      // ThinkingIndicator placeholder; otherwise both spinners tick
+      // simultaneously (one in the chat, one in the bottom tree).
+      clearCrewHideTimer();
+      crewState = createCrewRunState("");
+      crewSpinnerFrame = 0;
+      layout.crewProgress.setProps({ state: crewState, spinnerFrame: 0 });
+      layout.tui.setFixedBottomHidden("crew-progress", false);
+      startCrewSpinner();
+      layout.statusBar.updateSegment(3, `crew running... ${defaultTheme.dim("(Esc to cancel)")}`, defaultTheme.accent);
+    } else {
+      // Solo dispatch — keep the placeholder + flavor-text animation
+      // that signals "the agent is thinking" between AgentStart and
+      // the first streamed token.
+      thinking.resetRun();
+      thinking.start();
+      layout.messages.addMessage({
+        role: "agent",
+        agentName: agentDisplayName(agentId),
+        agentColor: getAgentColorFn(agentId),
+        content: thinking.getCurrentText(),
+        timestamp: new Date(),
+        tag: "thinking",
+      });
+      thinkingMsgAdded = true;
+      layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} thinking... ${defaultTheme.dim("(Esc to cancel)")}`, defaultTheme.accent);
+    }
 
-    layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} thinking... ${defaultTheme.dim("(Esc to cancel)")}`, defaultTheme.accent);
     layout.tui.requestRender();
   };
 
@@ -171,6 +174,11 @@ export function wireRouterEvents(
         content: "",
         timestamp: new Date(),
       });
+      // Arm the same-agent guard below so it doesn't ALSO addMessage()
+      // for the very same first token — that's what was double-headering
+      // crew subagents whose agentId differs from the umbrella "crew"
+      // that onAgentStart set this to.
+      streamingForAgent = agentId;
       layout.statusBar.updateSegment(3, `${agentDisplayName(agentId)} working... ${defaultTheme.dim("(Esc)")}`, defaultTheme.accent);
     }
     // Only start a new agent message when the dispatch switches to a

@@ -95,20 +95,22 @@ function findThinkingPlaceholder(messages: MessagesComponent): boolean {
 }
 
 describe("wireRouterEvents — thinking placeholder lifecycle", () => {
-  it("removes the thinking placeholder when AgentDone fires (crew path: no AgentToken)", () => {
+  it("crew dispatch does NOT add a solo thinking placeholder (CrewProgressView is the indicator)", () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
 
     router.emit(RouterEvent.AgentStart, "sid", "crew");
-    expect(findThinkingPlaceholder(stub.messages)).toBe(true);
+    // Bug 1 fix: no placeholder is added for crew; the bottom tree is
+    // the single source of "what's happening".
+    expect(findThinkingPlaceholder(stub.messages)).toBe(false);
 
-    // Crew dispatch never emits AgentToken — go straight to AgentDone.
+    // AgentDone is a safe no-op since there's nothing to remove.
     router.emit(RouterEvent.AgentDone, "sid", "crew", { success: true });
     expect(findThinkingPlaceholder(stub.messages)).toBe(false);
   });
 
-  it("solo path stays correct — first AgentToken already strips the tag, AgentDone is a safe no-op", () => {
+  it("solo path adds the placeholder and the first AgentToken strips the tag", () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
@@ -125,16 +127,78 @@ describe("wireRouterEvents — thinking placeholder lifecycle", () => {
     expect(findThinkingPlaceholder(stub.messages)).toBe(false);
   });
 
-  it("dispatch error also removes the thinking placeholder", () => {
+  it("dispatch error after solo AgentStart removes the thinking placeholder", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
+    expect(findThinkingPlaceholder(stub.messages)).toBe(true);
+
+    router.emit(RouterEvent.Error, "sid", { type: "dispatch_failed", cause: "boom" });
+    expect(findThinkingPlaceholder(stub.messages)).toBe(false);
+  });
+});
+
+/**
+ * Regressions for the crew-display-bugs trio:
+ *   1) Double spinner — solo thinking + crew tree both ticking.
+ *   2) Duplicate "Planner" header on the first crew subagent token.
+ *   3) Token footer stuck at 0 — CrewTokens not ticking per-token.
+ */
+describe("wireRouterEvents — crew display regressions", () => {
+  function countAgentMessages(messages: MessagesComponent): number {
+    // Probe by removing one-at-a-time; restore via tag round-trip is not
+    // available, so use the public getMessageCount() and check role tags
+    // indirectly via the snapshot. Simpler: read messages from the
+    // component's internal accessor.
+    // MessagesComponent exposes getMessageCount(); count agent bubbles by
+    // removing until we hit non-agent or empty. Since the component does
+    // not expose a snapshot, we count by addMessage side-effects: every
+    // agent bubble is one entry. Acceptable in this test: after
+    // AgentStart + first AgentToken, the only entries are agent bubbles.
+    return messages.getMessageCount();
+  }
+
+  it("emits exactly one agent bubble for the first crew subagent token (no duplicate Planner header)", () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
 
     router.emit(RouterEvent.AgentStart, "sid", "crew");
-    expect(findThinkingPlaceholder(stub.messages)).toBe(true);
+    // No thinking placeholder under crew, so the message count starts at 0.
+    expect(stub.messages.getMessageCount()).toBe(0);
 
-    router.emit(RouterEvent.Error, "sid", { type: "dispatch_failed", cause: "boom" });
-    expect(findThinkingPlaceholder(stub.messages)).toBe(false);
+    // First synthesized planner token (the markdown plan) arrives.
+    router.emit(RouterEvent.AgentToken, "sid", "planner", "**Plan: 1 phase, 1 task**");
+
+    // Bug 2 fix: exactly one Planner bubble, not two.
+    expect(countAgentMessages(stub.messages)).toBe(1);
+
+    // Subsequent same-agent tokens append to the existing bubble.
+    router.emit(RouterEvent.AgentToken, "sid", "planner", "\n  t1 · Tester · ...");
+    expect(countAgentMessages(stub.messages)).toBe(1);
+  });
+
+  it("CrewTokens ticks the footer per emitted token via dispatchCrew.onToken bridge", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+
+    // Simulate three per-token CrewTokens deltas (output=1 each) and
+    // a wrapper-style INPUT-only reconcile.
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 4000, 0);
+
+    const state = stub.crewProgress.getProps().state;
+    expect(state.totalOutputTokens).toBe(3);
+    expect(state.totalInputTokens).toBe(4000);
+    expect(state.agents.get("planner")?.outputTokens).toBe(3);
+    expect(state.agents.get("planner")?.inputTokens).toBe(4000);
   });
 });
 
@@ -235,8 +299,10 @@ describe("wireRouterEvents — flavor animation lifecycle", () => {
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
 
-    router.emit(RouterEvent.AgentStart, "sid", "crew");
-    // Allow one frame to land so the placeholder has spinner content.
+    // Solo dispatch — the only path that uses the chat-stream thinking
+    // placeholder. Crew dispatch no longer adds one (the bottom
+    // CrewProgressView is the indicator there).
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
     await Bun.sleep(0);
     expect(stub.messages.hasRunningToolCalls()).toBe(false);
 
