@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+## [0.4.0-rc.3] - 2026-05-15
+
+Tier 1 polish + security release. Visible session continuity, crew mode token streaming for parity with solo, and structured phase-blocked reasons with both inline ⊘ rendering and phase-summary surfacing. Tagline unified across all surfaces. Two CodeQL security alerts closed.
+
+### Added
+- **Session resume banner** (#162). Bare `openpawl` and `openpawl -c` now show "Resuming session: <name> · <messages> · <relative time>" when a prior session is restored. Silence on fresh start. Closes the rc.1 Bug U+6 ("session continuity is invisible") and J2 ("auto-resume claims a fresh launch").
+- **Crew subagent token streaming** (#163). Crew mode now streams agent tokens into the TUI tree in real time during planner, coder, reviewer, tester turns — matching solo-mode UX. Previously the TUI showed only tool-call spinners between phases, leaving long "thinking" gaps that felt frozen. `onToken` threaded from `dispatchCrew → runCrew → subagent-runner → runAgentTurn` via the existing `(agentId, token)` signature; TUI required no changes.
+- **Structured phase-blocked reason** (#164). When a crew task blocks, the cause is captured as a typed field `blocked_reason: { code, message, details }` on the task. 13 stable block codes cover budget exhaustion (task/phase/session), dependency failure, capability denial, write-lock timeout, validator rejection, timeout, environment error, and retry exhaustion. The reason surfaces in three places: a live `⊘ <agent>: <task> blocked: <reason>` system line the moment the transition happens (via new `RouterEvent.AgentTaskBlocked`), a `↳ <message>` line under each blocked task in the phase-summary table with hanging-indent wrap, and a `blocked_reasons[]` array on `PhaseSummaryArtifact` for audit and replay. 11 production block sites refactored through a single `markTaskBlocked(task, reason, onTaskBlocked?)` helper. Closes the rc.1 Bug U+4.
+
+### Changed
+- **Tagline unified across all surfaces** (#161). Welcome banner now uses `PRODUCT_TAGLINE_SHORT` ("Plan. Build. Review. Remember. Repeat.") instead of the separate `PRODUCT_TAGLINE_HEADLINE` ("Crew AI for your terminal"). CLI banner, onboarding intro, npm package description, and welcome card all read the same brand line.
+- **README install section** exposes both stable and prerelease channels — see Migration below.
+
+### Security
+- **2 CodeQL alerts resolved** (#158). Closed: input sanitization gap and a prototype-pollution vector. Both flagged in the GitHub Advanced Security scan; no known exploit in the wild. Recommend rc.2 users upgrade to rc.3.
+
+### Removed
+- **Stale `openpawl logs work` subcommand** (#160). Pointed at a dead log source after the v0.4 crew refactor retired the `work` CLI surface. `openpawl logs work` now exits 1 with "unknown subcommand".
+- **`PRODUCT_TAGLINE_HEADLINE` constant** (#161). Subsumed by `PRODUCT_TAGLINE_SHORT`.
+- **`task.error: string` and `task.error_kind: TaskErrorKind` fields on `CrewTaskSchema`** (#164). Replaced by the structured `blocked_reason` field.
+
+### Dependencies
+- `@clack/prompts` 0.9.1 → 1.4.0 (#151).
+- `@types/node` 22.19.19 → 25.7.0 (#152).
+
+### Internal
+- TeamClaw prototype leftover files removed; author and copyright aligned to CodePawl (#159).
+- Pre-publish package cleanup (files array, sourcemap exclusion, metadata) for the rc.2 release (#157).
+- Package scoped to `@codepawl/openpawl`; stale install path references in README and docs aligned (#156). See Migration below.
+- README, CLAUDE.md, and docs/CREW.md synced to the rc.2 surface (#155).
+
+### Migration
+
+Breaking (distribution only): npm package name changed from `openpawl` to `@codepawl/openpawl` in 0.4.0-rc.2 (#156). Versions 0.4.0-rc.3+ ship to the scoped name only. Existing users on the unscoped package must migrate:
+
+```bash
+npm uninstall -g openpawl
+npm install -g @codepawl/openpawl@next
+```
+
+No code, config, CLI surface, or `~/.openpawl/` state changes — the binary name (`openpawl`), keychain service identifier, and on-disk layout are unchanged.
+
+**Code-level migration from rc.2:**
+- Downstream code reading `task.error` or `task.error_kind`: switch to `task.blocked_reason?.message` and `task.blocked_reason?.code` respectively. The full enum of block codes lives in `src/crew/types.ts`. The `env_error` subkinds previously in `error_kind` now live in `blocked_reason.details.kind`.
+- Programmatic users of `PRODUCT_TAGLINE_HEADLINE`: switch to `PRODUCT_TAGLINE_SHORT`.
+- `openpawl logs work` users: no migration; the subcommand had no successor surface.
+
+### Known Issues (carried from rc.2)
+- Bug U+11 — smaller models call tools on ambiguous prompts despite the system-prompt rule.
+- Bug U+13 — agent may claim file does not exist before reading.
+- Bug U+14 — agent may infer task content from prior context on rapid prompts.
+- Crew preset selection from TUI deferred to Tier 2 (`/crew switch <name>` not yet wired).
+- `/sessions` slash command not yet registered in TUI (CLI subcommand exists).
+- 3 dependabot HIGH-risk PRs still open: #93 typescript 5→6, #130 successor for @types/node, #132 zod 3→4. Defer to v0.4.0 stable.
+
 ## [0.4.0-rc.2] - 2026-05-13
 
 Polish + CLI mechanic consolidation release. The non-interactive surface collapses from `openpawl run --headless` into the `-p` print mode, mirroring Claude Code's mechanic. Crew mode gains a first-class `openpawl crew run <name> <goal>` entry point and a `--mode` global flag for direct TUI launch. README ground-truth sync. Deferred dependabot PRs from the rc.1 known-issues list landed.

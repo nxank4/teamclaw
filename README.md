@@ -71,9 +71,18 @@ A team of agents — planner, coder, reviewer, tester — works together on the 
 
 ## Install
 
+**Stable (recommended):**
+
 ```bash
 npm install -g @codepawl/openpawl
 # or: bun add -g @codepawl/openpawl
+```
+
+**Latest prerelease:**
+
+```bash
+npm install -g @codepawl/openpawl@next
+# or: bun add -g @codepawl/openpawl@next
 ```
 
 Or the standalone installer (writes to `~/.openpawl`):
