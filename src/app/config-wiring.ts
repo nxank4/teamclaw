@@ -115,7 +115,10 @@ export async function setupConfigAndProviders(
   };
 
   // ── Provider registry: background refresh + status bar sync ──────
-  let initialHealthCheckDone = false;
+  // Open the gate immediately when a provider is already configured (no wizard
+  // will run). Without this, every settings-save by an existing user is
+  // silently ignored by the registry listeners and the status bar stays stale.
+  let initialHealthCheckDone = !!instantConfig.hasProvider;
   {
     const { getProviderRegistry } = await import("../providers/provider-registry.js");
     const providerRegistry = getProviderRegistry();
@@ -131,6 +134,29 @@ export async function setupConfigAndProviders(
         const { status, error } = await pingProvider(5000);
         const providerName = current.providerName || instantConfig.providerName;
         setConnectionState({ status, providerName });
+        ctx.configState = {
+          hasProvider: true,
+          providerName,
+          isConnected: status === "connected",
+          error: error ?? null,
+        };
+      } catch { /* swallow */ }
+    });
+
+    // Re-validate the active provider immediately after any config write
+    // (API key edits, provider entry add/remove). Forces the state update
+    // because the user explicitly changed config — even a "connected" state
+    // must be allowed to downgrade if the new key is invalid.
+    providerRegistry.on("config:changed", async () => {
+      if (!initialHealthCheckDone) return;
+      try {
+        const { resetGlobalProviderManager } = await import("../providers/provider-factory.js");
+        resetGlobalProviderManager();
+        const current = getConnectionState();
+        const providerName = current.providerName || instantConfig.providerName;
+        setConnectionState({ status: "connecting", providerName }, { force: true });
+        const { status, error } = await pingProvider(5000);
+        setConnectionState({ status, providerName }, { force: true });
         ctx.configState = {
           hasProvider: true,
           providerName,
