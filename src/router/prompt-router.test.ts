@@ -23,6 +23,7 @@ import { RouterEvent } from "./event-types.js";
 import { createSessionManager } from "../session/session-manager.js";
 import type { AgentRunner } from "./dispatch-strategy.js";
 import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
+import { CrewPhaseSchema } from "../crew/types.js";
 
 let homeDir: string;
 let prevHome: string | undefined;
@@ -235,13 +236,13 @@ describe("PromptRouter — crew dispatch event flow", () => {
     });
   });
 
-  it("emits RouterEvent.AgentToken when subagents stream tokens", async () => {
+  it("forwards non-planner subagent tokens to RouterEvent.AgentToken", async () => {
     // Token-cadence analogue of the onProgress → AgentTool bridge
     // above. Solo dispatch streams tokens via the dispatcher's
     // emitToken path; crew bypasses the dispatcher and emits
-    // directly from dispatchCrew. This test pins down that the
-    // subagent's agent_id propagates through so the TUI can
-    // attribute each token to the right agent badge.
+    // directly from dispatchCrew. This test pins down that
+    // non-planner subagents' agent_id propagates through so the
+    // TUI can attribute each token to the right agent badge.
     const sessionMgr = createSessionManager({ sessionsDir: homeDir });
     await sessionMgr.initialize();
 
@@ -259,8 +260,8 @@ describe("PromptRouter — crew dispatch event flow", () => {
     const stubRunCrew: (args: RunCrewArgs) => Promise<CrewRunResult> = async (
       args,
     ) => {
-      args.onToken?.("planner", "tok1");
-      args.onToken?.("coder", "tok2");
+      args.onToken?.("coder", "tok-coder");
+      args.onToken?.("tester", "tok-tester");
       return {
         status: "completed",
         session_id: "sid",
@@ -280,9 +281,85 @@ describe("PromptRouter — crew dispatch event flow", () => {
     });
 
     expect(tokens).toEqual([
-      { sessionId: "sid", agentId: "planner", token: "tok1" },
-      { sessionId: "sid", agentId: "coder", token: "tok2" },
+      { sessionId: "sid", agentId: "coder", token: "tok-coder" },
+      { sessionId: "sid", agentId: "tester", token: "tok-tester" },
     ]);
+  });
+
+  it("intercepts planner tokens and emits a readable markdown plan on CrewPlanReady", async () => {
+    // The planner streams its plan as raw JSON. Forwarding those
+    // tokens straight to AgentToken dumps an unreadable blob into
+    // the chat. dispatchCrew now buffers planner tokens and, when
+    // onCrewPlanReady fires (post-parsePlan), emits a single
+    // synthesized AgentToken carrying the markdown render — plus
+    // RouterEvent.CrewPlanReady for the sticky overlay.
+    const sessionMgr = createSessionManager({ sessionsDir: homeDir });
+    await sessionMgr.initialize();
+
+    const router = new PromptRouter({}, sessionMgr, null, stubAgentRunner);
+
+    type Tok = { agentId: string; token: string };
+    const tokens: Tok[] = [];
+    let crewPlanReadyCount = 0;
+    router.on(RouterEvent.AgentToken, (_sid: string, agentId: string, token: string) => {
+      tokens.push({ agentId, token });
+    });
+    router.on(RouterEvent.CrewPlanReady, () => {
+      crewPlanReadyCount += 1;
+    });
+
+    const stubRunCrew: (args: RunCrewArgs) => Promise<CrewRunResult> = async (
+      args,
+    ) => {
+      // Planner streams JSON one chunk at a time — must NOT escape.
+      args.onToken?.("planner", "[{");
+      args.onToken?.("planner", '"id":"p1"');
+      args.onToken?.("planner", "}]");
+      // After parsePlan succeeds the runner fires onCrewPlanReady.
+      args.onCrewPlanReady?.([
+        CrewPhaseSchema.parse({
+          id: "p1",
+          name: "Setup",
+          description: "",
+          complexity_tier: "2",
+          tasks: [
+            {
+              id: "t1",
+              phase_id: "p1",
+              description: "Scan tests",
+              assigned_agent: "tester",
+              depends_on: [],
+            },
+          ],
+        }),
+      ]);
+      return {
+        status: "completed",
+        session_id: "sid",
+        crew_name: "full-stack",
+        goal: "test",
+        phases: [],
+        plan_artifact_id: "plan-1",
+        phase_summary_artifact_ids: [],
+        tokens_used: 100,
+        ended_by: "all_phases_complete",
+      };
+    };
+
+    await router.route("sid", "create hello.ts", {
+      appMode: "crew",
+      runCrewImpl: stubRunCrew,
+    });
+
+    // No raw JSON chunks escaped to the message stream.
+    expect(tokens.find((t) => t.token === "[{")).toBeUndefined();
+    expect(tokens.find((t) => t.token === '"id":"p1"')).toBeUndefined();
+    // Exactly one planner token was emitted — the markdown render.
+    const plannerTokens = tokens.filter((t) => t.agentId === "planner");
+    expect(plannerTokens).toHaveLength(1);
+    expect(plannerTokens[0]!.token).toContain("**Plan: 1 phase, 1 task**");
+    expect(plannerTokens[0]!.token).toContain("Tester");
+    expect(crewPlanReadyCount).toBe(1);
   });
 
   it("emits RouterEvent.AgentTaskBlocked when a task transitions to blocked", async () => {

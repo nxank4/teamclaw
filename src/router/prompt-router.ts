@@ -26,9 +26,11 @@ import { RouterEvent, DISPATCH_EVENTS } from "./event-types.js";
 import { parseMentions } from "./mention-parser.js";
 import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
-import { runCrew } from "../crew/crew-runner.js";
+import { runCrew, PLANNER_AGENT_ID } from "../crew/crew-runner.js";
 import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
+import type { CrewPhase } from "../crew/types.js";
 import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
+import { agentDisplayName } from "../app/agent-display.js";
 import type { CheckpointCoordinator } from "../crew/checkpoints.js";
 import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
 import type { ToolExecutor } from "./agent-turn.js";
@@ -312,6 +314,14 @@ export class PromptRouter extends EventEmitter {
 
     const runCrewFn = options?.runCrewImpl ?? runCrew;
 
+    // The planner emits its plan as raw JSON tokens. Forwarding those
+    // straight to RouterEvent.AgentToken dumps an unreadable JSON blob
+    // into the chat. Buffer them here and replace the whole bubble with
+    // a readable markdown plan once parsePlan succeeds (signaled by
+    // onCrewPlanReady).
+    let plannerJsonBuffer = "";
+    let plannerPlanEmitted = false;
+
     try {
       const coord =
         options?.checkpointCoordinator ?? getActiveCheckpointCoordinator() ?? undefined;
@@ -355,7 +365,15 @@ export class PromptRouter extends EventEmitter {
         // each agent's thinking under the correct badge. The
         // deterministic facilitator-fallback path is naturally a
         // no-op because it never invokes runAgentTurn.
+        //
+        // Special case: planner tokens are suppressed until the
+        // plan is ready, then replaced with a readable markdown
+        // render. See onCrewPlanReady below.
         onToken: (agentId, token) => {
+          if (agentId === PLANNER_AGENT_ID && !plannerPlanEmitted) {
+            plannerJsonBuffer += token;
+            return;
+          }
           this.emit(RouterEvent.AgentToken, sessionId, agentId, token);
         },
         // Task-blocked lifecycle — fires once per task that
@@ -372,6 +390,33 @@ export class PromptRouter extends EventEmitter {
             event.task_id,
             event.task_name,
             event.reason,
+          );
+        },
+        // ── Crew lifecycle (new in v0.4.x) — drives CrewProgressView
+        onCrewAgentStart: (agentId, taskCount) => {
+          this.emit(RouterEvent.CrewAgentStart, sessionId, agentId, taskCount);
+        },
+        onCrewAgentDone: (agentId, summary) => {
+          this.emit(RouterEvent.CrewAgentDone, sessionId, agentId, summary);
+        },
+        onCrewAgentBlocked: (agentId, reason) => {
+          this.emit(RouterEvent.CrewAgentBlocked, sessionId, agentId, reason);
+        },
+        onCrewTokens: (agentId, input, output) => {
+          this.emit(RouterEvent.CrewTokens, sessionId, agentId, input, output);
+        },
+        onCrewPlanReady: (phases) => {
+          plannerPlanEmitted = true;
+          plannerJsonBuffer = "";
+          this.emit(RouterEvent.CrewPlanReady, sessionId, phases);
+          // Replace the would-be JSON dump with a single readable
+          // markdown render. wireRouterEvents' onAgentToken
+          // accumulates this into one planner bubble.
+          this.emit(
+            RouterEvent.AgentToken,
+            sessionId,
+            PLANNER_AGENT_ID,
+            renderPlanMarkdown(phases),
           );
         },
       });
@@ -412,6 +457,18 @@ export class PromptRouter extends EventEmitter {
       return ok(dispatchResult);
     } catch (e) {
       const cause = e instanceof Error ? e.message : String(e);
+      // Drain any buffered planner JSON so a planner failure still shows
+      // what it tried to emit — otherwise the user sees nothing in the
+      // bubble before the dispatch_failed error renders.
+      if (plannerJsonBuffer && !plannerPlanEmitted) {
+        this.emit(
+          RouterEvent.AgentToken,
+          sessionId,
+          PLANNER_AGENT_ID,
+          plannerJsonBuffer,
+        );
+        plannerJsonBuffer = "";
+      }
       // AgentDone (with success: false) covers the TUI cleanup —
       // onAgentDone in router-wiring stops the thinking indicator and
       // resets the status bar. The caller (prompt-handler) renders the
@@ -657,6 +714,32 @@ export class PromptRouter extends EventEmitter {
 // ═════════════════════════════════════════════════════════════════════════════
 // CREW RESULT RENDERING
 // ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Render the planner's structured plan as a single markdown block.
+ * Replaces the raw JSON dump that the planner would otherwise stream
+ * into the message bubble. Reads cleanly under the message bubble's
+ * markdown renderer — one header, one block per phase, one indented
+ * row per task.
+ */
+export function renderPlanMarkdown(phases: CrewPhase[]): string {
+  const totalTasks = phases.reduce((n, p) => n + p.tasks.length, 0);
+  const lines: string[] = [];
+  lines.push(`**Plan: ${phases.length} ${phases.length === 1 ? "phase" : "phases"}, ${totalTasks} ${totalTasks === 1 ? "task" : "tasks"}**`);
+  for (let i = 0; i < phases.length; i++) {
+    const phase = phases[i]!;
+    lines.push("");
+    lines.push(`**Phase ${i + 1} — ${phase.name}**`);
+    for (const task of phase.tasks) {
+      const agent = agentDisplayName(task.assigned_agent);
+      const deps = task.depends_on.length > 0
+        ? ` ${`[depends: ${task.depends_on.join(", ")}]`}`
+        : "";
+      lines.push(`  ${task.id} · ${agent} · ${task.description}${deps}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 export function renderCrewResultMarkdown(result: CrewRunResult): string {
   if (result.status === "plan_failed") {
