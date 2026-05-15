@@ -48,7 +48,7 @@ jobs:
         # Match ci.yml: skip postinstall so the isolated-vm native build
         # (transitive via secure-exec) does not fail on Node 20. The runtime
         # loads it lazily and tolerates a missing binary.
-        run: bun install --ignore-scripts
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: bun run typecheck
