@@ -173,7 +173,11 @@ export function getActiveModel(): string {
  * Writes to global config and syncs ActiveProviderState.
  */
 export function setActiveProvider(providerName: string): void {
-  const trimmed = providerName.trim();
+  // Catalog keys and discovered model.provider values are canonical lowercase
+  // (see provider-catalog.ts). Normalize on write so mixed-case stored values
+  // self-heal the next time the user touches settings — and so downstream
+  // equality checks against catalog IDs match without per-call .toLowerCase().
+  const trimmed = providerName.trim().toLowerCase();
   if (!trimmed) return;
 
   const cfg = readOrDefault();

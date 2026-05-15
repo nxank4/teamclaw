@@ -203,7 +203,10 @@ export class SettingsView extends InteractiveView {
   }
 
   private async loadAndEditModels(field: SettingField): Promise<void> {
-    const selectedProvider = this.values.get("provider") ?? "";
+    // Provider IDs from model-discovery are always lowercase; normalize the
+    // stored value so a mixed-case entry like "Anthropic" still matches both
+    // the discovery filter and the catalog fallback below.
+    const selectedProvider = (this.values.get("provider") ?? "").toLowerCase();
     this.editError = "Loading models...";
     this.render();
 
