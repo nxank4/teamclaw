@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
+
+// Stub global-config so setConfig/removeConfig don't touch ~/.openpawl/config.json.
+// Must run before the registry imports global-config transitively.
+mock.module("../../src/core/global-config.js", () => ({
+  readGlobalConfig: () => ({ providers: [], activeProvider: null }),
+  writeGlobalConfig: () => {},
+}));
+
 import { ProviderRegistry, resetProviderRegistry, getProviderRegistry } from "../../src/providers/provider-registry.js";
 
 describe("ProviderRegistry", () => {
@@ -66,6 +74,24 @@ describe("ProviderRegistry", () => {
       expect(models.length).toBeGreaterThan(0);
       // Should include known Anthropic models from catalog
       expect(models.some((m) => m.includes("claude"))).toBe(true);
+    });
+  });
+
+  describe("events", () => {
+    it("emits config:changed with providerId on setConfig", () => {
+      const handler = mock(() => {});
+      registry.on("config:changed", handler);
+      registry.setConfig("anthropic", { apiKey: "sk-test" });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0]?.[0]).toBe("anthropic");
+    });
+
+    it("emits config:changed with providerId on removeConfig", () => {
+      const handler = mock(() => {});
+      registry.on("config:changed", handler);
+      registry.removeConfig("anthropic");
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0]?.[0]).toBe("anthropic");
     });
   });
 
