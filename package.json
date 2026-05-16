@@ -47,7 +47,7 @@
     "dev": "tsup --watch",
     "dev:cli": "tsx src/cli.ts",
     "dev:web": "tsx src/cli.ts web",
-    "build": "tsup && bun run --cwd src/web/client build && rm -rf dist/presets && cp -r src/crew/presets dist/presets",
+    "build": "tsup && bun run --cwd src/web/client build",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:e2e": "bun test tests/e2e/",

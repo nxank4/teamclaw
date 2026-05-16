@@ -13,6 +13,7 @@
  * accessor for the dispatcher's "no similarity match" path.
  */
 
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,16 +55,25 @@ export interface LoadAgentRegistryOptions {
 }
 
 /**
- * Resolve the builtin directory. In a tsx-driven dev run, `import.meta.url`
- * points at this source file under src/; in a tsup-bundled run, it points
- * at the bundled cli inside dist/. The builtin .md files must live at the
- * same relative offset in both layouts (../builtin/) — the tsup build is
- * expected to copy them; if it does not, we surface the load failure as a
- * registry error rather than crashing the process.
+ * Resolve the builtin directory. `import.meta.url` points at the runtime
+ * module location, which is `src/agents/registry/markdown-registry.ts`
+ * under tsx (dev) and `dist/cli.js` after tsup bundling. The .md files
+ * live at different relative offsets in those two layouts:
+ *   dev (src/agents/registry/...)    →  ../builtin   = src/agents/builtin
+ *   prod (dist/cli.js, .md in dist)  →  agents/builtin
+ * Try both, returning the first that exists. Falls back to the dev path
+ * so the error message in load failures points somewhere meaningful.
  */
 function defaultBuiltinDir(): string {
   const here = fileURLToPath(import.meta.url);
-  return resolve(dirname(here), "..", "builtin");
+  const candidates = [
+    resolve(dirname(here), "..", "builtin"),
+    resolve(dirname(here), "agents", "builtin"),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir;
+  }
+  return candidates[0]!;
 }
 
 function defaultUserDir(): string {

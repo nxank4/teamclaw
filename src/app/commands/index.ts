@@ -18,7 +18,6 @@ import { createDevCommand } from "./dev.js";
 import { createWorkspaceCommand } from "./workspace.js";
 import { createThemeCommand } from "./theme.js";
 import { createAgentsCommand } from "./agents.js";
-import { registerCrewCommands } from "../../tui/slash/crew-commands.js";
 export { createPlanCommand, type PlanCommandDeps } from "./plan.js";
 
 export function registerAllCommands(
@@ -37,7 +36,6 @@ export function registerAllCommands(
   registry.register(createWorkspaceCommand());
   registry.register(createThemeCommand());
   registry.register(createAgentsCommand());
-  registerCrewCommands(registry);
   // /plan registered later in app/index.ts.
   if (compactDeps) {
     registry.register(createCompactCommand(compactDeps));
