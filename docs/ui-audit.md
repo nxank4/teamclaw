@@ -69,9 +69,34 @@ grep -rn "progress\|percent\|elapsed\|remaining" src/tui/ src/app/ --include="*.
 Checklist:
 - [ ] Spinner during LLM thinking
 - [ ] Spinner during tool execution
-- [ ] Progress bar during sprint tasks
 - [ ] Time elapsed for long operations
 - [ ] No frozen/dead screen during any async operation
+
+### Category F — Live Unified Status quality
+After the crew→orchestrator unification, the chat stream is the single
+surface where "what's happening now" must be readable end-to-end.
+
+```bash
+# Check op:compact rendering paths
+grep -rn "COMPACT_MESSAGE_TAG\|renderCompactSummary" src/ --include="*.ts"
+
+# Check status-bar update sites
+grep -rn "statusBar\.updateSegment" src/ --include="*.ts"
+
+# Check streaming reasoning visibility
+grep -rn "thinking\|onAgentToken\|streamingForAgent" src/app/ --include="*.ts"
+```
+Checklist:
+- [ ] One canonical place reads as "what's happening now" (status bar,
+      not split between bar + chat hints)
+- [ ] Tool calls collapse when completed and expand on demand
+- [ ] Streaming agent tokens land in a single bubble per turn — no
+      duplicate "Assistant:" headers on rapid chunks
+- [ ] /compact renders the op:compact box-drawing summary; Ctrl+O and
+      Ctrl+E both toggle expanded mode; theme.primary vs theme.dim
+      are distinguishable in default + light themes
+- [ ] Auto-trigger at 70% utilization renders the same summary inline
+      without surprising the user (branded box is the cue)
 
 ### Category E — Responsiveness
 ```bash
@@ -92,13 +117,14 @@ Produce audit report:
 ```
 UI Audit Report
 ---
-Category A (Render):      X/4 checks pass
-Category B (Density):     X/5 checks pass
-Category C (Hierarchy):   X/6 checks pass
-Category D (Progress):    X/5 checks pass
-Category E (Responsive):  X/5 checks pass
+Category A (Render):       X/4 checks pass
+Category B (Density):      X/5 checks pass
+Category C (Hierarchy):    X/6 checks pass
+Category D (Progress):     X/4 checks pass
+Category F (Live Status):  X/5 checks pass
+Category E (Responsive):   X/5 checks pass
 ---
-Total: X/25
+Total: X/29
 
 Priority fixes:
 1. [highest impact, easiest fix]
@@ -210,7 +236,6 @@ grep -rn "spinner\|loading\|progress\|idle" src/tui/ src/app/ --include="*.ts" |
 ### Visual regression check
 ```bash
 # Capture baseline
-OPENPAWL_DEBUG=true openpawl run --headless --mode solo \
-  --goal "hello" --workdir /tmp/ui-check
+OPENPAWL_DEBUG=true openpawl -p "hello"
 openpawl logs debug --source tui --session latest
 ```

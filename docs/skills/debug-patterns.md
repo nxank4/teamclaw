@@ -6,18 +6,16 @@ unexpected behavior.
 
 ## Quick Diagnosis Commands
 
-### "Why did the sprint fail?"
+### "Why did the dispatch fail?"
 ```bash
-OPENPAWL_DEBUG=true openpawl run --headless --mode sprint \
-  --goal "..." --workdir /tmp/debug-sprint --runs 1
-openpawl logs debug --source sprint --level error
-openpawl logs debug --source sprint --event "task:fail"
+OPENPAWL_DEBUG=true openpawl -p "..."
+openpawl logs debug --source orchestrator --level error
+openpawl logs debug --source orchestrator --event "subagent_returned"
 ```
 
 ### "Why is it slow?"
 ```bash
-OPENPAWL_PROFILE=true OPENPAWL_DEBUG=true openpawl run --headless \
-  --mode solo --goal "..." --workdir /tmp/debug-perf
+OPENPAWL_PROFILE=true OPENPAWL_DEBUG=true openpawl -p "..."
 cat ~/.openpawl/profile-report.md
 openpawl logs debug --source llm | grep duration
 ```
@@ -30,12 +28,12 @@ openpawl logs debug --source llm --event "request"
 # Check: were lessons included?
 ```
 
-### "Why is collab not triggering?"
+### "Why did the orchestrator pick the wrong agent?"
 ```bash
-openpawl logs debug --source router --event "dispatch:start"
-# Check: mode field, chain definition
-# Check: was buildCollabChain called?
-openpawl logs debug --source router --event "collab"
+openpawl logs debug --source orchestrator --event "dispatch_chosen"
+# Check: sources field (embedding vs keyword fallback)
+# Check: chosen array — which agents and in what order
+# Check: was the embedder reachable, or did fallback kick in?
 ```
 
 ### "Why is status bar stuck on idle?"
@@ -71,12 +69,18 @@ Cause: reading from different sources
 Fix: all reads go through globalConfig, emit change event on write
 Files: global-config.ts, settings-view.ts, model-view.ts
 
-### Sprint dependency cascade
-Cause: hard dependency skip on any failure
-Fix: soft deps (attempt if partial output exists) + single retry
-Files: sprint-runner.ts
+### Subagent fails the capability gate unexpectedly
+Cause: tool name not in agent's `tools.allow` list
+Fix: edit `src/agents/builtin/<name>.md` frontmatter (or the user-local
+override at `~/.openpawl/agents/<name>.md`) to include the tool
+Files: src/orchestrator/capability-gate.ts, src/agents/builtin/*.md
 
 ### Token counter not showing
 Cause: dispatch:done handler overwritten by another handler
 Fix: check handler chain, ensure token segment not clobbered
 Files: router-wiring.ts, agent-display.ts
+
+### Builtin agents missing in built binary
+Cause: dist/ never received the markdown files
+Fix: rerun `bun run build` — tsup.config.ts onSuccess copies them
+Files: tsup.config.ts, src/agents/registry/markdown-registry.ts

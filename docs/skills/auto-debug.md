@@ -19,9 +19,8 @@ Always ask user before applying fix.
 
 Run the failing scenario with full debug logging:
 ```bash
-OPENPAWL_DEBUG=true OPENPAWL_PROFILE=true openpawl run --headless \
-  --mode <mode> --goal "<goal>" \
-  --workdir ~/personal/openpawl-test-projects/auto-debug-$(date +%s)
+cd ~/personal/openpawl-test-projects/auto-debug-$(date +%s)
+OPENPAWL_DEBUG=true OPENPAWL_PROFILE=true openpawl -p "<goal>"
 ```
 
 Capture:
@@ -113,9 +112,8 @@ bun run typecheck
 bun run test
 
 # 3. Re-run the EXACT same scenario
-OPENPAWL_DEBUG=true openpawl run --headless \
-  --mode <same mode> --goal "<same goal>" \
-  --workdir ~/personal/openpawl-test-projects/auto-debug-verify-$(date +%s)
+cd ~/personal/openpawl-test-projects/auto-debug-verify-$(date +%s)
+OPENPAWL_DEBUG=true openpawl -p "<same goal>"
 
 # 4. Compare logs
 openpawl logs debug --session latest --level error
@@ -141,8 +139,8 @@ After loop completes (success or max iterations):
 ## Iterations
 | # | Phase | Action | Result |
 |---|-------|--------|--------|
-| 1 | DETECT | ran sprint mode | error in task parser |
-| 1 | DIAGNOSE | JSON parse failure at task-parser.ts:42 | confidence: high |
+| 1 | DETECT | ran multi-file feature goal | error in orchestrator dispatcher |
+| 1 | DIAGNOSE | JSON parse failure at safe-json-parse.ts:42 | confidence: high |
 | 1 | FIX | added safeJsonParse fallback | APPLIED (user approved) |
 | 1 | VERIFY | re-ran same scenario | PASS |
 
@@ -187,14 +185,16 @@ The debug logs are the primary diagnostic tool. Pattern:
 
 ## Example Usage
 
-User says: "Sprint mode fails on task 3 with JSON parse error"
+User says: "Dispatcher picks the wrong agent for 'fix the auth bug'"
 
 Iteration 1:
-- DETECT: `OPENPAWL_DEBUG=true openpawl run --headless --mode sprint --goal "Build auth" --workdir /tmp/debug-1`
-- DIAGNOSE: `openpawl logs debug --level error` -> "safeJsonParse: all 6 layers failed at sprint-runner.ts:142"
-- Look at LLM response: `openpawl logs debug --source llm --event response | tail -1`
-  -> Model returned HTML instead of JSON
-- ROOT CAUSE: planner prompt doesn't specify JSON output format
-- FIX: add "Respond in JSON format only" to PLANNER_PROMPT
+- DETECT: `OPENPAWL_DEBUG=true openpawl -p "fix the auth bug"`
+- DIAGNOSE: `openpawl logs debug --source orchestrator --event dispatch_chosen`
+  -> chose architect, not builder; sources=["keyword"]; embedder unreachable
+- Look at agent triggers: `cat src/agents/builtin/architect.md`
+  -> trigger word "fix" matched on architect's "compare options / tradeoff" verbs
+- ROOT CAUSE: "fix" missing from builder.md triggers; embedder offline so no
+  description-based similarity could override the false keyword match
+- FIX: add "fix" + "debug" to builder.md triggers; rebuild
 - ASK USER -> approved
-- VERIFY: re-run same scenario -> task 3 completes -> DONE
+- VERIFY: re-run same scenario -> dispatcher chooses builder -> DONE

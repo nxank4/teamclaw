@@ -42,31 +42,39 @@ openpawl
 ```
 Checklist:
 - [ ] Context carries between prompts (no re-explain)
-- [ ] Mode switching is discoverable (hint shown)
 - [ ] Session auto-saves
 - [ ] Can resume where left off
 - [ ] Token cost visible
+- [ ] /compact runs cleanly when context fills; auto-trigger at 70%
+      lands without surprising the user
 
-### Journey 3: Sprint workflow
+### Journey 3: Spec-driven feature `[v0.4.x]`
 ```bash
-openpawl run --headless --mode sprint \
-  --goal "Build REST API with auth" \
-  --workdir /tmp/ux-sprint --runs 1
+openpawl
+# Send: "Add OAuth2 PKCE flow across auth + session modules"
+# OpenPawl auto-generates ./specs/<slug>.md and opens it in $EDITOR
+# User edits / approves the spec
+# OpenPawl generates ./plans/<slug>.md
+# User approves the plan
+# Orchestrator executes, drift-supervisor checks alignment at each phase
+# User reviews diffs, accepts or asks for revisions
 ```
 Checklist:
-- [ ] Clear what's happening at each step
-- [ ] Progress visible (not frozen screen)
-- [ ] Failures explained (not just "task failed")
-- [ ] Output files accessible
-- [ ] CONTEXT.md useful for resuming
+- [ ] Multi-file goal triggers spec generation `[v0.4.x]`
+- [ ] Spec is editable before approval (git-tracked at ./specs/<slug>.md)
+- [ ] Plan is editable before approval (git-tracked at ./plans/<slug>.md)
+- [ ] Live status visible during execution (op:compact + status bar)
+- [ ] Drift checkpoint surfaces when the implementation diverges from
+      the approved spec `[v0.4.x]`
+- [ ] Generated plan can be re-run later without re-prompting
 
 ### Journey 4: Configuration
 ```bash
 openpawl
 # /settings -> change provider
 # /model -> switch model
-# /team -> change template
-# /agents -> edit agent
+# /agents -> view or edit custom agents
+# /compact -> show context state + compact if needed
 ```
 Checklist:
 - [ ] Navigation between views is seamless (no dead ends)
@@ -78,7 +86,7 @@ Checklist:
 ### Journey 5: Error recovery
 ```bash
 # Disconnect network -> send prompt
-# Send vague goal to sprint
+# Send vague goal
 # Cancel mid-stream -> send new prompt
 # Send to wrong model
 ```
@@ -107,14 +115,14 @@ Produce UX report:
 ```
 UX Audit Report
 ---
-Journey 1 (First-time):    X/5 smooth
-Journey 2 (Daily):         X/5 smooth
-Journey 3 (Sprint):        X/5 smooth
-Journey 4 (Config):        X/5 smooth
-Journey 5 (Error):         X/4 smooth
-Journey 6 (Power user):    X/5 smooth
+Journey 1 (First-time):     X/5 smooth
+Journey 2 (Daily):          X/5 smooth
+Journey 3 (Spec-driven):    X/6 smooth   [v0.4.x — partial]
+Journey 4 (Config):         X/5 smooth
+Journey 5 (Error):          X/4 smooth
+Journey 6 (Power user):     X/5 smooth
 ---
-Total: X/29
+Total: X/30
 
 Friction points (ranked by frequency x severity):
 1. [most impactful friction]
@@ -128,7 +136,7 @@ For each friction point, categorize:
 
 | Type | Example | Fix approach |
 |------|---------|-------------|
-| Dead end | Esc in /team goes nowhere | Add navigation path |
+| Dead end | Esc in /agents goes nowhere | Add navigation path |
 | Missing feedback | Tool running but no indicator | Add spinner/status |
 | Cognitive load | Too many options at once | Progressive disclosure |
 | Inconsistency | Esc closes panel A but not B | Standardize behavior |
@@ -162,8 +170,8 @@ By type:
 
 ### Discoverability fix
 - Add contextual hints (show once per user):
-  - After first prompt: "Shift+Tab to switch modes"
-  - After first sprint: "try 'openpawl standup' tomorrow"
+  - After first prompt: "Type /compact when context fills"
+  - After first multi-file goal: "edit ./plans/<slug>.md before approving"
   - After 5 sessions: "you have N memory patterns, try /think"
 - Track shown hints in config, never repeat
 
@@ -176,7 +184,7 @@ By type:
 ### Speed fix
 - Map keystroke count to reach each feature
 - Any feature > 3 keystrokes -> add shortcut or alias
-- / commands for most common: /model, /team, /mode, /agents
+- / commands for most common: /model, /agents, /compact, /sessions
 
 ## Phase 4: VALIDATE
 
