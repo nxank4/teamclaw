@@ -124,7 +124,6 @@ export type CrewPhase = z.infer<typeof CrewPhaseSchema>;
 
 export interface CrewGraphState {
   goal: string;
-  mode: "crew";
   crew_name: string;
 }
 
