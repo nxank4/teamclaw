@@ -3,19 +3,24 @@
  *
  * Invoked from print mode (`openpawl -p "<goal>"`). Replaces the
  * solo/crew headless pair after the mode distinction was removed.
+ *
+ * Dispatch path: load the markdown agent registry, pick top-K agents by
+ * similarity match against the goal, run each via the orchestrator
+ * subagent runner.
  */
 
 import pc from "picocolors";
-import { ICONS } from "../tui/constants/icons.js";
-import { formatDuration, formatToolTarget } from "../utils/formatters.js";
+
+import { loadAgentRegistry } from "../agents/registry/markdown-registry.js";
+import { dispatch as orchestratorDispatch } from "../orchestrator/dispatcher.js";
 import { ToolEvent } from "../router/event-types.js";
 import { createSessionManager } from "../session/index.js";
-import { PromptRouter } from "../router/index.js";
-import { createLLMAgentRunner } from "../router/llm-agent-runner.js";
-import { ToolRegistry } from "../tools/registry.js";
+import { registerBuiltInTools } from "../tools/built-in/index.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { PermissionResolver } from "../tools/permissions.js";
-import { registerBuiltInTools } from "../tools/built-in/index.js";
+import { ToolRegistry } from "../tools/registry.js";
+import { ICONS } from "../tui/constants/icons.js";
+import { formatDuration, formatToolTarget } from "../utils/formatters.js";
 
 export interface RunHeadlessArgs {
   goal: string;
@@ -54,43 +59,25 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
     }
     const session = sessionResult.value;
 
+    const registry = await loadAgentRegistry({ cwd: workdir });
+    for (const loadErr of registry.loadErrors()) {
+      console.error(pc.yellow(`agent load warning: ${loadErr.message}`));
+    }
+
     let currentAgent = "";
     let tokenCount = 0;
     const agentStartTimes = new Map<string, number>();
 
-    const agentRunner = createLLMAgentRunner({
-      onToken: (agentId, _token) => {
-        if (agentId !== currentAgent) {
-          if (currentAgent) {
-            const elapsed = Date.now() - (agentStartTimes.get(currentAgent) ?? Date.now());
-            process.stdout.write(
-              ` ${pc.dim("→")} ${pc.green("done")} (${formatDuration(elapsed)}, ${tokenCount} tokens)\n`,
-            );
-          }
-          currentAgent = agentId;
-          tokenCount = 0;
-          agentStartTimes.set(agentId, Date.now());
-          process.stdout.write(`  ${pc.cyan(`[${agentId}]`)} started`);
-        }
-        tokenCount++;
-      },
-      onToolCall: (_agentId, toolName, status, details) => {
-        if (status === "running") {
-          const target = formatToolTarget(details?.inputSummary as string | undefined);
-          const label = target ? `${toolName} ${target}` : toolName;
-          process.stdout.write(`\n    ${pc.dim(label)}`);
-        } else if (status === "completed") {
-          process.stdout.write(pc.dim(` ${ICONS.success}`));
-        } else if (status === "failed") {
-          process.stdout.write(pc.red(` ${ICONS.error}`));
-        }
-      },
+    const dispatchResult = await orchestratorDispatch({
+      task: args.goal,
+      registry,
+      sessionId: session.id,
       getToolSchemas: (toolNames) => toolReg.exportForLLM(toolNames),
       getNativeTools: (toolNames) => toolReg.exportForAPI(toolNames),
       executeTool: async (toolName, toolArgs) => {
         const result = await toolExec.execute(toolName, toolArgs, {
           sessionId: session.id,
-          agentId: "agent",
+          agentId: currentAgent || "agent",
           workingDirectory: workdir,
         });
         if (result.isOk()) {
@@ -109,21 +96,34 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
         const cause = "cause" in result.error ? `: ${result.error.cause}` : "";
         throw new Error(`${result.error.type}${cause}`);
       },
+      onToken: (agentId, _token) => {
+        if (agentId !== currentAgent) {
+          if (currentAgent) {
+            const elapsed = Date.now() - (agentStartTimes.get(currentAgent) ?? Date.now());
+            process.stdout.write(
+              ` ${pc.dim("→")} ${pc.green("done")} (${formatDuration(elapsed)}, ${tokenCount} tokens)\n`,
+            );
+          }
+          currentAgent = agentId;
+          tokenCount = 0;
+          agentStartTimes.set(agentId, Date.now());
+          process.stdout.write(`  ${pc.cyan(`[${agentId}]`)} started`);
+        }
+        tokenCount++;
+      },
+      onProgress: (event) => {
+        const status = event.status;
+        if (status === "running") {
+          const target = formatToolTarget(event.details?.inputSummary as string | undefined);
+          const label = target ? `${event.tool_name} ${target}` : event.tool_name;
+          process.stdout.write(`\n    ${pc.dim(label)}`);
+        } else if (status === "completed") {
+          process.stdout.write(pc.dim(` ${ICONS.success}`));
+        } else if (status === "failed") {
+          process.stdout.write(pc.red(` ${ICONS.error}`));
+        }
+      },
     });
-
-    const router = new PromptRouter(
-      { defaultAgent: "assistant" },
-      sessionMgr,
-      null,
-      agentRunner,
-    );
-
-    if (process.env.OPENPAWL_DEBUG) {
-      const { wireDebugToRouter } = await import("../debug/wiring.js");
-      wireDebugToRouter(router);
-    }
-
-    const result = await router.route(session.id, args.goal);
 
     if (currentAgent) {
       const elapsed = Date.now() - (agentStartTimes.get(currentAgent) ?? Date.now());
@@ -132,38 +132,29 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
       );
     }
 
-    if (result.isErr()) {
-      console.error(`\n${pc.red("Error:")} ${result.error.type}`);
-      if ("message" in result.error) {
-        console.error(`  ${(result.error as { message: string }).message}`);
-      }
-      await sessionMgr.delete(session.id);
-      await sessionMgr.shutdown();
-      return { exitCode: 1 };
-    }
-
-    const dispatch = result.value;
     console.log("");
-    for (const agentResult of dispatch.agentResults) {
-      if (agentResult.error) {
+    let hadSuccess = false;
+    for (const agentResult of dispatchResult.agentResults) {
+      if (agentResult.error || !agentResult.success) {
         console.log(pc.dim("─".repeat(60)));
         console.log(`${pc.bold(`[${agentResult.agentId}]`)} ${pc.red("error")}`);
-        console.log(pc.red(agentResult.error));
+        console.log(pc.red(agentResult.error ?? "unknown error"));
       } else if (agentResult.response) {
+        hadSuccess = true;
         console.log(pc.dim("─".repeat(60)));
         console.log(pc.bold(`[${agentResult.agentId}]`));
         console.log(agentResult.response);
       }
     }
 
-    const totalIn = dispatch.totalInputTokens;
-    const totalOut = dispatch.totalOutputTokens;
+    const totalIn = dispatchResult.totalInputTokens;
+    const totalOut = dispatchResult.totalOutputTokens;
     const cost = (totalIn * 3 + totalOut * 15) / 1_000_000;
     console.log(pc.dim(`Tokens: ${totalIn}in/${totalOut}out | Cost: $${cost.toFixed(4)}`));
 
     await sessionMgr.delete(session.id);
     await sessionMgr.shutdown();
-    return { exitCode: 0 };
+    return { exitCode: hadSuccess ? 0 : 1 };
   } finally {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd);
   }
