@@ -8,24 +8,14 @@ import { defaultTheme } from "../tui/themes/default.js";
 import { setLoggerMuted } from "../core/logger.js";
 import type { AppLayout } from "./layout.js";
 import type { AppContext } from "./init-session-router.js";
-import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 
 export function setupTuiCallbacks(
   layout: AppLayout,
-  ctx: AppContext,
-  appModeSystem: AppModeSystem,
-  updateModeDisplay: () => void,
+  _ctx: AppContext,
 ): { flashTimer: { ref: ReturnType<typeof setTimeout> | null } } {
   layout.tui.onSystemMessage = (msg: string) => {
     layout.messages.addMessage({ role: "system", content: msg, timestamp: new Date() });
     layout.tui.requestRender();
-  };
-
-  layout.tui.onModeAction = (_modeAction: string) => {
-    appModeSystem.cycleNext();
-    updateModeDisplay();
-    const info = appModeSystem.getModeInfo();
-    layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
   };
 
   const flashState = { ref: null as ReturnType<typeof setTimeout> | null };

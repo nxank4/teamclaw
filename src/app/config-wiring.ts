@@ -28,10 +28,14 @@ export async function setupConfigAndProviders(
   addWelcomeMessage: () => void,
 ): Promise<ConfigWiringResult> {
   // ── Status bar segments ──────────────────────────────────────────
+  // Mode-chip slot (segment 2) was kept as an empty placeholder so
+  // updateSegment(3, ...) calls in router-wiring continue to land on
+  // the "idle / busy" segment without reshuffling indices. Prompt 3
+  // can renumber.
   layout.statusBar.setSegments([
     { text: "no provider", color: defaultTheme.secondary },
     { text: `${DOT_SYMBOL.empty} not configured`, color: defaultTheme.error },
-    { text: `${ICONS.modeSolo} solo`, color: defaultTheme.dim },
+    { text: "", color: defaultTheme.dim },
     { text: "idle", color: defaultTheme.dim },
     { text: "", color: defaultTheme.dim },
   ]);

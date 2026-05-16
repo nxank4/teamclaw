@@ -7,15 +7,12 @@ import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-p
 import { KeybindingHelp, buildHelpSections } from "../tui/keybindings/keybinding-help.js";
 import type { AppLayout } from "./layout.js";
 import type { CommandRegistry } from "../tui/index.js";
-import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 import type { AppContext } from "./init-session-router.js";
 import { getActiveCrewEscapeHandler } from "./crew-session-hook.js";
 
 export function setupKeybindings(
   layout: AppLayout,
   registry: CommandRegistry,
-  appModeSystem: AppModeSystem,
-  updateModeDisplay: () => void,
   ctx: AppContext,
 ): void {
   const leaderKey = new LeaderKeyHandler();
@@ -162,14 +159,6 @@ export function setupKeybindings(
         }
       }
 
-      if (combo === "shift+tab" && !layout.editor.isAutocompleteActive()) {
-        appModeSystem.cycleNext();
-        updateModeDisplay();
-        const info = appModeSystem.getModeInfo();
-        layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
-        return true;
-      }
-
       if (combo === "ctrl+p") { showPalette(); return true; }
       if (combo === "alt+p") {
         const result = registry.lookup("/model ");
@@ -196,22 +185,6 @@ export function setupKeybindings(
           msgCtx.addMessage("system", lines.join("\n"));
         }
       }
-    },
-  });
-
-  registry.register({
-    name: "mode",
-    description: "Switch mode (solo/crew) or cycle to next",
-    async execute(args, msgCtx) {
-      const target = args.trim().toLowerCase();
-      if (target === "solo" || target === "crew") {
-        appModeSystem.setMode(target);
-      } else {
-        appModeSystem.cycleNext();
-      }
-      updateModeDisplay();
-      const info = appModeSystem.getModeInfo();
-      msgCtx.addMessage("system", `${info.icon} Switched to ${info.displayName} mode`);
     },
   });
 

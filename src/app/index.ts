@@ -31,15 +31,12 @@ import { createAutocompleteProvider } from "./autocomplete.js";
 import { setLoggerMuted, logger, isDebugMode } from "../core/logger.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { ICONS } from "../tui/constants/icons.js";
-import { AppModeSystem, type AppMode } from "../tui/keybindings/app-mode.js";
 
 export interface LaunchOptions {
   /** Custom terminal for testing (VirtualTerminal). */
   terminal?: Terminal;
   /** Custom sessions directory for testing. */
   sessionsDir?: string;
-  /** Initial app mode. Defaults to "solo". Session-only; not persisted. */
-  initialMode?: AppMode;
   /**
    * Pre-resumed session from `openpawl --sessions <id>`. When set, init
    * skips the create-fresh path and uses this session directly.
@@ -73,7 +70,6 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     doomLoopDetector: null,
     toolOutputHandler: null,
     configState: null,
-    appModeSystem: null,
     memoryCleanup: null,
     onQueueDrain: null,
     toolRegistry: null,
@@ -107,28 +103,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     createAutocompleteProvider(registry, process.cwd()),
   );
 
-  // ── Mode system ─────────────────────────────────────────────────
-  const appModeSystem = new AppModeSystem(opts?.initialMode);
-  ctx.appModeSystem = appModeSystem;
-  const updateModeDisplay = () => {
-    const info = appModeSystem.getModeInfo();
-    layout.statusBar.updateSegment(2, `${info.icon} ${info.shortName}`, info.color);
-    layout.tui.requestRender();
-  };
-  // NOTE: don't call updateModeDisplay() here. StatusBarComponent.segments
-  // is still null at this point — updateSegment is gated on
-  // segments != null (see status-bar.ts:111) so the call would be a
-  // silent no-op. The initial chip sync happens immediately after
-  // setupConfigAndProviders below, which is where setSegments runs.
-
   {
-    const { createModeCommand } = await import("./commands/mode.js");
-    registry.register(createModeCommand({
-      getMode: () => appModeSystem.getMode(),
-      setMode: (mode) => appModeSystem.setMode(mode),
-      updateDisplay: updateModeDisplay,
-    }));
-
     const { createPlanCommand } = await import("./commands/plan.js");
     registry.register(createPlanCommand({
       flashMessage: (msg: string) => layout.tui.onFlashMessage?.(msg),
@@ -137,7 +112,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // ── Input handler + queue ────────────────────────────────────────
   const state: PromptQueueState = { queue: [], agentBusy: false, welcomeMessageActive: false };
-  setupInputHandler(layout, registry, ctx, state, appModeSystem, updateModeDisplay);
+  setupInputHandler(layout, registry, ctx, state);
 
   // ── Welcome message ──────────────────────────────────────────────
   const addWelcomeMessage = () => {
@@ -179,16 +154,8 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   // ── Config, providers, wizard ────────────────────────────────────
   const configResult = await setupConfigAndProviders(layout, ctx, opts, registry, addWelcomeMessage);
 
-  // Sync the mode chip with appModeSystem now that setSegments has run
-  // inside setupConfigAndProviders (config-wiring.ts:31 hardcodes the
-  // chip to "solo"). Before this point updateSegment is a silent no-op
-  // (status-bar.ts:111 gates on segments != null), which is why
-  // `openpawl --mode crew` previously painted the solo chip even
-  // though AppModeSystem internally held "crew".
-  updateModeDisplay();
-
   // ── Keybindings, palette, shortcuts ──────────────────────────────
-  setupKeybindings(layout, registry, appModeSystem, updateModeDisplay, ctx);
+  setupKeybindings(layout, registry, ctx);
 
   // /copy command
   registry.register({
@@ -205,7 +172,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
   });
 
   // ── TUI callbacks + cleanup ──────────────────────────────────────
-  const { flashTimer } = setupTuiCallbacks(layout, ctx, appModeSystem, updateModeDisplay);
+  const { flashTimer } = setupTuiCallbacks(layout, ctx);
   setupCrashAndCleanup(layout, ctx, flashTimer, welcomeResizeHandler);
 
   // ── Start TUI ────────────────────────────────────────────────────
@@ -242,28 +209,16 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
 interface PrintModeArgs {
   goal: string;
-  mode: "solo" | "crew";
-  crewName?: string;
   workdir?: string;
 }
 
 export function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: string } {
   let goal: string | null = null;
-  let mode: "solo" | "crew" = "solo";
-  let crewName: string | undefined;
   let workdir: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--mode" && args[i + 1]) {
-      const raw = args[++i]!.toLowerCase();
-      if (raw !== "solo" && raw !== "crew") {
-        return { error: `unknown --mode "${raw}". Valid: solo | crew.` };
-      }
-      mode = raw;
-    } else if (arg === "--crew" && args[i + 1]) {
-      crewName = args[++i]!;
-    } else if (arg === "--workdir" && args[i + 1]) {
+    if (arg === "--workdir" && args[i + 1]) {
       workdir = args[++i]!;
     } else if (arg && !arg.startsWith("--") && goal === null) {
       goal = arg;
@@ -275,14 +230,14 @@ export function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: str
   if (goal === null) {
     return { error: "missing prompt" };
   }
-  return { goal, mode, crewName, workdir };
+  return { goal, workdir };
 }
 
 export async function runPrintMode(args: string[]): Promise<void> {
   const parsed = parsePrintModeArgs(args);
   if ("error" in parsed) {
     console.error(`Error: ${parsed.error}`);
-    console.error("Usage: openpawl -p <prompt> [--mode solo|crew] [--crew <name>] [--workdir <path>]");
+    console.error("Usage: openpawl -p <prompt> [--workdir <path>]");
     console.error('  openpawl -p "/status"');
     process.exit(1);
   }
@@ -299,20 +254,10 @@ export async function runPrintMode(args: string[]): Promise<void> {
     return;
   }
 
-  let result: { exitCode: number };
-  if (parsed.mode === "crew") {
-    const { runCrewHeadless } = await import("./run-crew-headless.js");
-    result = await runCrewHeadless({
-      goal: parsed.goal,
-      crewName: parsed.crewName,
-      workdir: parsed.workdir,
-    });
-  } else {
-    const { runSoloHeadless } = await import("./run-solo-headless.js");
-    result = await runSoloHeadless({
-      goal: parsed.goal,
-      workdir: parsed.workdir,
-    });
-  }
+  const { runSoloHeadless } = await import("./run-solo-headless.js");
+  const result = await runSoloHeadless({
+    goal: parsed.goal,
+    workdir: parsed.workdir,
+  });
   process.exit(result.exitCode);
 }

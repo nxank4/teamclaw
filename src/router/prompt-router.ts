@@ -24,7 +24,6 @@ import { Dispatcher } from "./dispatch-strategy.js";
 import type { AgentRunner } from "./dispatch-strategy.js";
 import { RouterEvent, DISPATCH_EVENTS } from "./event-types.js";
 import { parseMentions } from "./mention-parser.js";
-import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
 import { runCrew, PLANNER_AGENT_ID } from "../crew/crew-runner.js";
 import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
@@ -141,34 +140,6 @@ export class PromptRouter extends EventEmitter {
   async route(
     sessionId: string,
     prompt: string,
-    options?: {
-      appMode?: AppMode;
-      /**
-       * Override the active CheckpointCoordinator for crew dispatch.
-       * When omitted, falls back to {@link getActiveCheckpointCoordinator}
-       * (which returns whatever the host has registered, or null — in
-       * which case `runCrew` builds its own headless coordinator).
-       */
-      checkpointCoordinator?: CheckpointCoordinator;
-      /** Crew preset name. Defaults to FULL_STACK_PRESET. */
-      crewName?: string;
-      /** Working directory for crew tool calls. Defaults to process.cwd(). */
-      workdir?: string;
-      /** Cancellation signal piped through to the crew runner. */
-      abortSignal?: AbortSignal;
-      /**
-       * Real tool executor for crew agents. Without this, the LLM emits
-       * tool calls but no disk effect happens. The TUI host passes the
-       * same instance it builds for solo dispatch.
-       */
-      executeTool?: ToolExecutor;
-      /** Tool schema lookup for crew agents. Forwarded to runCrew. */
-      getToolSchemas?: (toolNames: string[]) => ToolDef[];
-      /** Native tool defs lookup. Forwarded to runCrew. */
-      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
-      /** Test seam — defaults to the real {@link runCrew}. */
-      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
-    },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
     const pendingDecision = this.pendingConfirmation.get(sessionId);
@@ -198,14 +169,6 @@ export class PromptRouter extends EventEmitter {
 
     // 3. Parse mentions
     const mentions = parseMentions(prompt, this.registry.getIds());
-
-    // 3b. Crew mode → invoke runCrew. Closes the PR #106 stub that was
-    // missed across the rest of Phase 1 (the runner shipped in PRs
-    // #109–#113 but the router-side dispatch was never re-wired).
-    const appMode = options?.appMode;
-    if (appMode === "crew") {
-      return await this.dispatchCrew(sessionId, prompt, options);
-    }
 
     // 4. Classify intent
     let intent: PromptIntent;
@@ -295,7 +258,12 @@ export class PromptRouter extends EventEmitter {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // CREW DISPATCH
+  // CREW DISPATCH (ORPHAN)
+  //
+  // Unreachable post mode-removal: `route()` no longer forks into this path.
+  // Left in place so prompt 3 can revive multi-agent dispatch from a clean
+  // base. Do not delete or rename — this is the canonical subagent-spawning
+  // wrapper around `runCrew`.
   // ═══════════════════════════════════════════════════════════════════════════
 
   private async dispatchCrew(

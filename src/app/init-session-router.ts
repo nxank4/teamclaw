@@ -17,7 +17,6 @@ import type { SessionManager } from "../session/session-manager.js";
 import type { Session } from "../session/session.js";
 import type { PromptRouter } from "../router/prompt-router.js";
 import type { CommandRegistry } from "../tui/index.js";
-import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 
 export interface AppContext {
   sessionMgr: SessionManager | null;
@@ -28,10 +27,9 @@ export interface AppContext {
   doomLoopDetector: { reset: () => void } | null;
   toolOutputHandler: { cleanup: () => Promise<void> } | null;
   configState: ConfigState | null;
-  appModeSystem: AppModeSystem | null;
   memoryCleanup: (() => void) | null;
   onQueueDrain: (() => void) | null;
-  /** Real tool executor + registry. Exposed so crew dispatch can pass them through to runCrew, mirroring the solo dispatch path. */
+  /** Real tool executor + registry, plumbed through dispatch. */
   toolRegistry: import("../tools/registry.js").ToolRegistry | null;
   toolExecutor: import("../tools/executor.js").ToolExecutor | null;
 }
