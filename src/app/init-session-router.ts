@@ -383,23 +383,39 @@ export async function initSessionRouter(
     }
   }
 
-  // Try to resume latest session in this workspace, fall back to creating fresh.
-  // Scope the lookup to process.cwd() so a session from another project
-  // doesn't auto-resume here and inject its history into the next prompt.
-  {
-    const resumeResult = await ctx.sessionMgr.resumeLatest(process.cwd());
-    if (resumeResult.isOk() && resumeResult.value) {
-      ctx.chatSession = resumeResult.value;
-      const { buildResumeBannerContent } = await import("./resume-banner.js");
-      layout.messages.addMessage({
-        role: "system",
-        content: buildResumeBannerContent(resumeResult.value),
-        timestamp: new Date(),
+  // Session bootstrap. Auto-resume is gone — `openpawl` always starts
+  // fresh unless the user passes `--sessions <id>` (pre-validated in
+  // cli.ts and threaded through opts.resumedSession) or `--sessions`
+  // (opens the picker after the TUI mounts).
+  if (opts?.resumedSession) {
+    ctx.chatSession = opts.resumedSession;
+    const { buildResumeBannerContent } = await import("./resume-banner.js");
+    layout.messages.addMessage({
+      role: "system",
+      content: buildResumeBannerContent(opts.resumedSession),
+      timestamp: new Date(),
+    });
+    layout.tui.requestRender();
+  } else {
+    const createResult = await ctx.sessionMgr.create(process.cwd());
+    ctx.chatSession = createResult.isOk() ? createResult.value : null;
+    if (opts?.openSessionPicker) {
+      // Defer one tick so the TUI's first paint completes before the
+      // picker takes over the foreground.
+      setImmediate(() => {
+        void (async () => {
+          const { showSessionPicker, replaySessionHistory } = await import("./session-helpers.js");
+          if (!ctx.sessionMgr) return;
+          const listResult = await ctx.sessionMgr.listByWorkspace(process.cwd());
+          const sessions = listResult.isOk() ? listResult.value : [];
+          const picked = await showSessionPicker(sessions, ctx.sessionMgr, layout, ctx.chatSession?.id);
+          if (picked) {
+            ctx.chatSession = picked;
+            replaySessionHistory(picked, layout);
+            layout.tui.requestRender();
+          }
+        })();
       });
-      layout.tui.requestRender();
-    } else {
-      const createResult = await ctx.sessionMgr.create(process.cwd());
-      ctx.chatSession = createResult.isOk() ? createResult.value : null;
     }
   }
   mark("[bg] session created");

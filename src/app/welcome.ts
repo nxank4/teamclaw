@@ -23,7 +23,7 @@ import { bold } from "../tui/core/ansi.js";
 const NARROW_FALLBACK_WIDTH = 50;
 
 const EXAMPLE_PROMPT = `Try: "create hello.ts with a hello function"`;
-const HINT_LINE = `Or:  /help to see commands`;
+const HINT_LINE = `Or:  /help to see commands · --sessions to resume a past session`;
 
 /** Build the welcome banner content, freshly computed for current terminal width. */
 export function buildWelcomeContent(): string {

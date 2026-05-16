@@ -40,6 +40,16 @@ export interface LaunchOptions {
   sessionsDir?: string;
   /** Initial app mode. Defaults to "solo". Session-only; not persisted. */
   initialMode?: AppMode;
+  /**
+   * Pre-resumed session from `openpawl --sessions <id>`. When set, init
+   * skips the create-fresh path and uses this session directly.
+   */
+  resumedSession?: import("../session/session.js").Session;
+  /**
+   * From `openpawl --sessions` (no id). Triggers the picker overlay
+   * on startup after the TUI mounts.
+   */
+  openSessionPicker?: boolean;
 }
 
 /**
@@ -131,6 +141,11 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // ── Welcome message ──────────────────────────────────────────────
   const addWelcomeMessage = () => {
+    // Skip the banner when the launch was an explicit session-resume —
+    // the resume banner (or the sessions picker) is the entry point in
+    // those cases, and the welcome card would just compete for space.
+    if (opts?.resumedSession || opts?.openSessionPicker) return;
+
     layout.messages.addMessage({
       role: "system",
       content: buildWelcomeContent(),

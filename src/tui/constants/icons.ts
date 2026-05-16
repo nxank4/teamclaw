@@ -20,6 +20,7 @@ export const ICONS = {
   // Shapes
   diamond: "◆",     // ◆
   bullet: "•",      // •
+  sparkle: "✦",     // ✦ — accent bullet for file lists / decorative markers
   block: "█",       // █
 
   // Dots (status indicators)

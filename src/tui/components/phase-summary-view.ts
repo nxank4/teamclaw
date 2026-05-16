@@ -186,7 +186,7 @@ function renderDriftScore(score: number, width: number): string[] {
 function renderFiles(label: string, files: string[]): string[] {
   if (files.length === 0) return [];
   const lines: string[] = [defaultTheme.dim(label)];
-  for (const f of files) lines.push(`  ${ICONS.bullet} ${f}`);
+  for (const f of files) lines.push(`  ${defaultTheme.accent(ICONS.sparkle)} ${f}`);
   return lines;
 }
 

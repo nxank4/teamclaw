@@ -83,6 +83,19 @@ describe("renderPhaseSummary", () => {
     expect(out).toContain("[x]");
   });
 
+  it("uses the accent ✦ bullet (not •) for file-list entries", () => {
+    const lines = renderPhaseSummary({
+      phase: fixturePhase(),
+      payload,
+    });
+    const out = joined(lines);
+    expect(out).toContain("✦ src/routes/health.ts");
+    expect(out).toContain("✦ src/server.ts");
+    // The old • bullet must not appear in the file-list region.
+    const fileRegion = out.slice(out.indexOf("files created"));
+    expect(fileRegion).not.toContain("•");
+  });
+
   it("renders agent confidence bars when provided", () => {
     const lines = renderPhaseSummary({
       phase: fixturePhase(),
