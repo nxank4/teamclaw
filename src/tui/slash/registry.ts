@@ -5,8 +5,12 @@
 import { Trie } from "../autocomplete/trie.js";
 
 export interface CommandContext {
-  /** Add a message to the messages component. */
-  addMessage: (role: string, content: string) => void;
+  /**
+   * Add a message to the messages component. The optional `tag` lets
+   * commands mark the inserted message so the keybinding or render
+   * layer can find and update it later (see /compact and the op:compact tag).
+   */
+  addMessage: (role: string, content: string, options?: { tag?: string }) => void;
   /** Clear all messages from the TUI display. */
   clearMessages: () => void;
   /** Request the TUI to re-render. */

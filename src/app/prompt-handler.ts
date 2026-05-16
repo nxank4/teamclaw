@@ -6,6 +6,7 @@ import { getAgentColorFn, agentDisplayName } from "./agent-display.js";
 import { ICONS } from "../tui/constants/icons.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { getConnectionState, setConnectionState } from "../core/connection-state.js";
+import { autoCompactIfNeeded, type CompactCommandDeps } from "./commands/compact.js";
 import type { AppLayout } from "./layout.js";
 import type { Session } from "../session/session.js";
 import type { PromptRouter } from "../router/prompt-router.js";
@@ -15,8 +16,17 @@ export async function handleWithRouter(
   session: Session,
   router: PromptRouter,
   layout: AppLayout,
-  ctx: { addMessage: (role: string, content: string) => void },
+  ctx: { addMessage: (role: string, content: string, options?: { tag?: string }) => void },
+  compactDeps?: CompactCommandDeps | null,
 ): Promise<void> {
+  if (compactDeps) {
+    await autoCompactIfNeeded({
+      deps: compactDeps,
+      sessionId: session.id,
+      emit: (lines, tag) => ctx.addMessage("system", lines.join("\n"), { tag }),
+    });
+  }
+
   try {
     const { ClarificationDetector } = await import("../conversation/clarification.js");
     const detector = new ClarificationDetector();

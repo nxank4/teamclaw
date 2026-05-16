@@ -5,9 +5,38 @@
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
 import { KeybindingHelp, buildHelpSections } from "../tui/keybindings/keybinding-help.js";
+import {
+  CURRENT_SESSION_KEY,
+  toggleCurrentCompactExpanded,
+} from "./commands/compact.js";
+import {
+  COMPACT_MESSAGE_TAG,
+  renderCompactSummary,
+} from "../tui/components/compact-summary.js";
+import { defaultTheme } from "../tui/themes/default.js";
 import type { AppLayout } from "./layout.js";
 import type { CommandRegistry } from "../tui/index.js";
 import type { AppContext } from "./init-session-router.js";
+
+/**
+ * Ctrl+O / Ctrl+E handler. If there is a current op:compact summary,
+ * toggle its expanded state and re-render the tagged message in place.
+ * Returns true when something was toggled so the caller can swallow the
+ * key event. Falls back to CURRENT_SESSION_KEY when a session-keyed
+ * record is not present (the slash-command path keys there because
+ * CommandContext lacks a session id).
+ */
+function toggleCompactExpanded(layout: AppLayout, ctx: AppContext): boolean {
+  const sessionId = ctx.chatSession?.id;
+  const next =
+    (sessionId ? toggleCurrentCompactExpanded(sessionId) : null) ??
+    toggleCurrentCompactExpanded(CURRENT_SESSION_KEY);
+  if (!next) return false;
+  const lines = renderCompactSummary(next.record, defaultTheme, next.expanded);
+  const updated = layout.messages.replaceByTag(COMPACT_MESSAGE_TAG, lines.join("\n"));
+  if (updated) layout.tui.requestRender();
+  return updated;
+}
 
 export function setupKeybindings(
   layout: AppLayout,
@@ -151,6 +180,9 @@ export function setupKeybindings(
         const result = registry.lookup("/model ");
         if (result) void result.command.execute("", makeLeaderCtx());
         return true;
+      }
+      if (combo === "ctrl+o" || combo === "ctrl+e") {
+        if (toggleCompactExpanded(layout, ctx)) return true;
       }
     }
 

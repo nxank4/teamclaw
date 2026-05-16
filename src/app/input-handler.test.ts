@@ -70,6 +70,7 @@ function makeStubCtx(): AppContext {
     onQueueDrain: null,
     toolRegistry: null,
     toolExecutor: null,
+    compactDeps: null,
   };
 }
 

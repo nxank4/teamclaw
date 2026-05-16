@@ -23,11 +23,12 @@ function createMsgCtx(
   ctx: AppContext,
 ) {
   return {
-    addMessage: (role: string, content: string) => {
+    addMessage: (role: string, content: string, options?: { tag?: string }) => {
       layout.messages.addMessage({
         role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
         content,
         timestamp: new Date(),
+        tag: options?.tag as "tool-approval" | "thinking" | "op:compact" | undefined,
       });
       if (ctx.chatSession && role !== "error") {
         ctx.chatSession.addMessage({
@@ -197,7 +198,7 @@ export function setupInputHandler(
         state.agentBusy = true;
         try {
           if (ctx.router && ctx.chatSession) {
-            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx);
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.compactDeps);
           } else {
             await handleChatFallback(fullPrompt, layout, msgCtx);
           }
@@ -240,7 +241,7 @@ export function setupInputHandler(
     state.agentBusy = true;
     try {
       if (ctx.router && ctx.chatSession) {
-        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx);
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.compactDeps);
       } else {
         await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
       }
