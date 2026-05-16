@@ -105,6 +105,11 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     layout.statusBar.updateSegment(2, `${info.icon} ${info.shortName}`, info.color);
     layout.tui.requestRender();
   };
+  // NOTE: don't call updateModeDisplay() here. StatusBarComponent.segments
+  // is still null at this point — updateSegment is gated on
+  // segments != null (see status-bar.ts:111) so the call would be a
+  // silent no-op. The initial chip sync happens immediately after
+  // setupConfigAndProviders below, which is where setSegments runs.
 
   {
     const { createModeCommand } = await import("./commands/mode.js");
@@ -158,6 +163,14 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 
   // ── Config, providers, wizard ────────────────────────────────────
   const configResult = await setupConfigAndProviders(layout, ctx, opts, registry, addWelcomeMessage);
+
+  // Sync the mode chip with appModeSystem now that setSegments has run
+  // inside setupConfigAndProviders (config-wiring.ts:31 hardcodes the
+  // chip to "solo"). Before this point updateSegment is a silent no-op
+  // (status-bar.ts:111 gates on segments != null), which is why
+  // `openpawl --mode crew` previously painted the solo chip even
+  // though AppModeSystem internally held "crew".
+  updateModeDisplay();
 
   // ── Keybindings, palette, shortcuts ──────────────────────────────
   setupKeybindings(layout, registry, appModeSystem, updateModeDisplay, ctx);

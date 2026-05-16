@@ -21,21 +21,37 @@ import { describe, expect, it } from "bun:test";
 import { wireRouterEvents } from "./router-wiring.js";
 import { MessagesComponent } from "../tui/components/messages.js";
 import { RouterEvent } from "../router/event-types.js";
+import { CrewProgressView } from "../tui/components/crew-progress-view.js";
+import { createCrewRunState } from "./crew-run-state.js";
+import { CrewPhaseSchema } from "../crew/types.js";
 import type { AppLayout } from "./layout.js";
 import type { PromptRouter } from "../router/prompt-router.js";
 
 interface StubLayout {
   layout: AppLayout;
   messages: MessagesComponent;
+  crewProgress: CrewProgressView;
   renderCount: number;
+  fixedRenderCount: number;
   statusUpdates: Array<{ idx: number; text: string }>;
+  fixedHidden: Map<string, boolean>;
 }
 
 function makeStubLayout(): StubLayout {
   const messages = new MessagesComponent("test-messages");
-  const state = { renderCount: 0, statusUpdates: [] as Array<{ idx: number; text: string }> };
+  const crewProgress = new CrewProgressView("crew-progress", {
+    state: createCrewRunState(""),
+    spinnerFrame: 0,
+  });
+  const state = {
+    renderCount: 0,
+    fixedRenderCount: 0,
+    statusUpdates: [] as Array<{ idx: number; text: string }>,
+    fixedHidden: new Map<string, boolean>(),
+  };
   const layout = {
     messages,
+    crewProgress,
     statusBar: {
       updateSegment: (idx: number, text: string) => {
         state.statusUpdates.push({ idx, text });
@@ -45,13 +61,22 @@ function makeStubLayout(): StubLayout {
       requestRender: () => {
         state.renderCount += 1;
       },
+      requestFixedRender: () => {
+        state.fixedRenderCount += 1;
+      },
+      setFixedBottomHidden: (id: string, hidden: boolean) => {
+        state.fixedHidden.set(id, hidden);
+      },
     },
   } as unknown as AppLayout;
   return {
     layout,
     messages,
+    crewProgress,
     get renderCount() { return state.renderCount; },
+    get fixedRenderCount() { return state.fixedRenderCount; },
     get statusUpdates() { return state.statusUpdates; },
+    get fixedHidden() { return state.fixedHidden; },
   };
 }
 
@@ -76,20 +101,22 @@ function findThinkingPlaceholder(messages: MessagesComponent): boolean {
 }
 
 describe("wireRouterEvents — thinking placeholder lifecycle", () => {
-  it("removes the thinking placeholder when AgentDone fires (crew path: no AgentToken)", () => {
+  it("crew dispatch does NOT add a solo thinking placeholder (CrewProgressView is the indicator)", () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
 
     router.emit(RouterEvent.AgentStart, "sid", "crew");
-    expect(findThinkingPlaceholder(stub.messages)).toBe(true);
+    // Bug 1 fix: no placeholder is added for crew; the bottom tree is
+    // the single source of "what's happening".
+    expect(findThinkingPlaceholder(stub.messages)).toBe(false);
 
-    // Crew dispatch never emits AgentToken — go straight to AgentDone.
+    // AgentDone is a safe no-op since there's nothing to remove.
     router.emit(RouterEvent.AgentDone, "sid", "crew", { success: true });
     expect(findThinkingPlaceholder(stub.messages)).toBe(false);
   });
 
-  it("solo path stays correct — first AgentToken already strips the tag, AgentDone is a safe no-op", () => {
+  it("solo path adds the placeholder and the first AgentToken strips the tag", () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
@@ -106,16 +133,100 @@ describe("wireRouterEvents — thinking placeholder lifecycle", () => {
     expect(findThinkingPlaceholder(stub.messages)).toBe(false);
   });
 
-  it("dispatch error also removes the thinking placeholder", () => {
+  it("dispatch error after solo AgentStart removes the thinking placeholder", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
+    expect(findThinkingPlaceholder(stub.messages)).toBe(true);
+
+    router.emit(RouterEvent.Error, "sid", { type: "dispatch_failed", cause: "boom" });
+    expect(findThinkingPlaceholder(stub.messages)).toBe(false);
+  });
+});
+
+/**
+ * Regressions for the crew-display-bugs trio:
+ *   1) Double spinner — solo thinking + crew tree both ticking.
+ *   2) Duplicate "Planner" header on the first crew subagent token.
+ *   3) Token footer stuck at 0 — CrewTokens not ticking per-token.
+ */
+describe("wireRouterEvents — crew display regressions", () => {
+  function countAgentMessages(messages: MessagesComponent): number {
+    // Probe by removing one-at-a-time; restore via tag round-trip is not
+    // available, so use the public getMessageCount() and check role tags
+    // indirectly via the snapshot. Simpler: read messages from the
+    // component's internal accessor.
+    // MessagesComponent exposes getMessageCount(); count agent bubbles by
+    // removing until we hit non-agent or empty. Since the component does
+    // not expose a snapshot, we count by addMessage side-effects: every
+    // agent bubble is one entry. Acceptable in this test: after
+    // AgentStart + first AgentToken, the only entries are agent bubbles.
+    return messages.getMessageCount();
+  }
+
+  it("emits exactly one agent bubble for the first crew subagent token (no duplicate Planner header)", () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
 
     router.emit(RouterEvent.AgentStart, "sid", "crew");
-    expect(findThinkingPlaceholder(stub.messages)).toBe(true);
+    // No thinking placeholder under crew, so the message count starts at 0.
+    expect(stub.messages.getMessageCount()).toBe(0);
 
-    router.emit(RouterEvent.Error, "sid", { type: "dispatch_failed", cause: "boom" });
-    expect(findThinkingPlaceholder(stub.messages)).toBe(false);
+    // First synthesized planner token (the markdown plan) arrives.
+    router.emit(RouterEvent.AgentToken, "sid", "planner", "**Plan: 1 phase, 1 task**");
+
+    // Bug 2 fix: exactly one Planner bubble, not two.
+    expect(countAgentMessages(stub.messages)).toBe(1);
+
+    // Subsequent same-agent tokens append to the existing bubble.
+    router.emit(RouterEvent.AgentToken, "sid", "planner", "\n  t1 · Tester · ...");
+    expect(countAgentMessages(stub.messages)).toBe(1);
+  });
+
+  it("CrewTokens uses the requestFixedRender fast path so the chat isn't re-rendered per chunk", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    // The crew overlay reveal triggered a full requestRender (panel
+    // visibility flipped, bottom-fixed height changed). Snapshot the
+    // counters and assert that subsequent token deltas don't fire
+    // requestRender again.
+    const fullBaseline = stub.renderCount;
+    const fixedBaseline = stub.fixedRenderCount;
+
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 5);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 2);
+
+    // Three fast-path renders, zero new full renders.
+    expect(stub.fixedRenderCount - fixedBaseline).toBe(3);
+    expect(stub.renderCount).toBe(fullBaseline);
+  });
+
+  it("CrewTokens ticks the footer per emitted token via dispatchCrew.onToken bridge", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+
+    // Simulate three per-token CrewTokens deltas (output=1 each) and
+    // a wrapper-style INPUT-only reconcile.
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 0, 1);
+    router.emit(RouterEvent.CrewTokens, "sid", "planner", 4000, 0);
+
+    const state = stub.crewProgress.getProps().state;
+    expect(state.totalOutputTokens).toBe(3);
+    expect(state.totalInputTokens).toBe(4000);
+    expect(state.agents.get("planner")?.outputTokens).toBe(3);
+    expect(state.agents.get("planner")?.inputTokens).toBe(4000);
   });
 });
 
@@ -125,14 +236,101 @@ describe("wireRouterEvents — thinking placeholder lifecycle", () => {
  * carries visible progress) and resume during idle gaps so the user
  * sees movement between subagent runs.
  */
+/**
+ * Crew progress overlay — the sticky tree above the divider is driven
+ * entirely from RouterEvents. These tests pin the visibility, state
+ * mutation, and timer behavior so the run feels coherent end-to-end.
+ */
+describe("wireRouterEvents — crew progress overlay", () => {
+  it("shows the overlay on AgentStart(crew) and updates state on the new RouterEvents", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    expect(stub.fixedHidden.get("crew-progress")).toBe(false);
+    // State exists and is empty.
+    expect(stub.crewProgress.getProps().state.agents.size).toBe(0);
+
+    const phases = [
+      CrewPhaseSchema.parse({
+        id: "p1",
+        name: "Setup",
+        description: "",
+        complexity_tier: "2",
+        tasks: [
+          { id: "t1", phase_id: "p1", description: "scan", assigned_agent: "tester", depends_on: [] },
+          { id: "t2", phase_id: "p1", description: "verify", assigned_agent: "tester", depends_on: [] },
+          { id: "t3", phase_id: "p1", description: "write", assigned_agent: "coder", depends_on: [] },
+        ],
+      }),
+    ];
+    router.emit(RouterEvent.CrewPlanReady, "sid", phases);
+    const state = stub.crewProgress.getProps().state;
+    expect(state.agents.get("planner")?.status).toBe("done");
+    expect(state.agents.get("planner")?.metric).toBe("3 tasks");
+    expect(state.agents.get("tester")?.status).toBe("queued");
+    expect(state.agents.get("tester")?.metric).toBe("2 tasks");
+    expect(state.agents.get("coder")?.status).toBe("queued");
+    expect(state.agents.get("coder")?.metric).toBe("1 task");
+
+    router.emit(RouterEvent.CrewAgentStart, "sid", "coder", 1);
+    expect(stub.crewProgress.getProps().state.agents.get("coder")?.status).toBe("running");
+
+    router.emit(RouterEvent.CrewTokens, "sid", "coder", 1200, 800);
+    expect(stub.crewProgress.getProps().state.agents.get("coder")?.inputTokens).toBe(1200);
+    expect(stub.crewProgress.getProps().state.totalInputTokens).toBe(1200);
+    expect(stub.crewProgress.getProps().state.totalOutputTokens).toBe(800);
+
+    router.emit(RouterEvent.CrewAgentDone, "sid", "coder", "wrote hello.ts");
+    expect(stub.crewProgress.getProps().state.agents.get("coder")?.status).toBe("done");
+    expect(stub.crewProgress.getProps().state.agents.get("coder")?.metric).toBe("wrote hello.ts");
+
+    router.emit(RouterEvent.CrewAgentBlocked, "sid", "tester", "shell_exec missing");
+    expect(stub.crewProgress.getProps().state.agents.get("tester")?.status).toBe("blocked");
+    expect(stub.crewProgress.getProps().state.agents.get("tester")?.metric).toBe("shell_exec missing");
+  });
+
+  it("hides the overlay 3s after AgentDone(crew) and marks state complete", async () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    expect(stub.fixedHidden.get("crew-progress")).toBe(false);
+    router.emit(RouterEvent.AgentDone, "sid", "crew", { success: true });
+    // markComplete fired synchronously; isComplete is true even before the timer expires.
+    expect(stub.crewProgress.getProps().state.isComplete).toBe(true);
+    // Hide is deferred — still visible immediately after AgentDone.
+    expect(stub.fixedHidden.get("crew-progress")).toBe(false);
+    await Bun.sleep(3050);
+    expect(stub.fixedHidden.get("crew-progress")).toBe(true);
+  });
+
+  it("solo dispatch does not toggle the crew overlay", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
+    // Crew panel is not flipped visible for solo agents.
+    expect(stub.fixedHidden.get("crew-progress")).toBeUndefined();
+    router.emit(RouterEvent.AgentToken, "sid", "coder", "hi");
+    router.emit(RouterEvent.AgentDone, "sid", "coder", { response: "hi" });
+    expect(stub.fixedHidden.get("crew-progress")).toBeUndefined();
+  });
+});
+
 describe("wireRouterEvents — flavor animation lifecycle", () => {
   it("stops the spinner when a tool call starts running and resumes when all tools complete", async () => {
     const stub = makeStubLayout();
     const router = makeStubRouter();
     wireRouterEvents(router, stub.layout);
 
-    router.emit(RouterEvent.AgentStart, "sid", "crew");
-    // Allow one frame to land so the placeholder has spinner content.
+    // Solo dispatch — the only path that uses the chat-stream thinking
+    // placeholder. Crew dispatch no longer adds one (the bottom
+    // CrewProgressView is the indicator there).
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
     await Bun.sleep(0);
     expect(stub.messages.hasRunningToolCalls()).toBe(false);
 

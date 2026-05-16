@@ -203,6 +203,19 @@ export interface RunPlanningArgs {
    * time, rather than waiting for the phase-summary table.
    */
   onTaskBlocked?: TaskBlockedEmitter;
+  /**
+   * Crew lifecycle sinks — fire around every subagent invocation so
+   * the host can render the live agent tree (CrewProgressView in the
+   * TUI, stdout tree in headless mode). All optional; absent callbacks
+   * are no-ops. The wrapper is installed once at the top of runCrew /
+   * runPlanning and threaded through phase-executor unchanged.
+   */
+  onCrewAgentStart?: (agentId: string, taskCount: number) => void;
+  onCrewAgentDone?: (agentId: string, summary: string) => void;
+  onCrewAgentBlocked?: (agentId: string, reason: string) => void;
+  onCrewTokens?: (agentId: string, inputDelta: number, outputDelta: number) => void;
+  /** Fires once after the planner produces a valid plan (post-parsePlan). */
+  onCrewPlanReady?: (phases: CrewPhase[]) => void;
 }
 
 export interface RunCrewArgs extends RunPlanningArgs {
@@ -333,8 +346,57 @@ function tierDistribution(phases: CrewPhase[]): Record<"1" | "2" | "3", number> 
   return dist;
 }
 
+// One-shot wrapping marker so runCrew → runPlanning doesn't double-wrap
+// the subagent impl. The wrapper installs onCrewAgentStart / onCrewTokens /
+// onCrewAgentDone / onCrewAgentBlocked around every subagent invocation,
+// so phase-executor and subagent-runner stay unchanged. The planner is
+// special-cased: the wrapper still emits onCrewAgentStart and onCrewTokens
+// for it, but skips onCrewAgentDone — runPlanning emits onCrewPlanReady
+// after parsePlan and the host turns that into the planner's "N tasks"
+// metric, which is more useful than the raw JSON summary string.
+const wrappedSubagentImpls: WeakSet<(args: RunSubagentArgs) => Promise<SubagentResult>> = new WeakSet();
+
+function withCrewLifecycle(args: RunPlanningArgs): RunPlanningArgs {
+  const hasCallbacks =
+    args.onCrewAgentStart ||
+    args.onCrewAgentDone ||
+    args.onCrewAgentBlocked ||
+    args.onCrewTokens;
+  if (!hasCallbacks) return args;
+  const base = args.runSubagentImpl ?? defaultRunSubagent;
+  if (wrappedSubagentImpls.has(base)) return args;
+  const wrapped = async (subArgs: RunSubagentArgs): Promise<SubagentResult> => {
+    const agentId = subArgs.agent_def.id;
+    args.onCrewAgentStart?.(agentId, 1);
+    try {
+      const result = await base(subArgs);
+      const breakdown = result.tokens_breakdown ?? {
+        input: 0,
+        output: result.tokens_used,
+      };
+      // Reconcile: output tokens are already counted live by
+      // dispatchCrew.onToken (one delta per streamed token), so the
+      // post-completion call reports the INPUT delta only. Reporting
+      // both here would double-count output against the live ticks.
+      args.onCrewTokens?.(agentId, breakdown.input, 0);
+      if (agentId !== PLANNER_AGENT_ID) {
+        const summary = result.summary?.split("\n")[0]?.slice(0, 60).trim() || "done";
+        args.onCrewAgentDone?.(agentId, summary);
+      }
+      return result;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      args.onCrewAgentBlocked?.(agentId, reason);
+      throw err;
+    }
+  };
+  wrappedSubagentImpls.add(wrapped);
+  return { ...args, runSubagentImpl: wrapped };
+}
+
 /** Run only the planning phase. Returns plan_only or plan_failed. */
-export async function runPlanning(args: RunPlanningArgs): Promise<CrewRunResult> {
+export async function runPlanning(rawArgs: RunPlanningArgs): Promise<CrewRunResult> {
+  const args = withCrewLifecycle(rawArgs);
   const sessionId = args.session_id ?? randomUUID();
   const homeDir = args.home_dir ?? os.homedir();
   const tokenBudgetCap = args.max_tokens_per_task ?? DEFAULT_MAX_TOKENS_PER_TASK;
@@ -457,6 +519,8 @@ export async function runPlanning(args: RunPlanningArgs): Promise<CrewRunResult>
         },
       });
 
+      args.onCrewPlanReady?.(phases);
+
       return {
         status: "plan_only",
         session_id: sessionId,
@@ -502,7 +566,11 @@ export async function runPlanning(args: RunPlanningArgs): Promise<CrewRunResult>
  * Out of scope (next PR): discussion meeting, drift check, post-mortem,
  * user checkpoint UI.
  */
-export async function runCrew(args: RunCrewArgs): Promise<CrewRunResult> {
+export async function runCrew(rawArgs: RunCrewArgs): Promise<CrewRunResult> {
+  // Install crew-lifecycle wrapper once at the top so the planner and
+  // every phase subagent see the same wrapped runSubagentImpl. runPlanning's
+  // own withCrewLifecycle no-ops via the WeakSet marker.
+  const args = withCrewLifecycle(rawArgs) as RunCrewArgs;
   const planResult = await runPlanning(args);
   if (planResult.status === "plan_failed") return planResult;
 

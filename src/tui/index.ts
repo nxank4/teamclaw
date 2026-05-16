@@ -24,6 +24,7 @@ export { MessagesComponent, type ChatMessage } from "./components/messages.js";
 export { EditorComponent, type AutocompleteProvider, type AutocompleteSuggestion } from "./components/editor.js";
 export { MarkdownComponent, renderMarkdown } from "./components/markdown.js";
 export { OverlayComponent } from "./components/overlay.js";
+export { CrewProgressView, renderCrewProgress, type CrewProgressViewProps } from "./components/crew-progress-view.js";
 
 // Slash commands
 export { CommandRegistry, type SlashCommand, type CommandContext } from "./slash/registry.js";
