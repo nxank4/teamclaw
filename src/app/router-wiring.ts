@@ -55,13 +55,10 @@ export function wireRouterEvents(
   let crewState: CrewRunState | null = null;
   let crewSpinnerFrame = 0;
   let crewSpinnerInterval: ReturnType<typeof setInterval> | null = null;
-  let crewHideTimer: ReturnType<typeof setTimeout> | null = null;
   // True between AgentStart("crew") and AgentDone("crew")/DispatchError.
-  // The bottom CrewProgressView is the single source of progress during a
-  // crew run, so we suppress redundant per-tool lines from the chat stream
-  // (onAgentTool below). Tracked as its own boolean rather than reusing
-  // `crewState`, which lingers after the run to keep the overlay's last
-  // frame on screen during the 3 s fade-out.
+  // The inline CrewProgressView message is the single source of progress
+  // during a crew run, so we suppress redundant per-tool lines from the
+  // chat stream (onAgentTool below).
   let inCrewRun = false;
 
   function ensureCrewState(goal: string = ""): CrewRunState {
@@ -69,18 +66,30 @@ export function wireRouterEvents(
     return crewState;
   }
 
+  // Render the crew tree into the chat stream. First call during a run
+  // pushes a tagged "crew-progress" system message; subsequent calls walk
+  // the stream backward via replaceByTag and update in place. The tree
+  // therefore stays anchored at the position where the run started even
+  // as agent text streams underneath it, and the final state remains in
+  // scroll history once the run finishes (no auto-hide).
+  function renderCrewToStream(): void {
+    const width = process.stdout.columns ?? 80;
+    const content = layout.crewProgress.render(width).join("\n");
+    if (!layout.messages.replaceByTag("crew-progress", content)) {
+      layout.messages.addMessage({
+        role: "system",
+        content,
+        tag: "crew-progress",
+        timestamp: new Date(),
+      });
+    }
+    layout.tui.requestRender();
+  }
+
   function pushCrewState(): void {
     const state = ensureCrewState();
     layout.crewProgress.setProps({ state, spinnerFrame: crewSpinnerFrame });
-    // Fast path (tui.ts:372). Only the bottom-fixed area changed —
-    // the chat is untouched on per-token CrewTokens events. Skipping
-    // the chat re-render here matters during streaming because the
-    // full-render path can grow expensive enough on long chats that
-    // many incoming chunks coalesce into one frame, masking the
-    // tick. The renderer detects bottom-height changes (e.g. when
-    // CrewPlanReady adds queued agents) and falls through to a full
-    // render automatically — see the guard at tui.ts:452.
-    layout.tui.requestFixedRender();
+    renderCrewToStream();
   }
 
   function startCrewSpinner(): void {
@@ -88,7 +97,7 @@ export function wireRouterEvents(
     crewSpinnerInterval = setInterval(() => {
       crewSpinnerFrame = (crewSpinnerFrame + 1) % 4;
       layout.crewProgress.setProps({ spinnerFrame: crewSpinnerFrame });
-      layout.tui.requestFixedRender();
+      renderCrewToStream();
     }, SPINNER_INTERVAL_MS);
   }
 
@@ -96,13 +105,6 @@ export function wireRouterEvents(
     if (crewSpinnerInterval) {
       clearInterval(crewSpinnerInterval);
       crewSpinnerInterval = null;
-    }
-  }
-
-  function clearCrewHideTimer(): void {
-    if (crewHideTimer) {
-      clearTimeout(crewHideTimer);
-      crewHideTimer = null;
     }
   }
 
@@ -143,16 +145,14 @@ export function wireRouterEvents(
     }
 
     if (agentId === "crew") {
-      // Crew dispatch — the CrewProgressView overlay below is the
-      // single source of progress. Do NOT also add the solo
-      // ThinkingIndicator placeholder; otherwise both spinners tick
-      // simultaneously (one in the chat, one in the bottom tree).
+      // Crew dispatch — the inline crew-progress message is the single
+      // source of progress. Do NOT also add the solo ThinkingIndicator
+      // placeholder; otherwise both spinners tick simultaneously.
       inCrewRun = true;
-      clearCrewHideTimer();
       crewState = createCrewRunState("");
       crewSpinnerFrame = 0;
       layout.crewProgress.setProps({ state: crewState, spinnerFrame: 0 });
-      layout.tui.setFixedBottomHidden("crew-progress", false);
+      renderCrewToStream();
       startCrewSpinner();
       layout.statusBar.updateSegment(3, `crew running... ${defaultTheme.dim("(Esc to cancel)")}`, defaultTheme.accent);
     } else {
@@ -308,20 +308,12 @@ export function wireRouterEvents(
 
   const onAgentDone = (_sessionId: string, agentId: string, result?: { response?: string }) => {
     if (agentId === "crew") {
-      // Reset before the auto-hide timer so any follow-up solo
-      // dispatch in the 3 s fade window renders tool lines normally.
       inCrewRun = false;
       if (crewState) markComplete(crewState);
+      // pushCrewState renders the final completed tree into the chat
+      // stream. It stays there in scroll history — no auto-hide.
       pushCrewState();
       stopCrewSpinner();
-      // Auto-hide after a few seconds so the user sees the final tree
-      // and totals, then the overlay collapses out of the layout.
-      clearCrewHideTimer();
-      crewHideTimer = setTimeout(() => {
-        layout.tui.setFixedBottomHidden("crew-progress", true);
-        layout.tui.requestRender();
-        crewHideTimer = null;
-      }, 3000);
     }
     const responseText = result?.response || streamedContent;
     if (responseText && agentId !== "system") {
@@ -380,8 +372,8 @@ export function wireRouterEvents(
     layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
     stopCrewSpinner();
-    clearCrewHideTimer();
-    layout.tui.setFixedBottomHidden("crew-progress", true);
+    // The crew-progress tree, if any, stays in scroll history so the
+    // user can see the partial state at the crash point.
     layout.messages.clearToolCalls();
     layout.messages.addMessage({
       role: "error",
@@ -425,8 +417,7 @@ export function wireRouterEvents(
     layout.messages.removeLastByTag("thinking");
     stopToolSpinner();
     stopCrewSpinner();
-    clearCrewHideTimer();
-    layout.tui.setFixedBottomHidden("crew-progress", true);
+    // Cancelled crew tree stays in scroll history — see error path.
     layout.messages.bakeToolCalls();
     layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
     layout.tui.requestRender();
@@ -520,7 +511,6 @@ export function wireRouterEvents(
     cleanup: () => {
       stopToolSpinner();
       stopCrewSpinner();
-      clearCrewHideTimer();
       router.off(RouterEvent.AgentStart, onAgentStart);
       router.off(RouterEvent.AgentToken, onAgentToken);
       router.off(RouterEvent.AgentTool, onAgentTool);

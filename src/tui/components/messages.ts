@@ -25,7 +25,7 @@ export interface ChatMessage {
   /** Queued message not yet processed — rendered dimmed. */
   pending?: boolean;
   /** Visual tag for special rendering (e.g., tool approval background tint). */
-  tag?: "tool-approval" | "thinking";
+  tag?: "tool-approval" | "thinking" | "crew-progress";
 }
 
 /** Lines above which a message is considered collapsible. */
@@ -721,6 +721,34 @@ export class MessagesComponent implements Component {
     this.renderCache.delete(idx);
     this.heightCache.delete(idx);
     return true;
+  }
+
+  /** Inspect the most recent message carrying `tag`, walking backward. */
+  findLastByTag(tag: ChatMessage["tag"]): ChatMessage | undefined {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i]!.tag === tag) return this.messages[i];
+    }
+    return undefined;
+  }
+
+  /**
+   * Replace the most recent message carrying `tag`, regardless of where
+   * it sits in the stream. Unlike `replaceLastByTag` (which requires the
+   * literal last message), this walks backward — matching the semantics
+   * of `removeLastByTag`. Used by the inline crew-progress tree, which
+   * may have agent messages streamed on top of it during a run but
+   * still needs in-place updates rather than fresh appends.
+   */
+  replaceByTag(tag: ChatMessage["tag"], content: string): boolean {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i]!.tag === tag) {
+        this.messages[i]!.content = content;
+        this.renderCache.delete(i);
+        this.heightCache.delete(i);
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Replace the last message entirely (e.g., swap thinking for agent message). */
