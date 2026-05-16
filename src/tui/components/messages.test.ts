@@ -34,6 +34,43 @@ describe("MessagesComponent.replaceLastByTag", () => {
   });
 });
 
+describe("MessagesComponent.replaceByTag", () => {
+  it("updates a tagged message even when agent messages have been pushed on top", () => {
+    // The inline crew-progress tree sits at the position where the
+    // run started. As soon as the planner streams its first token, an
+    // agent message lands above the tree in the stream. The next crew
+    // event (CrewAgentStart, CrewTokens, etc.) must still update the
+    // tree in place — replaceLastByTag would no-op here because the
+    // literal last message is the planner's, not the tree's.
+    const m = new MessagesComponent("test-messages");
+    m.addMessage({ role: "system", content: "initial-tree", tag: "crew-progress" });
+    m.addMessage({ role: "agent", content: "planner streaming...", agentName: "Planner" });
+
+    expect(m.replaceByTag("crew-progress", "updated-tree")).toBe(true);
+    expect(m.findLastByTag("crew-progress")?.content).toBe("updated-tree");
+    // Agent message is untouched — still on top.
+    expect(m.getMessageCount()).toBe(2);
+  });
+
+  it("returns false when no message carries the tag", () => {
+    const m = new MessagesComponent("test-messages");
+    m.addMessage({ role: "agent", content: "anything" });
+    expect(m.replaceByTag("crew-progress", "x")).toBe(false);
+  });
+
+  it("preserves role and other fields on the replaced message", () => {
+    const m = new MessagesComponent("test-messages");
+    const ts = new Date(2026, 0, 1);
+    m.addMessage({ role: "system", content: "tree-v1", tag: "crew-progress", timestamp: ts });
+    m.replaceByTag("crew-progress", "tree-v2");
+    const found = m.findLastByTag("crew-progress");
+    expect(found?.role).toBe("system");
+    expect(found?.tag).toBe("crew-progress");
+    expect(found?.content).toBe("tree-v2");
+    expect(found?.timestamp).toBe(ts);
+  });
+});
+
 /**
  * Bug U+3 — when the crew runtime pushes a system message below the
  * thinking placeholder (e.g. \"-> auto-advancing to next phase.\", a

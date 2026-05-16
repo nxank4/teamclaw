@@ -32,11 +32,17 @@ export function createLayout(terminal?: Terminal): AppLayout {
   const tui = new TUI(terminal);
 
   const messages = new MessagesComponent("messages");
+  // CrewProgressView is no longer a fixed-bottom overlay — it lives in
+  // the chat stream as a tagged "crew-progress" system message that
+  // router-wiring updates in place via MessagesComponent.replaceByTag.
+  // The class instance here is a stateful renderer adapter: it holds
+  // the current CrewRunState + spinner frame and turns them into the
+  // styled tree on demand. `hidden` is unused now but kept for binary
+  // compatibility with any external consumers.
   const crewProgress = new CrewProgressView("crew-progress", {
     state: createCrewRunState(""),
     spinnerFrame: 0,
   });
-  crewProgress.hidden = true;
   const divider = new DividerComponent("divider");
   const editor = new EditorComponent("editor", "Type a prompt, /command, @file, or !shell...");
   const statusBar = new StatusBarComponent("status", defaultTheme.statusBarBg);
@@ -44,10 +50,7 @@ export function createLayout(terminal?: Terminal): AppLayout {
   // Scrollable region (fills remaining space above fixed bottom)
   tui.setScrollableContent(messages);
 
-  // Fixed at bottom (top-to-bottom order: crew progress, divider, editor, status bar).
-  // crewProgress sits above the divider so the live agent tree always reads as part of the
-  // overlay region. Solo mode keeps it hidden via tui.setFixedBottomHidden.
-  tui.addFixedBottom(crewProgress);
+  // Fixed at bottom (top-to-bottom order: divider, editor, status bar).
   tui.addFixedBottom(divider);
   tui.addFixedBottom(editor);
   tui.addFixedBottom(statusBar);
