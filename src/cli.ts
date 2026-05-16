@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     }
 
     // ── Global TUI flag: --mode <solo|crew> ──────────────────────────────
-    // Consumed by bare `openpawl` and `openpawl -c` (TUI launches). Print
+    // Consumed by bare `openpawl` and `openpawl --sessions` (TUI launches). Print
     // mode (-p / --print) owns its own --mode flag, so skip the global
     // splice when -p is present to avoid eating the print-mode token.
     let initialMode: AppMode | undefined;
@@ -138,14 +138,41 @@ async function main(): Promise<void> {
         return;
     }
 
-    // -c / --continue → launch TUI (user resumes via /sessions)
-    if (args.includes("-c") || args.includes("--continue")) {
+    // --sessions [id] / --session [id]
+    //   No id  → launch TUI, open the sessions picker on startup.
+    //   With id → resume that specific session before TUI starts.
+    // Pre-validates the id (when given) by calling sessionMgr.resume()
+    // up front so a typo fails fast with exit 1 instead of crashing
+    // mid-TUI-mount. Replaces the legacy -c/--continue (whose
+    // implementation was a no-op alias for bare `openpawl`).
+    const sessionFlagIdx = args.findIndex((a) => a === "--sessions" || a === "--session");
+    if (sessionFlagIdx !== -1) {
         if (!process.stdin.isTTY) {
-            logger.error("Cannot resume TUI session in non-interactive mode.");
+            logger.error("--sessions requires an interactive terminal.");
             process.exit(1);
         }
+        const next = args[sessionFlagIdx + 1];
+        const sessionId: string | null = (next && !next.startsWith("-")) ? next : null;
+
+        let resumedSession: import("./session/session.js").Session | undefined;
+        if (sessionId) {
+            const { createSessionManager } = await import("./session/index.js");
+            const mgr = createSessionManager({});
+            await mgr.initialize();
+            const result = await mgr.resume(sessionId);
+            if (result.isErr()) {
+                logger.error(`Session '${sessionId}' not found.`);
+                process.exit(1);
+            }
+            resumedSession = result.value;
+        }
+
         const { launchTUI } = await import("./app/index.js");
-        await launchTUI({ initialMode });
+        await launchTUI({
+            initialMode,
+            resumedSession,
+            openSessionPicker: sessionId === null,
+        });
         return;
     }
 
