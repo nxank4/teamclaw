@@ -11,8 +11,10 @@
  *   ├─ ✓ Planner · 7 tasks
  *   ├─ ▘ Coder · running
  *   ├─ ○ Reviewer · queued
- *   └─ ○ Tester · queued
- *      tokens 12.4k
+ *   └─ ○ Tester · queued  ↑ 5.0k  ↓ 7.4k
+ *
+ * Token totals are folded onto the last agent line so the tree reads
+ * as a single connected unit instead of three disjoint rows.
  */
 import { ICONS } from "../constants/icons.js";
 import { defaultTheme } from "../themes/default.js";
@@ -60,6 +62,9 @@ export function renderCrewProgress(props: CrewProgressViewProps): string[] {
     return [];
   }
 
+  const inputCell = defaultTheme.info(`↑ ${formatTokens(props.state.totalInputTokens)}`);
+  const outputCell = defaultTheme.warning(`↓ ${formatTokens(props.state.totalOutputTokens)}`);
+
   const lines: string[] = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i]!;
@@ -68,12 +73,12 @@ export function renderCrewProgress(props: CrewProgressViewProps): string[] {
     const glyph = statusGlyph(entry, props.spinnerFrame);
     const name = getAgentColorFn(entry.agentId)(agentDisplayName(entry.agentId));
     const metric = metricStyle(entry);
-    lines.push(`${branch} ${glyph} ${name} ${defaultTheme.dim("·")} ${metric}`);
+    const base = `${branch} ${glyph} ${name} ${defaultTheme.dim("·")} ${metric}`;
+    // Token totals fold onto the last entry. Always render — even at
+    // ↑ 0  ↓ 0 — so the footer position is stable across the run
+    // instead of popping in once tokens arrive.
+    lines.push(isLast ? `${base}  ${inputCell}  ${outputCell}` : base);
   }
-
-  const inputCell = defaultTheme.info(`↑ ${formatTokens(props.state.totalInputTokens)}`);
-  const outputCell = defaultTheme.warning(`↓ ${formatTokens(props.state.totalOutputTokens)}`);
-  lines.push(`   ${inputCell}  ${outputCell}`);
 
   return lines;
 }

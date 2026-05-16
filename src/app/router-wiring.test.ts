@@ -321,6 +321,103 @@ describe("wireRouterEvents — crew progress overlay", () => {
   });
 });
 
+describe("wireRouterEvents — crew tool-call chat suppression", () => {
+  it("suppresses startToolCall on the chat stream during a crew run", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    // Subagent tool fires with the real per-agent id, not "crew".
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "planner",
+      "shell_exec",
+      "running",
+      { executionId: "exec-c1", inputSummary: "ls" },
+    );
+
+    // No tool entry on the messages component — the bottom CrewProgressView
+    // tree is the single source of progress during a crew run.
+    expect(stub.messages.hasRunningToolCalls()).toBe(false);
+    // Status bar still surfaces the active subagent + tool.
+    const statusHits = stub.statusUpdates.filter((u) => u.text.includes("shell_exec"));
+    expect(statusHits.length).toBeGreaterThan(0);
+  });
+
+  it("solo dispatch still renders tool-call lines on the chat stream", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "coder",
+      "file_write",
+      "running",
+      { executionId: "exec-s1", inputSummary: "Write hello.ts" },
+    );
+
+    expect(stub.messages.hasRunningToolCalls()).toBe(true);
+  });
+
+  it("tool-call lines resume in solo dispatch after a crew run completes", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "planner",
+      "shell_exec",
+      "running",
+      { executionId: "exec-c1", inputSummary: "ls" },
+    );
+    // Suppressed during crew.
+    expect(stub.messages.hasRunningToolCalls()).toBe(false);
+
+    router.emit(RouterEvent.AgentDone, "sid", "crew", { success: true });
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "coder",
+      "file_write",
+      "running",
+      { executionId: "exec-s1", inputSummary: "Write hello.ts" },
+    );
+
+    // Post-crew solo dispatch renders normally.
+    expect(stub.messages.hasRunningToolCalls()).toBe(true);
+  });
+
+  it("dispatch error during a crew run clears the suppression flag", () => {
+    const stub = makeStubLayout();
+    const router = makeStubRouter();
+    wireRouterEvents(router, stub.layout);
+
+    router.emit(RouterEvent.AgentStart, "sid", "crew");
+    router.emit(RouterEvent.Error, "sid", { type: "dispatch_failed", cause: "boom" });
+
+    // After the error tears the run down, a fresh solo tool should render.
+    router.emit(RouterEvent.AgentStart, "sid", "coder");
+    router.emit(
+      RouterEvent.AgentTool,
+      "sid",
+      "coder",
+      "file_write",
+      "running",
+      { executionId: "exec-s2", inputSummary: "Write x.ts" },
+    );
+    expect(stub.messages.hasRunningToolCalls()).toBe(true);
+  });
+});
+
 describe("wireRouterEvents — flavor animation lifecycle", () => {
   it("stops the spinner when a tool call starts running and resumes when all tools complete", async () => {
     const stub = makeStubLayout();

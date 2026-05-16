@@ -60,27 +60,61 @@ describe("renderCrewProgress", () => {
     expect(out[2]).toMatch(/^└─/);
   });
 
-  it("token footer shows input ↑ and output ↓ separately via formatTokens", () => {
+  it("token footer is folded inline onto the last agent line", () => {
     const state = createCrewRunState("");
     markAgentDone(state, "planner", "3 tasks");
     addTokens(state, "planner", 5000, 7400);
     const lines = renderCrewProgress({ state, spinnerFrame: 0 }).map(strip);
-    const footer = lines[lines.length - 1]!;
-    expect(footer).toContain("↑");
-    expect(footer).toContain("↓");
-    expect(footer).toContain("5.0k");
-    expect(footer).toContain("7.4k");
-    // No more literal "tokens" prefix.
-    expect(footer).not.toContain("tokens");
+    // Single agent → exactly one line, no extra footer row.
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line).toMatch(/^└─/);
+    expect(line).toContain("Planner");
+    expect(line).toContain("3 tasks");
+    // Token cells appear after the metric on the same line.
+    expect(line).toMatch(/↑ 5\.0k\s+↓ 7\.4k$/);
+    // No more literal "tokens" prefix from the old separate row.
+    expect(line).not.toContain("tokens");
   });
 
-  it("footer renders `↑ 0  ↓ 0` when no tokens have been counted yet", () => {
+  it("inline footer renders `↑ 0  ↓ 0` when no tokens have been counted yet", () => {
     const state = createCrewRunState("");
     markAgentRunning(state, "coder");
     const lines = renderCrewProgress({ state, spinnerFrame: 0 }).map(strip);
-    const footer = lines[lines.length - 1]!;
-    expect(footer).toContain("↑ 0");
-    expect(footer).toContain("↓ 0");
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line).toMatch(/^└─/);
+    expect(line).toMatch(/↑ 0\s+↓ 0$/);
+  });
+
+  it("inline footer attaches to the last entry across multiple agents (done)", () => {
+    const state = createCrewRunState("");
+    markAgentDone(state, "planner", "3 tasks");
+    markAgentDone(state, "reviewer", "ok");
+    addTokens(state, "reviewer", 1200, 85);
+    const lines = renderCrewProgress({ state, spinnerFrame: 0 }).map(strip);
+    // Two agents → two lines, no third footer row.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!).toMatch(/^├─/);
+    expect(lines[0]!).not.toContain("↑");
+    expect(lines[1]!).toMatch(/^└─/);
+    expect(lines[1]!).toContain("Reviewer");
+    expect(lines[1]!).toMatch(/↑ 1\.2k\s+↓ 85$/);
+  });
+
+  it("inline footer attaches to the last entry when it is still running", () => {
+    const state = createCrewRunState("");
+    markAgentDone(state, "planner", "3 tasks");
+    markAgentRunning(state, "coder");
+    addTokens(state, "coder", 800, 200);
+    const lines = renderCrewProgress({ state, spinnerFrame: 0 }).map(strip);
+    expect(lines).toHaveLength(2);
+    const last = lines[1]!;
+    expect(last).toMatch(/^└─/);
+    // Spinner frame 0 → ▖
+    expect(last).toContain("▖");
+    expect(last).toContain("Coder");
+    expect(last).toMatch(/↑ 800\s+↓ 200$/);
   });
 
   it("running agent picks a frame from boxFrames keyed by spinnerFrame", () => {
