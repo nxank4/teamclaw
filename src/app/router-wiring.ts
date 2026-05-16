@@ -56,6 +56,13 @@ export function wireRouterEvents(
   let crewSpinnerFrame = 0;
   let crewSpinnerInterval: ReturnType<typeof setInterval> | null = null;
   let crewHideTimer: ReturnType<typeof setTimeout> | null = null;
+  // True between AgentStart("crew") and AgentDone("crew")/DispatchError.
+  // The bottom CrewProgressView is the single source of progress during a
+  // crew run, so we suppress redundant per-tool lines from the chat stream
+  // (onAgentTool below). Tracked as its own boolean rather than reusing
+  // `crewState`, which lingers after the run to keep the overlay's last
+  // frame on screen during the 3 s fade-out.
+  let inCrewRun = false;
 
   function ensureCrewState(goal: string = ""): CrewRunState {
     if (!crewState) crewState = createCrewRunState(goal);
@@ -140,6 +147,7 @@ export function wireRouterEvents(
       // single source of progress. Do NOT also add the solo
       // ThinkingIndicator placeholder; otherwise both spinners tick
       // simultaneously (one in the chat, one in the bottom tree).
+      inCrewRun = true;
       clearCrewHideTimer();
       crewState = createCrewRunState("");
       crewSpinnerFrame = 0;
@@ -244,7 +252,12 @@ export function wireRouterEvents(
     const execId = details?.executionId ?? `fallback_${Date.now()}`;
 
     if (status === "running") {
-      layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, agentId);
+      // During a crew run, the bottom CrewProgressView already shows
+      // per-agent activity. Skip the chat-stream tool line so the
+      // message area stays focused on plan markdown + agent text.
+      if (!inCrewRun) {
+        layout.messages.startToolCall(execId, toolName, details?.inputSummary ?? toolName, agentId);
+      }
       startToolSpinner();
       // First running tool — silence the idle flavor animation so the
       // tree shows real progress without a stale "Pondering..." line
@@ -272,7 +285,9 @@ export function wireRouterEvents(
         );
       }
     } else if (status === "completed" || status === "failed") {
-      layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0, details?.diff);
+      if (!inCrewRun) {
+        layout.messages.completeToolCall(execId, status === "completed", details?.outputSummary ?? "", details?.duration ?? 0, details?.diff);
+      }
       // No more running tools → the run is back in an idle gap (waiting
       // for the next subagent to spin up, a meeting, compaction, etc.).
       // Restart the flavor animation with a fresh 4-word selection so
@@ -293,6 +308,9 @@ export function wireRouterEvents(
 
   const onAgentDone = (_sessionId: string, agentId: string, result?: { response?: string }) => {
     if (agentId === "crew") {
+      // Reset before the auto-hide timer so any follow-up solo
+      // dispatch in the 3 s fade window renders tool lines normally.
+      inCrewRun = false;
       if (crewState) markComplete(crewState);
       pushCrewState();
       stopCrewSpinner();
@@ -349,6 +367,7 @@ export function wireRouterEvents(
   const onDispatchError = (_sessionId: string, error: { type: string; cause?: string }) => {
     if (!activeSessionId && error.cause?.includes("aborted")) return;
 
+    inCrewRun = false;
     activeSessionId = null;
     streamingForAgent = null;
     tokenFilter?.flush();
