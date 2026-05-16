@@ -3,3 +3,15 @@ export type { ValidatedAgentDef, ValidationResult } from "./validator.js";
 export { loadAgentFromFile, loadAgentsFromDirectory, loadAgentFromNpm } from "./loader.js";
 export { AgentRegistryStore } from "./store.js";
 export type { RegisteredAgent } from "./store.js";
+export {
+  loadAgentFromMarkdown,
+  loadAgentsFromDir,
+  MarkdownAgentLoadError,
+  type AgentFrontmatter,
+} from "./markdown-loader.js";
+export {
+  BUILTIN_FALLBACK_AGENT_ID,
+  loadAgentRegistry,
+  type AgentRegistry,
+  type LoadAgentRegistryOptions,
+} from "./markdown-registry.js";
