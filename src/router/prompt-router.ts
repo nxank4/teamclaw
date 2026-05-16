@@ -135,6 +135,11 @@ export class PromptRouter extends EventEmitter {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // MAIN ENTRY POINT
+  //
+  // Single execution path: slash command → mention parsing → intent
+  // classification → solo dispatch. The crew fork (gated on AppMode) was
+  // removed alongside the mode system; multi-agent dispatch lives only in
+  // the orphaned `dispatchCrew` below. Prompt 3 will rewire that path.
   // ═══════════════════════════════════════════════════════════════════════════
 
   async route(
