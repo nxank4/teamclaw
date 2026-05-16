@@ -4,23 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OpenPawl orchestrates AI agent teams for coding tasks via a TUI. Two app
-modes: **solo** (single agent) and **crew** (multi-agent — planner →
-tier-gated phase executor → optional discussion meeting → drift
-supervisor; implemented and shipping in v0.4.0-rc.2). Memory persists
-across sessions via LanceDB. Decision journal, drift detection,
-post-mortem learning, and session briefing keep context alive between
-runs.
+OpenPawl is a TypeScript-native coding-agent workspace. Every prompt
+runs through a single execution path: the orchestrator dispatcher picks
+one or more specialists from a markdown agent registry, spawns them via
+the subagent runner, and pipes their results back through the
+chat-stream. Memory persists across sessions via LanceDB; a decision
+journal, drift detection, post-mortem learning, and session briefing
+keep context alive between runs.
+
+## Namespace note
+
+- `docs/`               — project architecture, audits, skill triggers (canonical).
+- `.claude/`            — reserved for Claude Code's own files. **Do not put OpenPawl product content here.**
+- `~/.openpawl/`        — global config + memory (source of truth).
+- `./.openpawl/`        — project-local state (per-workspace overrides).
+- `./agents/`           — project-local markdown agents.
+- `~/.openpawl/agents/` — user-installed markdown agents.
 
 ## Commands
 
-Runtime: Node >= 20, Bun.
+Runtime: Node ≥ 20, Bun.
 
 - `bun install` — install deps (workspace: root, `src/web/client`, `packages/*`)
-- `bun run build` — `tsup` + web client build
+- `bun run build` — `tsup` + web client build (copies `src/agents/builtin/*.md` to `dist/agents/builtin/`)
 - `bun run typecheck` — `tsc --noEmit`
 - `bun run lint` — `eslint src/`
-- `bun run test` — Bun test runner (885 pass / 19 skip / 0 fail across 86 files)
+- `bun run test` — Bun test runner
 - `bun run test:e2e` — `tests/e2e/` only
 - `bun run test:watch` / `bun run test:coverage`
 - `bun run dev` — tsup watch mode
@@ -34,24 +43,22 @@ Out-of-band test scripts (live in `scripts/testing/`, not `src/testing/`):
 - `bun run tsx scripts/testing/stress-test.ts`
 - `bun run tsx scripts/testing/provider-test.ts`
 
-Headless / non-interactive run (the single non-interactive entry):
-`openpawl -p "<prompt>" [--mode solo|crew] [--crew <name>] [--workdir <path>]`.
-Solo and crew are both wired. `openpawl crew run <name> <goal>` is the positional alias for the crew path.
+Headless / non-interactive entry: `openpawl -p "<prompt>"`.
 Special case: `openpawl -p "/status"` runs a provider health check (no LLM call).
-Bare `openpawl` (no args) launches the interactive TUI; `openpawl --mode crew` launches the TUI directly in crew.
+Bare `openpawl` (no args) launches the interactive TUI.
 
 Debug:
-- `OPENPAWL_DEBUG=true openpawl ...` — structured JSONL logs
-- `openpawl logs debug --timeline` — view debug logs
-- `OPENPAWL_PROFILE=true openpawl ...` — performance profiling
-- `OPENPAWL_DEBUG_STARTUP=1` — print stage timings to stderr from `cli.ts`
+- `OPENPAWL_DEBUG=true openpawl ...` — structured JSONL logs.
+- `openpawl logs debug --timeline` — view debug logs.
+- `OPENPAWL_PROFILE=true openpawl ...` — performance profiling.
+- `OPENPAWL_DEBUG_STARTUP=1` — print stage timings to stderr from `cli.ts`.
 
 ## CLI Surface
 
 Top-level commands (see `src/cli/command-registry.ts` for the source of truth):
 
-`setup`/`init`, `check`, `demo`, `solo`/`chat`, `standup`, `think`,
-`clarity`, `journal`, `drift`, `lessons`, `handoff`, `templates`,
+`setup`/`init`, `check`, `demo`, `chat`, `standup`, `think`,
+`clarity`, `journal`, `drift`, `lessons`, `handoff`,
 `model`, `providers`, `agent`, `settings`, `config`, `replay`, `audit`,
 `heatmap`, `forecast`, `diff`, `score`, `sessions`, `memory`, `cache`,
 `logs`, `profile`, `clean`, `update`, `uninstall`.
@@ -60,26 +67,94 @@ Primary interactive entry point is bare `openpawl` (no args). `openpawl -c` / `-
 
 ## Architecture
 
+Single execution path — there is no mode switching. Every prompt:
+
+```
+TUI editor (or `openpawl -p` headless)
+    │
+    ▼
+src/app/input-handler.ts          ─── parses /commands, @mentions, !shell
+    │
+    ▼
+src/app/prompt-handler.ts         ─── autoCompactIfNeeded at ≥70%
+    │
+    ▼
+src/router/prompt-router.ts:route ─── slash commands, mention parsing,
+    │                                  intent classification, dispatch
+    ▼
+src/orchestrator/dispatcher.ts    ─── registry.all() → similarityTopK
+    │                                  (embedder + Jaccard fallback) →
+    │                                  spawn matched subagents
+    ▼
+src/orchestrator/subagent-runner.ts ─ depth gate, capability gate,
+    │                                  write-lock, token budget
+    ▼
+src/router/agent-turn.ts          ─── LLM call loop with tool execution
+    │
+    ▼
+result.summary → AgentResult → DispatchResult → chat stream
+```
+
+See `docs/architecture.md` for the full component map.
+
 ### Entry Points
 - `src/cli.ts` — CLI bootstrap, proxy auto-detection, command dispatch
 - `src/cli/command-registry.ts` — single registry of all CLI commands
-- `src/app/index.ts` — TUI app orchestrator + `runPrintMode` (handles `-p` non-interactive)
-- `src/app/run-solo-headless.ts` / `src/app/run-crew-headless.ts` — non-interactive solo and crew paths
-- `src/app/crew-session.ts` — interactive crew session driver
+- `src/app/index.ts` — TUI app orchestrator + `runPrintMode` (handles `-p` headless)
+- `src/app/run-headless.ts` — non-interactive entry; wires the orchestrator dispatcher directly
 
 ### App sub-modules (`src/app/`)
 `init-session-router.ts`, `router-wiring.ts`, `input-handler.ts`,
 `config-wiring.ts`, `keybindings-setup.ts`, `session-helpers.ts`,
-`prompt-handler.ts`, `tool-permission.ts`, `welcome.ts`,
-`tui-callbacks.ts`, `agent-display.ts`, `startup.ts`, `layout.ts`,
-`autocomplete.ts`, `file-ref.ts`, `shell.ts`, `config-check.ts`.
+`prompt-handler.ts` (auto-trigger `/compact` at ≥70% context),
+`tool-permission.ts`, `welcome.ts`, `tui-callbacks.ts`,
+`agent-display.ts`, `startup.ts`, `layout.ts`, `autocomplete.ts`,
+`file-ref.ts`, `shell.ts`, `config-check.ts`.
 
 ### Router (`src/router/`)
-`prompt-router.ts` (mode dispatch), `dispatch-strategy.ts`,
+`prompt-router.ts`, `dispatch-strategy.ts`,
 `llm-agent-runner.ts` (multi-turn tool-use loop),
 `agent-config.ts`/`agent-registry.ts`/`agent-resolver.ts`,
 `intent-classifier.ts`, `mention-parser.ts`,
 `event-types.ts` (typed `RouterEvent` / `ToolEvent` enums — never use string literals).
+
+### Orchestrator (`src/orchestrator/`)
+- `dispatcher.ts` — task → registry similarity match → spawn subagents in parallel.
+- `subagent-runner.ts` — `runSubagent`, depth limit, capability-gate + write-lock invariants.
+- `compaction.ts` — `checkAndCompact` (in-memory only, no artifact persistence).
+- `capability-gate.ts`, `write-lock.ts` — infrastructure for the runner.
+- `types.ts` — `AgentDefinition`, `WRITE_TOOLS`.
+
+### Agent Registry (`src/agents/`)
+
+Agents are markdown files loaded from three locations with later-wins precedence:
+
+1. `./agents/*.md`               — project-local
+2. `~/.openpawl/agents/*.md`     — user-installed
+3. `src/agents/builtin/*.md`     — ships with the binary (copied to `dist/agents/builtin/` by `tsup.config.ts`)
+
+Frontmatter schema (zod-validated at load time):
+
+```yaml
+---
+name: kebab-case-id              # required
+description: one-line summary    # required, ≥ 20 chars, used by dispatcher
+model: claude-opus-4-7           # optional
+tools:                            # optional
+  allow: [Read, Edit, Bash]
+  deny:  [Write]
+triggers:                         # optional; raises keyword-fallback score
+  - plan
+  - "how should"
+---
+
+You are the X. ...               # markdown body = system prompt
+```
+
+Loader: `src/agents/registry/markdown-loader.ts`.
+Registry assembly: `src/agents/registry/markdown-registry.ts`.
+
+Five built-in roles: `architect`, `builder`, `reviewer`, `tester`, `drift-supervisor`.
 
 ### Engine (`src/engine/`)
 `llm.ts` — LLM call loop with context compression and parallel tool execution.
@@ -89,17 +164,14 @@ Primary interactive entry point is bare `openpawl` (no args). `openpawl -c` / `-
 - `hybrid-retriever.ts` — vector search + reranking
 - `hebbian/` + `hebbian-integration.ts` — associative learning
 - `success/` — success-pattern storage
-
-### Templates (`src/templates/`)
-- `types.ts` — `OpenPawlTemplate`, `TemplateAgent`, `TeamComposition`
-- `template-store.ts` — combined built-in + installed store
-- `seeds/index.ts` — 5 built-in templates inline (content-creator, indie-hacker, research-intelligence, business-ops, full-stack-sprint)
+- `embeddings/similarity.ts` — cosine top-K with Jaccard keyword fallback; sha256-cached agent embeddings at `~/.openpawl/agents/embeddings-cache.json`.
 
 ### TUI (`src/tui/`)
 `core/tui.ts` (engine), `components/`, `constants/icons.ts`,
-`keybindings/input-shortcuts.ts`, `keybindings/app-mode.ts`
-(defines `AppMode = "solo" | "crew"`), `themes/`, `primitives/`,
+`keybindings/input-shortcuts.ts`, `themes/`, `primitives/`,
 `slash/`, `text/`, `autocomplete/`, `keyboard/`, `layout/`.
+Notable component: `components/compact-summary.ts` — renderer for the
+op:compact branded chat-stream message; Ctrl+O / Ctrl+E expand it.
 
 ### Flagship features (top-level dirs)
 - `journal/` — decision journal (`extractor`, `store`, `supersession`)
@@ -108,7 +180,7 @@ Primary interactive entry point is bare `openpawl` (no args). `openpawl -c` / `-
 - `handoff/` — `CONTEXT.md` auto-generation + resume
 - `think/` — multi-perspective debate (rubber duck)
 - `standup/` — daily standup generation
-- `audit/` — sprint/run auditing + renderers
+- `audit/` — run auditing + renderers
 - `clarity/` — goal clarity analyzer + rewriter
 - `forecast/` — cost/run forecast with learning discount
 - `heatmap/` — agent performance visualization
@@ -127,35 +199,30 @@ Primary interactive entry point is bare `openpawl` (no args). `openpawl -c` / `-
 - `proxy/` — `ProxyService`
 - `security/` — prompt injection detector
 - `telemetry/`, `token-opt/`, `meta/`, `dev/`, `webhook/`
+- `context/` — `compaction.ts`, `context-tracker.ts` (the `/compact` deps land here)
 - `web/` — dashboard server + `client/` (separate workspace)
 - `tools/` — tool executor, registry, permissions, `built-in/`
 - `providers/`, `credentials/`, `session/`, `core/` (config, logger, errors, sandbox)
 - `debug/logger.ts` + `debug/wiring.ts` — structured JSONL logging
 - `utils/diff.ts` (LCS), `utils/safe-json-parse.ts` (6-layer JSON recovery), `utils/formatters.ts`
 
-## App Modes
-
-- **Solo**: prompt → single agent → tools → response
-- **Crew**: multi-agent — `prompt-router.ts` dispatches into `runCrew` (planner → tier-gated phase executor → discussion meeting → drift supervisor → context compaction → Hebbian injection). Built-in preset: `full-stack`.
-
-Shift+Tab cycles modes. The legacy `collab` and `sprint` modes were removed in commit `2a22da9` (`chore(crew): nuke sprint and collab scaffolding`).
-
 ## Code Style
 
-- TypeScript ESM, strict typing, no `any`
-- Files under 700 LOC
-- Use theme colors from `src/tui/themes/` (not hardcoded `ctp.*` or hex)
-- Use `ICONS` from `src/tui/constants/icons.ts`
-- Use formatters from `src/utils/formatters.ts`
-- Use `safeJsonParse` for any LLM output parsing
-- Use `event-types.ts` enums for all router/tool events (no string literals)
-- Debug logging: `debugLog(level, source, event, data)`
+- TypeScript ESM, strict typing, no `any`.
+- Files under 700 LOC.
+- Use theme colors from `src/tui/themes/` (not hardcoded `ctp.*` or hex).
+- Use `ICONS` from `src/tui/constants/icons.ts`.
+- Use formatters from `src/utils/formatters.ts`.
+- Use `safeJsonParse` for any LLM output parsing.
+- Use `event-types.ts` enums for all router/tool events (no string literals).
+- Debug logging: `debugLog(level, source, event, data)`. The `source`
+  union in `src/debug/logger.ts` includes `orchestrator` for the new dispatcher path.
 
 ## Testing
 
-- `bun test` runs the suite (currently 885 pass / 19 skip / 0 fail across 86 files)
-- Test before pushing when touching logic
-- `OPENPAWL_DEBUG=true` for trace logs, `OPENPAWL_PROFILE=true` for profiling
+- `bun test` runs the suite.
+- Test before pushing when touching logic.
+- `OPENPAWL_DEBUG=true` for trace logs, `OPENPAWL_PROFILE=true` for profiling.
 
 ## Git Workflow
 
@@ -202,15 +269,15 @@ When complete:
 
 ## Security
 
-- Never commit real credentials/tokens; copy `.env.example` → `.env`
-- Dashboard server has no built-in auth — bind to `127.0.0.1` or trusted networks only
+- Never commit real credentials/tokens; copy `.env.example` → `.env`.
+- Dashboard server has no built-in auth — bind to `127.0.0.1` or trusted networks only.
 
 ## Agent-Specific Notes
 
-- Never edit `node_modules`
-- Multi-agent safety: no stash, no branch switching unless requested; scope commits to your changes only
-- Bug investigations: read source before concluding; aim for high-confidence root cause
-- No dependency patching or version bumps without explicit approval
+- Never edit `node_modules`.
+- Multi-agent safety: no stash, no branch switching unless requested; scope commits to your changes only.
+- Bug investigations: read source before concluding; aim for high-confidence root cause.
+- No dependency patching or version bumps without explicit approval.
 
 ## Tech Stack
 
