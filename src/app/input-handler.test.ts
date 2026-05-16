@@ -14,7 +14,6 @@
  * the drain path writes to chatSession at dispatch time so the LLM
  * history stays in chronological order.
  */
-import { EventEmitter } from "node:events";
 import { describe, expect, it } from "bun:test";
 
 import { setupInputHandler, type PromptQueueState } from "./input-handler.js";
@@ -23,7 +22,6 @@ import { stripAnsi } from "../tui/utils/text-width.js";
 import type { AppLayout } from "./layout.js";
 import type { AppContext } from "./init-session-router.js";
 import type { CommandRegistry } from "../tui/index.js";
-import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 
 interface DividerSpy {
   setLabelCalls: Array<string | null>;
@@ -68,7 +66,6 @@ function makeStubCtx(): AppContext {
     doomLoopDetector: { reset: () => {} },
     toolOutputHandler: null,
     configState: null,
-    appModeSystem: null,
     memoryCleanup: null,
     onQueueDrain: null,
     toolRegistry: null,
@@ -88,14 +85,12 @@ function makeStubRegistry(): CommandRegistry {
   return reg as unknown as CommandRegistry;
 }
 
-const stubAppMode = new EventEmitter() as unknown as AppModeSystem;
-
 describe("setupInputHandler — queued prompt rendering (Bug U+16)", () => {
   it("renders the prompt in the message stream when the agent is busy and bumps the queue", async () => {
     const { layout, messages, divider, submit } = makeStubLayout();
     const state: PromptQueueState = { queue: [], agentBusy: true, welcomeMessageActive: false };
 
-    setupInputHandler(layout, makeStubRegistry(), makeStubCtx(), state, stubAppMode, () => {});
+    setupInputHandler(layout, makeStubRegistry(), makeStubCtx(), state);
 
     await submit("show me README");
 
@@ -115,7 +110,7 @@ describe("setupInputHandler — queued prompt rendering (Bug U+16)", () => {
     const { layout, messages, submit } = makeStubLayout();
     const state: PromptQueueState = { queue: [], agentBusy: true, welcomeMessageActive: false };
 
-    setupInputHandler(layout, makeStubRegistry(), makeStubCtx(), state, stubAppMode, () => {});
+    setupInputHandler(layout, makeStubRegistry(), makeStubCtx(), state);
 
     await submit("explain this", ["src/foo.ts"]);
 
