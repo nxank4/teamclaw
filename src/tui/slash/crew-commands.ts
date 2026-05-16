@@ -249,7 +249,7 @@ export function createCrewStatusCommand(): SlashCommand {
       if (!active) {
         ctx.addMessage(
           "system",
-          `${defaultTheme.muted(ICONS.warning)} No active crew. Start one with --mode crew.`,
+          `${defaultTheme.muted(ICONS.warning)} No active crew.`,
         );
         return;
       }

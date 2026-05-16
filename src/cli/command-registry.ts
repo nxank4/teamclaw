@@ -89,19 +89,6 @@ export const CLI_COMMANDS: CommandDef[] = [
     category: "daily",
     handler: { module: "./commands/clarity.js", fn: "runClarityCommand" },
   },
-  {
-    name: "solo",
-    description: "Interactive solo mode (single agent)",
-    category: "daily",
-    handler: { module: "./commands/chat.js", fn: "runChatCommand" },
-  },
-  {
-    name: "chat",
-    description: "Alias for solo (backward compatibility)",
-    category: "daily",
-    handler: { module: "./commands/chat.js", fn: "runChatCommand" },
-  },
-
   // Memory & Decisions
   {
     name: "journal",
@@ -320,12 +307,11 @@ export function generateHelp(): string {
   lines.push(section("OPTIONS"));
   lines.push("  " + cmd(pad("--help, -h")) + desc("Show this help"));
   lines.push("  " + cmd(pad("--version")) + desc("Show version"));
-  lines.push("  " + cmd(pad("--mode <solo|crew>")) + desc("Start TUI in the given mode (default: solo)"));
   lines.push("  " + cmd(pad("--mock-llm")) + desc("Use mock responses (testing)"));
   lines.push("");
   lines.push(section("EXAMPLES"));
   lines.push("  " + exCmd("openpawl setup") + "                          " + desc("Get started"));
-  lines.push("  " + exCmd("openpawl chat") + "                           " + desc("Start a conversation"));
+  lines.push("  " + exCmd("openpawl") + "                                " + desc("Start a conversation"));
   lines.push("  " + exCmd("openpawl check") + "                          " + desc("Verify setup"));
   lines.push("");
   lines.push(desc("Run openpawl <command> --help for details on any command."));
