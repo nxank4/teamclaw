@@ -32,6 +32,8 @@ import { debugLog } from "../debug/logger.js";
 import type { CrewPhase } from "../crew/types.js";
 import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
 import { agentDisplayName } from "../app/agent-display.js";
+import { formatTokens } from "../utils/formatters.js";
+import { defaultTheme } from "../tui/themes/default.js";
 import type { CheckpointCoordinator } from "../crew/checkpoints.js";
 import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
 import type { ToolExecutor } from "./agent-turn.js";
@@ -777,29 +779,33 @@ export function renderCrewResultMarkdown(result: CrewRunResult): string {
       ),
     ].join("\n");
   }
-  // completed | halted | aborted
-  const lines: string[] = [];
+  // completed | halted | aborted — compact two-line-style summary. The
+  // embedded ANSI escapes route this through the system-role pass-through
+  // branch in MessagesComponent (messages.ts:522-524), bypassing markdown
+  // wrapping so the styled glyphs survive intact.
+  const glyph =
+    result.status === "completed"
+      ? defaultTheme.success("✓")
+      : result.status === "aborted"
+        ? defaultTheme.error("✗")
+        : defaultTheme.warning("⊘");
   const heading =
     result.status === "completed"
-      ? "Crew run completed"
+      ? "Crew complete"
       : result.status === "aborted"
-        ? "Crew run aborted"
-        : "Crew run halted";
-  lines.push(`# ${heading}`);
-  lines.push("");
-  lines.push(`Crew: \`${result.crew_name}\` · ended_by: \`${result.ended_by}\` · ${result.tokens_used} tokens`);
-  lines.push("");
-  for (const p of result.phases) {
-    const counts = {
-      done: p.tasks.filter((t) => t.status === "completed").length,
-      failed: p.tasks.filter((t) => t.status === "failed").length,
-      blocked: p.tasks.filter((t) => t.status === "blocked").length,
-    };
-    lines.push(
-      `- **${p.name}** (\`${p.id}\`, tier ${p.complexity_tier}) — ` +
-        `${counts.done} done, ${counts.failed} failed, ${counts.blocked} blocked`,
-    );
-  }
+        ? "Crew aborted"
+        : "Crew halted";
+  const lines: string[] = [];
+  lines.push(`${glyph} ${heading} · ${result.crew_name} · ${formatTokens(result.tokens_used)} tokens`);
+  result.phases.forEach((p, i) => {
+    const done = p.tasks.filter((t) => t.status === "completed").length;
+    const failed = p.tasks.filter((t) => t.status === "failed").length;
+    const blocked = p.tasks.filter((t) => t.status === "blocked").length;
+    const parts: string[] = [`${done} done`];
+    if (failed) parts.push(`${failed} failed`);
+    if (blocked) parts.push(`${blocked} blocked`);
+    lines.push(defaultTheme.dim(`  ↳ phase ${i + 1}: ${parts.join(", ")}`));
+  });
   if (result.reanchor) {
     lines.push("");
     lines.push("## Re-anchor prompt");

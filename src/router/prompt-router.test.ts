@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { PromptRouter } from "./prompt-router.js";
+import { PromptRouter, renderCrewResultMarkdown } from "./prompt-router.js";
 import { RouterEvent } from "./event-types.js";
 import { createSessionManager } from "../session/session-manager.js";
 import type { AgentRunner } from "./dispatch-strategy.js";
@@ -118,7 +118,7 @@ describe("PromptRouter — crew dispatch event flow", () => {
     expect(donePayload.totalOutputTokens).toBe(12345);
     expect(donePayload.agentResults).toHaveLength(1);
     expect(donePayload.agentResults[0]?.agentId).toBe("crew");
-    expect(donePayload.agentResults[0]?.response).toContain("Crew run completed");
+    expect(donePayload.agentResults[0]?.response).toContain("Crew complete");
   });
 
   it("emits AgentDone with success: false but does NOT emit Done when runCrew throws", async () => {
@@ -488,6 +488,80 @@ describe("PromptRouter — crew dispatch event flow", () => {
         reasonCode: "budget_session_exceeded",
       },
     ]);
+  });
+});
+
+describe("renderCrewResultMarkdown — compact summary format", () => {
+  const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+  function makeTask(status: "completed" | "failed" | "blocked") {
+    return { id: "t", phase_id: "p", description: "task", assigned_agent: "coder", depends_on: [], status };
+  }
+  function makePhase(id: string, tasks: ReturnType<typeof makeTask>[]) {
+    return CrewPhaseSchema.parse({ id, name: "Setup", description: "", complexity_tier: "1", tasks });
+  }
+  function baseResult(overrides: Partial<CrewRunResult>): CrewRunResult {
+    return {
+      status: "completed",
+      crew_name: "full-stack",
+      ended_by: "all_phases_complete",
+      tokens_used: 3300,
+      phases: [makePhase("p1", [makeTask("completed")])],
+      ...overrides,
+    } as CrewRunResult;
+  }
+
+  it("completed run with only `done` tasks omits failed/blocked from the ↳ line", () => {
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({})));
+    expect(out).toContain("✓ Crew complete · full-stack · 3.3k tokens");
+    expect(out).toContain("↳ phase 1: 1 done");
+    expect(out).not.toContain("failed");
+    expect(out).not.toContain("blocked");
+    expect(out).not.toContain("ended_by");
+  });
+
+  it("mixed counts include failed and blocked segments in order", () => {
+    const phase = makePhase("p1", [
+      makeTask("completed"),
+      makeTask("completed"),
+      makeTask("failed"),
+      makeTask("blocked"),
+    ]);
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({ phases: [phase] })));
+    expect(out).toContain("↳ phase 1: 2 done, 1 failed, 1 blocked");
+  });
+
+  it("aborted run uses ✗ and `Crew aborted` heading", () => {
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({ status: "aborted" })));
+    expect(out).toContain("✗ Crew aborted ·");
+  });
+
+  it("halted run uses ⊘ and `Crew halted` heading", () => {
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({ status: "halted" })));
+    expect(out).toContain("⊘ Crew halted ·");
+  });
+
+  it("renders one ↳ line per phase, numbered 1..N", () => {
+    const phases = [
+      makePhase("p1", [makeTask("completed")]),
+      makePhase("p2", [makeTask("completed"), makeTask("failed")]),
+      makePhase("p3", [makeTask("completed")]),
+    ];
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({ phases })));
+    expect(out).toContain("↳ phase 1: 1 done");
+    expect(out).toContain("↳ phase 2: 1 done, 1 failed");
+    expect(out).toContain("↳ phase 3: 1 done");
+  });
+
+  it("token count uses formatTokens (k suffix for thousands)", () => {
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({ tokens_used: 12500 })));
+    expect(out).toMatch(/\d+(\.\d+)?k tokens/);
+  });
+
+  it("does not include the `# Crew run completed` heading or the ended_by enum", () => {
+    const out = stripAnsi(renderCrewResultMarkdown(baseResult({})));
+    expect(out).not.toContain("# Crew");
+    expect(out).not.toContain("all_phases_complete");
   });
 });
 
