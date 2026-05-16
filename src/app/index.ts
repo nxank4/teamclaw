@@ -207,12 +207,12 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 // Non-interactive print mode
 // ---------------------------------------------------------------------------
 
-interface PrintModeArgs {
+interface PrintArgs {
   goal: string;
   workdir?: string;
 }
 
-export function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: string } {
+export function parsePrintArgs(args: string[]): PrintArgs | { error: string } {
   let goal: string | null = null;
   let workdir: string | undefined;
 
@@ -233,8 +233,8 @@ export function parsePrintModeArgs(args: string[]): PrintModeArgs | { error: str
   return { goal, workdir };
 }
 
-export async function runPrintMode(args: string[]): Promise<void> {
-  const parsed = parsePrintModeArgs(args);
+export async function runPrint(args: string[]): Promise<void> {
+  const parsed = parsePrintArgs(args);
   if ("error" in parsed) {
     console.error(`Error: ${parsed.error}`);
     console.error("Usage: openpawl -p <prompt> [--workdir <path>]");
@@ -254,8 +254,8 @@ export async function runPrintMode(args: string[]): Promise<void> {
     return;
   }
 
-  const { runSoloHeadless } = await import("./run-solo-headless.js");
-  const result = await runSoloHeadless({
+  const { runHeadless } = await import("./run-headless.js");
+  const result = await runHeadless({
     goal: parsed.goal,
     workdir: parsed.workdir,
   });

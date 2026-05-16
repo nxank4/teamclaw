@@ -106,8 +106,8 @@ async function main(): Promise<void> {
     //   → non-interactive print mode (the single non-interactive entry point)
     const printIdx = args.findIndex((a) => a === "-p" || a === "--print");
     if (printIdx !== -1) {
-        const { runPrintMode } = await import("./app/index.js");
-        await runPrintMode(args.slice(printIdx + 1));
+        const { runPrint } = await import("./app/index.js");
+        await runPrint(args.slice(printIdx + 1));
         return;
     }
 
@@ -297,10 +297,6 @@ async function main(): Promise<void> {
     } else if (cmd === "agent") {
         const { runAgentCommand } = await import("./commands/agent.js");
         await runAgentCommand(args.slice(1));
-
-    } else if (cmd === "crew") {
-        const { runCrewCommand } = await import("./commands/crew.js");
-        await runCrewCommand(args.slice(1));
 
     } else if (cmd === "profile") {
         const { runProfileCommand } = await import("./commands/profile.js");

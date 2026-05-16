@@ -1,8 +1,8 @@
 /**
- * Headless solo runner — single-agent run with no TUI.
+ * Headless runner — single-path execution with no TUI.
  *
- * Ported from the old `runHeadless`/`runSolo` pair in headless.ts.
- * Invoked from print mode (`openpawl -p "<goal>"`).
+ * Invoked from print mode (`openpawl -p "<goal>"`). Replaces the
+ * solo/crew headless pair after the mode distinction was removed.
  */
 
 import pc from "picocolors";
@@ -17,7 +17,7 @@ import { ToolExecutor } from "../tools/executor.js";
 import { PermissionResolver } from "../tools/permissions.js";
 import { registerBuiltInTools } from "../tools/built-in/index.js";
 
-export interface RunSoloHeadlessArgs {
+export interface RunHeadlessArgs {
   goal: string;
   /** Defaults to process.cwd(). */
   workdir?: string;
@@ -27,7 +27,7 @@ export interface HeadlessResult {
   exitCode: number;
 }
 
-export async function runSoloHeadless(args: RunSoloHeadlessArgs): Promise<HeadlessResult> {
+export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult> {
   const workdir = args.workdir ?? process.cwd();
 
   // Per-run cwd switch so agent tool calls (file_write etc.) target workdir.

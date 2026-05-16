@@ -156,18 +156,6 @@ export const CLI_COMMANDS: CommandDef[] = [
     handler: { module: "./commands/agent.js", fn: "runAgentCommand" },
   },
   {
-    name: "crew",
-    description: "Manage crews (list, show, create, edit, delete, validate, clone, run)",
-    category: "team",
-    handler: { module: "./commands/crew.js", fn: "runCrewCommand" },
-    customDispatch: true,
-    examples: [
-      "openpawl crew list",
-      "openpawl crew show full-stack",
-      "openpawl crew clone full-stack my-team",
-    ],
-  },
-  {
     name: "settings",
     description: "View and change settings",
     category: "team",
