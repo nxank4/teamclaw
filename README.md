@@ -102,7 +102,8 @@ openpawl --mode crew                        # interactive TUI (crew)
 openpawl -p "Build auth"                    # non-interactive solo
 openpawl -p "Build auth" --mode crew        # non-interactive crew (full-stack preset)
 openpawl crew run full-stack "Build auth"   # crew run, explicit preset
-openpawl -c                                 # resume the most recent session
+openpawl --sessions                         # browse past sessions and resume one
+openpawl --sessions <id>                    # resume a specific session by id
 openpawl standup                            # daily summary
 openpawl think "SSE or WebSocket?"          # rubber duck mode
 ```
