@@ -74,6 +74,8 @@ function makeStubCtx(): AppContext {
     lastOpenedSpec: null,
     lastOpenedPlan: null,
     lastOpenedKind: null,
+    pendingPhaseConfirmation: null,
+    specPlanDeps: null,
   };
 }
 

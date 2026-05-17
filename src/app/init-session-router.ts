@@ -46,6 +46,26 @@ export interface AppContext {
   lastOpenedSpec: { slug: string; path: string } | null;
   lastOpenedPlan: { slug: string; path: string } | null;
   lastOpenedKind: "spec" | "plan" | null;
+  /**
+   * When set, the next user input is interpreted as a y/n/edit answer
+   * to a phase-confirmation question (e.g. "Approve spec? [y/n/edit]")
+   * rather than as a new prompt. The prompt-handler reads + clears
+   * this field; the slash command layer sets it after editor exit.
+   */
+  pendingPhaseConfirmation: {
+    kind: "spec" | "plan";
+    specPath: string;
+    planPath?: string;
+    /** The original prompt that triggered the spec flow — dispatched once plan is approved. */
+    originalPrompt: string;
+  } | null;
+  /**
+   * Single deps blob shared by the /spec /plan /approve /specs /plans
+   * slash commands and the prompt-handler's auto-spec flow. Built when
+   * the slash commands register; null when those commands aren't wired
+   * (e.g. in some test stubs).
+   */
+  specPlanDeps: import("./commands/spec.js").SpecPlanCommandDeps | null;
 }
 
 export async function initSessionRouter(

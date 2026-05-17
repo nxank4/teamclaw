@@ -17,6 +17,7 @@ export const PlanStatusSchema = z.enum([
   "approved",
   "executing",
   "done",
+  "abandoned",
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 

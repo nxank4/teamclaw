@@ -198,7 +198,7 @@ export function setupInputHandler(
         state.agentBusy = true;
         try {
           if (ctx.router && ctx.chatSession) {
-            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.compactDeps);
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.compactDeps, ctx.specPlanDeps);
           } else {
             await handleChatFallback(fullPrompt, layout, msgCtx);
           }
@@ -241,7 +241,7 @@ export function setupInputHandler(
     state.agentBusy = true;
     try {
       if (ctx.router && ctx.chatSession) {
-        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.compactDeps);
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.compactDeps, ctx.specPlanDeps);
       } else {
         await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
       }

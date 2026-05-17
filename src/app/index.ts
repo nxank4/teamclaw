@@ -78,6 +78,8 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     lastOpenedSpec: null,
     lastOpenedPlan: null,
     lastOpenedKind: null,
+    pendingPhaseConfirmation: null,
+    specPlanDeps: null,
   };
 
   // Register commands
@@ -122,6 +124,7 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
       getSpecsDir: () => (readGlobalConfig() ?? buildDefaultGlobalConfig()).specsDirectory,
       getPlansDir: () => (readGlobalConfig() ?? buildDefaultGlobalConfig()).plansDirectory,
     };
+    ctx.specPlanDeps = specPlanDeps;
     registry.register(createSpecCommand(specPlanDeps));
     registry.register(createPlanCommand(specPlanDeps));
     registry.register(createApproveCommand(specPlanDeps));

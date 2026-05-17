@@ -54,6 +54,8 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     lastOpenedSpec: null,
     lastOpenedPlan: null,
     lastOpenedKind: null,
+    pendingPhaseConfirmation: null,
+    specPlanDeps: null,
   } as unknown as AppContext;
 
   const tui = { suspend: () => {}, resume: () => {} } as unknown as TUI;

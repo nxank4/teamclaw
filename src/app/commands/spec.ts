@@ -40,6 +40,13 @@ export interface SpecPlanCommandDeps {
   getSpecsDir: () => string;
   /** Resolve the configured plans directory each call. */
   getPlansDir: () => string;
+  /**
+   * When true, the prompt-handler skips the spec/plan gate entirely
+   * (--no-spec, trivial-mode overrides). Unused by the slash commands
+   * themselves — they always honour their own flow — but present here
+   * because the same deps object is shared with prompt-handler.
+   */
+  bypass?: boolean;
   /** Test seam — defaults to the real openInEditor. */
   openInEditorImpl?: (args: OpenInEditorArgs) => Promise<OpenInEditorResult>;
 }
