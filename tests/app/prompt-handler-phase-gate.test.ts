@@ -88,6 +88,7 @@ function makeCapture(specsDir: string, plansDir: string): Capture {
     getSpecsDir: () => specsDir,
     getPlansDir: () => plansDir,
     openInEditorImpl: editorImpl,
+    phaseNoticeDelayMs: 0,
   };
 
   return {
@@ -251,6 +252,40 @@ describe("handleWithRouter — phase gate", () => {
       expect(c.editorCalls[1]?.path).toBe(c.editorCalls[0]?.path);
       expect(c.session.getPhase().currentPhase).toBe("spec_drafting");
       expect(c.appCtx.pendingPhaseConfirmation).not.toBeNull();
+    });
+  });
+
+  it("emits the 3-line phase-transition notice before opening the spec editor", async () => {
+    await withTempDirs(async (specsDir, plansDir) => {
+      const c = makeCapture(specsDir, plansDir);
+      // Use VISUAL=true so the notice line 2 reports a deterministic editor name.
+      const origVisual = process.env.VISUAL;
+      const origEditor = process.env.EDITOR;
+      process.env.VISUAL = "vimtest";
+      try {
+        await handleWithRouter(
+          "refactor the authentication module across login signup reset",
+          c.session as unknown as Session,
+          c.router,
+          c.layout,
+          msgCtx(c),
+          null,
+          c.deps,
+        );
+      } finally {
+        if (origVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = origVisual;
+        if (origEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = origEditor;
+      }
+
+      const noticeIndex = c.messages.findIndex((m) => m.content.includes("Complex prompt detected"));
+      expect(noticeIndex).toBeGreaterThanOrEqual(0);
+      expect(c.messages[noticeIndex]?.content).toContain("trigger_word refactor");
+      expect(c.messages[noticeIndex + 1]?.content).toContain("Opening spec template");
+      expect(c.messages[noticeIndex + 1]?.content).toContain("vimtest");
+      // Line 3 carries the escape-hatch hint; styled via defaultTheme.dim
+      // but the content text itself is what we assert on.
+      expect(c.messages[noticeIndex + 2]?.content).toContain("/abandon");
+      expect(c.messages[noticeIndex + 2]?.content).toContain("--no-spec");
     });
   });
 });

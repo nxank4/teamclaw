@@ -116,6 +116,7 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     getSpecsDir: () => specsDir,
     getPlansDir: () => plansDir,
     openInEditorImpl: editorImpl,
+    phaseNoticeDelayMs: 0,
     ...overrides,
   });
 
