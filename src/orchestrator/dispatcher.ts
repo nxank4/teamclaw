@@ -148,6 +148,8 @@ export async function dispatch(
         signal: args.signal,
         onProgress: args.onProgress,
         onToken: args.onToken,
+        approvedSpec: args.approvedSpec,
+        approvedPlan: args.approvedPlan,
       }),
     ),
   );

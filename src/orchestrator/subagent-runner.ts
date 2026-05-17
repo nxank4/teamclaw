@@ -164,9 +164,45 @@ export interface RunSubagentArgs {
   onToken?: SubagentTokenEmitter;
   /** Test seam — defaults to the real {@link runAgentTurn}. */
   runAgentTurnImpl?: (args: RunAgentTurnArgs) => Promise<RunAgentTurnResult>;
+  /**
+   * Approved spec body to inject into the subagent's system prompt.
+   * When present (along with or without approvedPlan), the runner
+   * prepends `## Approved Specification` and a strict-adherence
+   * directive so the agent knows it's operating inside a contract.
+   */
+  approvedSpec?: string;
+  /** Approved plan body — same treatment as approvedSpec. */
+  approvedPlan?: string;
 }
 
 const DEFAULT_TOKENIZER = (text: string): number => Math.ceil(text.length / 4);
+
+/**
+ * Build the spec/plan block injected after the agent's own prompt
+ * when either an approved spec or plan body is supplied. Returns an
+ * empty string when neither is present so the system prompt is
+ * unchanged for trivial dispatches.
+ */
+function buildSpecPlanBlock(args: RunSubagentArgs): string {
+  if (!args.approvedSpec && !args.approvedPlan) return "";
+  const sections: string[] = [];
+  if (args.approvedSpec) {
+    sections.push("## Approved Specification");
+    sections.push("");
+    sections.push(args.approvedSpec.trim());
+  }
+  if (args.approvedPlan) {
+    if (sections.length > 0) sections.push("");
+    sections.push("## Approved Plan");
+    sections.push("");
+    sections.push(args.approvedPlan.trim());
+  }
+  sections.push("");
+  sections.push(
+    "Implement strictly according to the approved spec and plan. Deviations require returning to plan_drafting via /revise.",
+  );
+  return `\n\n${sections.join("\n")}`;
+}
 
 function buildSystemPrompt(args: RunSubagentArgs): string {
   const { agent_def, depth, parent_agent_id } = args;
@@ -180,7 +216,7 @@ function buildSystemPrompt(args: RunSubagentArgs): string {
   const parentLine = parent_agent_id
     ? `\nYou were invoked by the orchestrator on behalf of '${parent_agent_id}'.`
     : "";
-  return `${agent_def.prompt.trim()}
+  return `${agent_def.prompt.trim()}${buildSpecPlanBlock(args)}
 
 You are agent '${agent_def.id}' running at subagent depth ${depth}.
 You must NOT spawn further subagents (depth limit ${MAX_SUBAGENT_DEPTH}).
@@ -192,6 +228,9 @@ ${scopeLine}Tool calls outside this allowlist are blocked by the runtime capabil
 
 Artifact access is read-only; the orchestrator writes artifacts based on your output.`;
 }
+
+/** Exported for testing — surfaces the spec/plan injection independently. */
+export { buildSystemPrompt as __buildSystemPrompt };
 
 /**
  * Run a single agent. Caller owns the orchestration around this —
