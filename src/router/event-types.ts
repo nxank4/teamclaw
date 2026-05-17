@@ -20,18 +20,6 @@ export enum RouterEvent {
   CommandCompact = "command:compact",
   CommandModel = "command:model",
   CommandExport = "command:export",
-  // ── Crew lifecycle (additive — emitted only on the crew dispatch path)
-  // Payloads:
-  //   CrewPlanReady    (sessionId, phases: CrewPhase[])
-  //   CrewAgentStart   (sessionId, agentId, taskCount)
-  //   CrewAgentDone    (sessionId, agentId, summary)
-  //   CrewAgentBlocked (sessionId, agentId, reason)
-  //   CrewTokens       (sessionId, agentId, inputDelta, outputDelta)
-  CrewPlanReady = "dispatch:crew:plan",
-  CrewAgentStart = "dispatch:crew:agent:start",
-  CrewAgentDone = "dispatch:crew:agent:done",
-  CrewAgentBlocked = "dispatch:crew:agent:blocked",
-  CrewTokens = "dispatch:crew:tokens",
 }
 
 /** Dispatch event names only (subset forwarded from Dispatcher → PromptRouter). */

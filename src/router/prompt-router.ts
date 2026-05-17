@@ -24,21 +24,7 @@ import { Dispatcher } from "./dispatch-strategy.js";
 import type { AgentRunner } from "./dispatch-strategy.js";
 import { RouterEvent, DISPATCH_EVENTS } from "./event-types.js";
 import { parseMentions } from "./mention-parser.js";
-import type { AppMode } from "../tui/keybindings/app-mode.js";
 import type { SessionManager } from "../session/index.js";
-import { runCrew, PLANNER_AGENT_ID } from "../crew/crew-runner.js";
-import type { CrewRunResult, RunCrewArgs } from "../crew/crew-runner.js";
-import { debugLog } from "../debug/logger.js";
-import type { CrewPhase } from "../crew/types.js";
-import { FULL_STACK_PRESET } from "../crew/manifest/index.js";
-import { agentDisplayName } from "../app/agent-display.js";
-import { formatTokens } from "../utils/formatters.js";
-import { defaultTheme } from "../tui/themes/default.js";
-import type { CheckpointCoordinator } from "../crew/checkpoints.js";
-import { getActiveCheckpointCoordinator } from "../crew/checkpoint-registry.js";
-import type { ToolExecutor } from "./agent-turn.js";
-import type { ToolDef } from "../engine/llm.js";
-import type { NativeToolDefinition } from "../providers/stream-types.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -134,41 +120,12 @@ export class PromptRouter extends EventEmitter {
     this.dispatcher.abort(sessionId);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // MAIN ENTRY POINT
-  // ═══════════════════════════════════════════════════════════════════════════
+  // Main entry point: slash command → mention parsing → intent classification → dispatch.
+  // Headless callers (run-headless.ts) bypass this path and call the orchestrator dispatcher directly.
 
   async route(
     sessionId: string,
     prompt: string,
-    options?: {
-      appMode?: AppMode;
-      /**
-       * Override the active CheckpointCoordinator for crew dispatch.
-       * When omitted, falls back to {@link getActiveCheckpointCoordinator}
-       * (which returns whatever the host has registered, or null — in
-       * which case `runCrew` builds its own headless coordinator).
-       */
-      checkpointCoordinator?: CheckpointCoordinator;
-      /** Crew preset name. Defaults to FULL_STACK_PRESET. */
-      crewName?: string;
-      /** Working directory for crew tool calls. Defaults to process.cwd(). */
-      workdir?: string;
-      /** Cancellation signal piped through to the crew runner. */
-      abortSignal?: AbortSignal;
-      /**
-       * Real tool executor for crew agents. Without this, the LLM emits
-       * tool calls but no disk effect happens. The TUI host passes the
-       * same instance it builds for solo dispatch.
-       */
-      executeTool?: ToolExecutor;
-      /** Tool schema lookup for crew agents. Forwarded to runCrew. */
-      getToolSchemas?: (toolNames: string[]) => ToolDef[];
-      /** Native tool defs lookup. Forwarded to runCrew. */
-      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
-      /** Test seam — defaults to the real {@link runCrew}. */
-      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
-    },
   ): Promise<Result<DispatchResult, RouterError>> {
     // 1. Check for pending confirmation
     const pendingDecision = this.pendingConfirmation.get(sessionId);
@@ -198,14 +155,6 @@ export class PromptRouter extends EventEmitter {
 
     // 3. Parse mentions
     const mentions = parseMentions(prompt, this.registry.getIds());
-
-    // 3b. Crew mode → invoke runCrew. Closes the PR #106 stub that was
-    // missed across the rest of Phase 1 (the runner shipped in PRs
-    // #109–#113 but the router-side dispatch was never re-wired).
-    const appMode = options?.appMode;
-    if (appMode === "crew") {
-      return await this.dispatchCrew(sessionId, prompt, options);
-    }
 
     // 4. Classify intent
     let intent: PromptIntent;
@@ -292,207 +241,6 @@ export class PromptRouter extends EventEmitter {
     }
 
     return dispatchResult;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CREW DISPATCH
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private async dispatchCrew(
-    sessionId: string,
-    prompt: string,
-    options?: {
-      checkpointCoordinator?: CheckpointCoordinator;
-      crewName?: string;
-      workdir?: string;
-      abortSignal?: AbortSignal;
-      executeTool?: ToolExecutor;
-      getToolSchemas?: (toolNames: string[]) => ToolDef[];
-      getNativeTools?: (toolNames: string[]) => NativeToolDefinition[];
-      runCrewImpl?: (args: RunCrewArgs) => Promise<CrewRunResult>;
-    },
-  ): Promise<Result<DispatchResult, RouterError>> {
-    const start = Date.now();
-    this.emit(RouterEvent.AgentStart, sessionId, "crew");
-
-    const runCrewFn = options?.runCrewImpl ?? runCrew;
-
-    // The planner emits its plan as raw JSON tokens. Forwarding those
-    // straight to RouterEvent.AgentToken dumps an unreadable JSON blob
-    // into the chat. Buffer them here and replace the whole bubble with
-    // a readable markdown plan once parsePlan succeeds (signaled by
-    // onCrewPlanReady).
-    let plannerJsonBuffer = "";
-    let plannerPlanEmitted = false;
-
-    try {
-      const coord =
-        options?.checkpointCoordinator ?? getActiveCheckpointCoordinator() ?? undefined;
-      const crewName = options?.crewName ?? FULL_STACK_PRESET;
-      const workdir = options?.workdir ?? process.cwd();
-
-      const result: CrewRunResult = await runCrewFn({
-        options: { goal: prompt, crew_name: crewName, workdir },
-        session_id: sessionId,
-        workdir,
-        checkpointCoordinator: coord,
-        executeTool: options?.executeTool,
-        getToolSchemas: options?.getToolSchemas,
-        getNativeTools: options?.getNativeTools,
-        signal: options?.abortSignal,
-        // Crew progress observability — the runtime fires this on
-        // every subagent tool-call lifecycle event. Map it onto the
-        // existing RouterEvent.AgentTool channel so the TUI's
-        // onAgentTool handler in router-wiring can render tool views
-        // exactly the way it does for solo dispatch. The agent_id is
-        // the actual subagent (planner / coder / tester / …) so each
-        // gets its own color and status-bar segment text. §5.6
-        // isolation is preserved: this is observability, not context
-        // bubbling — subagent prompts still reset per invocation.
-        onProgress: (event) => {
-          this.emit(
-            RouterEvent.AgentTool,
-            sessionId,
-            event.agent_id,
-            event.tool_name,
-            event.status,
-            event.details,
-          );
-        },
-        // Crew token-level streaming — token-cadence analogue of
-        // onProgress above. Every LLM-backed subagent (planner,
-        // coder, tester, reflection, facilitator, compactor)
-        // surfaces its stream here, attributed by the subagent's
-        // own agent_id so the TUI's onAgentToken handler in
-        // router-wiring (which already drives solo) can render
-        // each agent's thinking under the correct badge. The
-        // deterministic facilitator-fallback path is naturally a
-        // no-op because it never invokes runAgentTurn.
-        //
-        // Special case: planner tokens are suppressed until the
-        // plan is ready, then replaced with a readable markdown
-        // render. See onCrewPlanReady below.
-        onToken: (agentId, token) => {
-          // Live token-footer tick. Chunks from the LLM stream are
-          // strings of variable length (Anthropic ≈ 1 token/chunk,
-          // OpenAI bursts up to ~10), so counting chunks as 1 each
-          // grossly under-represents real usage. Estimate from text
-          // length — the chars/4 rule is a robust approximation
-          // across UTF-8 English/code for the major providers. The
-          // wrapper's post-completion onCrewTokens (crew-runner.ts:377)
-          // reports INPUT only so live + completion never double-count.
-          const outputDelta = Math.max(1, Math.ceil(token.length / 4));
-          this.emit(RouterEvent.CrewTokens, sessionId, agentId, 0, outputDelta);
-          debugLog("debug", "crew", "crew:token_chunk", {
-            data: { agent_id: agentId, chunk_len: token.length, output_delta: outputDelta },
-          });
-          if (agentId === PLANNER_AGENT_ID && !plannerPlanEmitted) {
-            plannerJsonBuffer += token;
-            return;
-          }
-          this.emit(RouterEvent.AgentToken, sessionId, agentId, token);
-        },
-        // Task-blocked lifecycle — fires once per task that
-        // transitions into the blocked state, carrying the
-        // structured BlockReason. The TUI's onAgentTaskBlocked
-        // handler renders the inline ⊘ line under the responsible
-        // agent in real time, rather than waiting for the
-        // phase-summary table at the phase boundary.
-        onTaskBlocked: (event) => {
-          this.emit(
-            RouterEvent.AgentTaskBlocked,
-            sessionId,
-            event.agent_id,
-            event.task_id,
-            event.task_name,
-            event.reason,
-          );
-        },
-        // ── Crew lifecycle (new in v0.4.x) — drives CrewProgressView
-        onCrewAgentStart: (agentId, taskCount) => {
-          this.emit(RouterEvent.CrewAgentStart, sessionId, agentId, taskCount);
-        },
-        onCrewAgentDone: (agentId, summary) => {
-          this.emit(RouterEvent.CrewAgentDone, sessionId, agentId, summary);
-        },
-        onCrewAgentBlocked: (agentId, reason) => {
-          this.emit(RouterEvent.CrewAgentBlocked, sessionId, agentId, reason);
-        },
-        onCrewTokens: (agentId, input, output) => {
-          this.emit(RouterEvent.CrewTokens, sessionId, agentId, input, output);
-        },
-        onCrewPlanReady: (phases) => {
-          plannerPlanEmitted = true;
-          plannerJsonBuffer = "";
-          this.emit(RouterEvent.CrewPlanReady, sessionId, phases);
-          // Replace the would-be JSON dump with a single readable
-          // markdown render. wireRouterEvents' onAgentToken
-          // accumulates this into one planner bubble.
-          this.emit(
-            RouterEvent.AgentToken,
-            sessionId,
-            PLANNER_AGENT_ID,
-            renderPlanMarkdown(phases),
-          );
-        },
-      });
-
-      const md = renderCrewResultMarkdown(result);
-      const duration = Date.now() - start;
-      const tokensUsed = result.status === "plan_failed" ? 0 : result.tokens_used;
-
-      this.emit(RouterEvent.AgentDone, sessionId, "crew", {
-        success: result.status === "completed",
-      });
-
-      const dispatchResult: DispatchResult = {
-        strategy: "orchestrated",
-        agentResults: [
-          {
-            agentId: "crew",
-            success: result.status === "completed",
-            response: md,
-            toolCalls: [],
-            duration,
-            inputTokens: 0,
-            outputTokens: tokensUsed,
-          },
-        ],
-        totalDuration: duration,
-        totalInputTokens: 0,
-        totalOutputTokens: tokensUsed,
-      };
-
-      // Mirror the dispatcher path (dispatch-strategy.ts:112): emit Done
-      // so the TUI's onDispatchDone handler runs — that's where the
-      // status-bar token-pair display is updated. Without this, the
-      // status bar stays at "idle" (or worse, the last tool name) and
-      // the TUI looks frozen even though the run completed cleanly.
-      this.emit(RouterEvent.Done, sessionId, dispatchResult);
-
-      return ok(dispatchResult);
-    } catch (e) {
-      const cause = e instanceof Error ? e.message : String(e);
-      // Drain any buffered planner JSON so a planner failure still shows
-      // what it tried to emit — otherwise the user sees nothing in the
-      // bubble before the dispatch_failed error renders.
-      if (plannerJsonBuffer && !plannerPlanEmitted) {
-        this.emit(
-          RouterEvent.AgentToken,
-          sessionId,
-          PLANNER_AGENT_ID,
-          plannerJsonBuffer,
-        );
-        plannerJsonBuffer = "";
-      }
-      // AgentDone (with success: false) covers the TUI cleanup —
-      // onAgentDone in router-wiring stops the thinking indicator and
-      // resets the status bar. The caller (prompt-handler) renders the
-      // error from the returned err; emitting RouterEvent.Error here
-      // would duplicate the error message in the chat stream.
-      this.emit(RouterEvent.AgentDone, sessionId, "crew", { success: false });
-      return err({ type: "dispatch_failed", agentId: "crew", cause });
-    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -727,94 +475,3 @@ export class PromptRouter extends EventEmitter {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// CREW RESULT RENDERING
-// ═════════════════════════════════════════════════════════════════════════════
-
-/**
- * Render the planner's structured plan as a single markdown block.
- * Replaces the raw JSON dump that the planner would otherwise stream
- * into the message bubble. Reads cleanly under the message bubble's
- * markdown renderer — one header, one block per phase, one indented
- * row per task.
- */
-export function renderPlanMarkdown(phases: CrewPhase[]): string {
-  const totalTasks = phases.reduce((n, p) => n + p.tasks.length, 0);
-  const lines: string[] = [];
-  lines.push(`**Plan: ${phases.length} ${phases.length === 1 ? "phase" : "phases"}, ${totalTasks} ${totalTasks === 1 ? "task" : "tasks"}**`);
-  for (let i = 0; i < phases.length; i++) {
-    const phase = phases[i]!;
-    lines.push("");
-    lines.push(`**Phase ${i + 1} — ${phase.name}**`);
-    for (const task of phase.tasks) {
-      const agent = agentDisplayName(task.assigned_agent);
-      const deps = task.depends_on.length > 0
-        ? ` ${`[depends: ${task.depends_on.join(", ")}]`}`
-        : "";
-      lines.push(`  ${task.id} · ${agent} · ${task.description}${deps}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-export function renderCrewResultMarkdown(result: CrewRunResult): string {
-  if (result.status === "plan_failed") {
-    return [
-      `# Crew run failed during planning`,
-      ``,
-      `Crew: \`${result.crew_name}\``,
-      `Reason: \`${result.error.reason}\``,
-      ``,
-      result.error.message,
-    ].join("\n");
-  }
-  if (result.status === "plan_only") {
-    return [
-      `# Crew planning complete`,
-      ``,
-      `Crew: \`${result.crew_name}\` — ${result.phases.length} phase(s) planned, ${result.tokens_used} tokens`,
-      ``,
-      ...result.phases.map(
-        (p, i) => `${i + 1}. **${p.name}** (\`${p.id}\`, tier ${p.complexity_tier}, ${p.tasks.length} tasks)`,
-      ),
-    ].join("\n");
-  }
-  // completed | halted | aborted — compact two-line-style summary. The
-  // embedded ANSI escapes route this through the system-role pass-through
-  // branch in MessagesComponent (messages.ts:522-524), bypassing markdown
-  // wrapping so the styled glyphs survive intact.
-  const glyph =
-    result.status === "completed"
-      ? defaultTheme.success("✓")
-      : result.status === "aborted"
-        ? defaultTheme.error("✗")
-        : defaultTheme.warning("⊘");
-  const heading =
-    result.status === "completed"
-      ? "Crew complete"
-      : result.status === "aborted"
-        ? "Crew aborted"
-        : "Crew halted";
-  const lines: string[] = [];
-  lines.push(`${glyph} ${heading} · ${result.crew_name} · ${formatTokens(result.tokens_used)} tokens`);
-  result.phases.forEach((p, i) => {
-    const done = p.tasks.filter((t) => t.status === "completed").length;
-    const failed = p.tasks.filter((t) => t.status === "failed").length;
-    const blocked = p.tasks.filter((t) => t.status === "blocked").length;
-    const parts: string[] = [`${done} done`];
-    if (failed) parts.push(`${failed} failed`);
-    if (blocked) parts.push(`${blocked} blocked`);
-    lines.push(defaultTheme.dim(`  ↳ phase ${i + 1}: ${parts.join(", ")}`));
-  });
-  if (result.reanchor) {
-    lines.push("");
-    lines.push("## Re-anchor prompt");
-    lines.push("");
-    lines.push(result.reanchor.markdown);
-  }
-  if (result.new_goal_pending) {
-    lines.push("");
-    lines.push(`> User edited goal: ${result.new_goal_pending}`);
-  }
-  return lines.join("\n");
-}

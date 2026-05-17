@@ -28,7 +28,8 @@ export type DebugSource =
   | "session"
   | "error"
   | "tui"
-  | "crew";
+  | "crew"
+  | "orchestrator";
 
 export type DebugLevel = "debug" | "info" | "warn" | "error";
 

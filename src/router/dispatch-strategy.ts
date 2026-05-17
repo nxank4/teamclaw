@@ -19,7 +19,11 @@ import type {
 } from "./router-types.js";
 import { AgentRegistry } from "./agent-registry.js";
 import { RouterEvent } from "./event-types.js";
-import type { BlockReason } from "../crew/types.js";
+/** Inline reason payload for a blocked agent task. */
+export interface BlockReason {
+  code: string;
+  message: string;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

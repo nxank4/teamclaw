@@ -33,7 +33,6 @@ const FIELDS: SettingField[] = [
   { key: "provider", label: "provider", description: "LLM provider", type: "select", options: [] /* populated at runtime from ProviderRegistry */ },
   { key: "model", label: "model", description: "Active model", type: "select", options: [] },
   { key: "apikey", label: "apikey", description: "API key", type: "password" },
-  { key: "mode", label: "mode", description: "Dispatch mode", type: "select", options: ["solo", "crew"] },
   { key: "maxCycles", label: "maxCycles", description: "Max cycles per task", type: "number", validate: (v) => { const n = Number(v); return !Number.isInteger(n) || n < 1 ? "Must be an integer ≥ 1" : null; } },
   { key: "temperature", label: "temperature", description: "LLM temperature", type: "number", validate: (v) => { const n = parseFloat(v); return isNaN(n) || n < 0 || n > 2 ? "Must be 0-2" : null; } },
   { key: "team", label: "team", description: "Team config (use /team command)", type: "text" },
@@ -445,7 +444,7 @@ export class SettingsView extends InteractiveView {
 
       // Project-scoped fields from project config
       const { getConfigValue } = await import("../../core/configManager.js");
-      for (const key of ["mode", "maxCycles", "temperature"]) {
+      for (const key of ["maxCycles", "temperature"]) {
         const result = getConfigValue(key, { raw: true });
         this.values.set(key, result.value ?? "");
       }

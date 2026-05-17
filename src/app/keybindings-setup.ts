@@ -5,17 +5,42 @@
 import { LeaderKeyHandler } from "../tui/keybindings/leader-key.js";
 import { CommandPalette, type PaletteSource } from "../tui/keybindings/command-palette.js";
 import { KeybindingHelp, buildHelpSections } from "../tui/keybindings/keybinding-help.js";
+import {
+  CURRENT_SESSION_KEY,
+  toggleCurrentCompactExpanded,
+} from "./commands/compact.js";
+import {
+  COMPACT_MESSAGE_TAG,
+  renderCompactSummary,
+} from "../tui/components/compact-summary.js";
+import { defaultTheme } from "../tui/themes/default.js";
 import type { AppLayout } from "./layout.js";
 import type { CommandRegistry } from "../tui/index.js";
-import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 import type { AppContext } from "./init-session-router.js";
-import { getActiveCrewEscapeHandler } from "./crew-session-hook.js";
+
+/**
+ * Ctrl+O / Ctrl+E handler. If there is a current op:compact summary,
+ * toggle its expanded state and re-render the tagged message in place.
+ * Returns true when something was toggled so the caller can swallow the
+ * key event. Falls back to CURRENT_SESSION_KEY when a session-keyed
+ * record is not present (the slash-command path keys there because
+ * CommandContext lacks a session id).
+ */
+function toggleCompactExpanded(layout: AppLayout, ctx: AppContext): boolean {
+  const sessionId = ctx.chatSession?.id;
+  const next =
+    (sessionId ? toggleCurrentCompactExpanded(sessionId) : null) ??
+    toggleCurrentCompactExpanded(CURRENT_SESSION_KEY);
+  if (!next) return false;
+  const lines = renderCompactSummary(next.record, defaultTheme, next.expanded);
+  const updated = layout.messages.replaceByTag(COMPACT_MESSAGE_TAG, lines.join("\n"));
+  if (updated) layout.tui.requestRender();
+  return updated;
+}
 
 export function setupKeybindings(
   layout: AppLayout,
   registry: CommandRegistry,
-  appModeSystem: AppModeSystem,
-  updateModeDisplay: () => void,
   ctx: AppContext,
 ): void {
   const leaderKey = new LeaderKeyHandler();
@@ -131,18 +156,6 @@ export function setupKeybindings(
     }
 
     if (combo) {
-      // Escape during a crew run: first press → pause, second within 2s → abort.
-      // No-op when no crew is active.
-      if (combo === "escape") {
-        const escHandler = getActiveCrewEscapeHandler();
-        if (escHandler) {
-          const result = escHandler();
-          if (result !== "noop") {
-            return true;
-          }
-        }
-      }
-
       if (leaderKey.isAwaitingSecondKey()) {
         const result = leaderKey.handleKey(combo);
         if (result.consumed) {
@@ -162,19 +175,14 @@ export function setupKeybindings(
         }
       }
 
-      if (combo === "shift+tab" && !layout.editor.isAutocompleteActive()) {
-        appModeSystem.cycleNext();
-        updateModeDisplay();
-        const info = appModeSystem.getModeInfo();
-        layout.tui.onFlashMessage?.(`${info.icon} ${info.displayName} mode`);
-        return true;
-      }
-
       if (combo === "ctrl+p") { showPalette(); return true; }
       if (combo === "alt+p") {
         const result = registry.lookup("/model ");
         if (result) void result.command.execute("", makeLeaderCtx());
         return true;
+      }
+      if (combo === "ctrl+o" || combo === "ctrl+e") {
+        if (toggleCompactExpanded(layout, ctx)) return true;
       }
     }
 
@@ -196,22 +204,6 @@ export function setupKeybindings(
           msgCtx.addMessage("system", lines.join("\n"));
         }
       }
-    },
-  });
-
-  registry.register({
-    name: "mode",
-    description: "Switch mode (solo/crew) or cycle to next",
-    async execute(args, msgCtx) {
-      const target = args.trim().toLowerCase();
-      if (target === "solo" || target === "crew") {
-        appModeSystem.setMode(target);
-      } else {
-        appModeSystem.cycleNext();
-      }
-      updateModeDisplay();
-      const info = appModeSystem.getModeInfo();
-      msgCtx.addMessage("system", `${info.icon} Switched to ${info.displayName} mode`);
     },
   });
 

@@ -11,7 +11,6 @@ import { getConnectionState } from "../core/connection-state.js";
 import { findClosest } from "../utils/fuzzy.js";
 import type { AppLayout } from "./layout.js";
 import type { AppContext } from "./init-session-router.js";
-import type { AppModeSystem } from "../tui/keybindings/app-mode.js";
 
 export interface PromptQueueState {
   queue: { text: string; fullPrompt: string; attachedFiles?: string[] }[];
@@ -24,11 +23,12 @@ function createMsgCtx(
   ctx: AppContext,
 ) {
   return {
-    addMessage: (role: string, content: string) => {
+    addMessage: (role: string, content: string, options?: { tag?: string }) => {
       layout.messages.addMessage({
         role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
         content,
         timestamp: new Date(),
+        tag: options?.tag as "tool-approval" | "thinking" | "op:compact" | undefined,
       });
       if (ctx.chatSession && role !== "error") {
         ctx.chatSession.addMessage({
@@ -54,8 +54,6 @@ export function setupInputHandler(
   registry: CommandRegistry,
   ctx: AppContext,
   state: PromptQueueState,
-  _appModeSystem: AppModeSystem,
-  _updateModeDisplay: () => void,
 ): void {
   layout.editor.onSubmit = async (text: string, attachedFiles?: string[]) => {
     state.welcomeMessageActive = false;
@@ -200,7 +198,7 @@ export function setupInputHandler(
         state.agentBusy = true;
         try {
           if (ctx.router && ctx.chatSession) {
-            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.appModeSystem, ctx);
+            await handleWithRouter(fullPrompt, ctx.chatSession, ctx.router, layout, msgCtx, ctx.compactDeps);
           } else {
             await handleChatFallback(fullPrompt, layout, msgCtx);
           }
@@ -243,7 +241,7 @@ export function setupInputHandler(
     state.agentBusy = true;
     try {
       if (ctx.router && ctx.chatSession) {
-        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.appModeSystem, ctx);
+        await handleWithRouter(next.fullPrompt, ctx.chatSession, ctx.router, layout, queueMsgCtx, ctx.compactDeps);
       } else {
         await handleChatFallback(next.fullPrompt, layout, queueMsgCtx);
       }

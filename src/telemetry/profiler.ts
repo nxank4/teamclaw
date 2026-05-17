@@ -14,9 +14,7 @@ export type ProfileCategory =
   | "sse_broadcast"
   | "tool_execution"
   | "total_pipeline"
-  | "context_compression"
-  | "sprint_planning"
-  | "sprint_task";
+  | "context_compression";
 
 export interface ProfileEntry {
   category: ProfileCategory;
