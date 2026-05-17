@@ -75,6 +75,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     toolRegistry: null,
     toolExecutor: null,
     compactDeps: null,
+    lastOpenedSpec: null,
+    lastOpenedPlan: null,
+    lastOpenedKind: null,
   };
 
   // Register commands
@@ -104,11 +107,26 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     createAutocompleteProvider(registry, process.cwd()),
   );
 
+  // Spec/plan workspace primitives — five commands share one deps
+  // object so each call site reads the current config + AppContext.
   {
+    const { createSpecCommand } = await import("./commands/spec.js");
     const { createPlanCommand } = await import("./commands/plan.js");
-    registry.register(createPlanCommand({
-      flashMessage: (msg: string) => layout.tui.onFlashMessage?.(msg),
-    }));
+    const { createApproveCommand } = await import("./commands/approve.js");
+    const { createSpecsCommand } = await import("./commands/specs.js");
+    const { createPlansCommand } = await import("./commands/plans.js");
+    const { readGlobalConfig, buildDefaultGlobalConfig } = await import("../core/global-config.js");
+    const specPlanDeps = {
+      appCtx: ctx,
+      tui: layout.tui,
+      getSpecsDir: () => (readGlobalConfig() ?? buildDefaultGlobalConfig()).specsDirectory,
+      getPlansDir: () => (readGlobalConfig() ?? buildDefaultGlobalConfig()).plansDirectory,
+    };
+    registry.register(createSpecCommand(specPlanDeps));
+    registry.register(createPlanCommand(specPlanDeps));
+    registry.register(createApproveCommand(specPlanDeps));
+    registry.register(createSpecsCommand(specPlanDeps));
+    registry.register(createPlansCommand(specPlanDeps));
   }
 
   // ── Input handler + queue ────────────────────────────────────────

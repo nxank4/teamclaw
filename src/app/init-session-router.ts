@@ -38,6 +38,14 @@ export interface AppContext {
    * Populated alongside the slash-command registration in this file.
    */
   compactDeps: import("./commands/compact.js").CompactCommandDeps | null;
+  /**
+   * Most-recently-opened spec / plan within this session. The /spec
+   * and /plan commands set these; /approve consults `lastOpenedKind`
+   * to decide which one to flip from draft → approved.
+   */
+  lastOpenedSpec: { slug: string; path: string } | null;
+  lastOpenedPlan: { slug: string; path: string } | null;
+  lastOpenedKind: "spec" | "plan" | null;
 }
 
 export async function initSessionRouter(
