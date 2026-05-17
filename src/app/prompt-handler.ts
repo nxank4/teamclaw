@@ -175,50 +175,99 @@ async function handlePendingPhaseAnswer(
 
   // Y branch — approve and advance.
   if (pending.kind === "spec") {
-    const specDoc = await loadSpecFromFile(pending.specPath);
-    await writeSpec({ ...specDoc, frontmatter: { ...specDoc.frontmatter, status: "approved" } });
-    session.setPhase(transition(session.getPhase().currentPhase, "approveSpec"), "approveSpec");
-    ctx.addMessage("system", `${ICONS.success} Spec '${specDoc.frontmatter.slug}' approved. Drafting plan.`);
-
-    const plansDir = resolve(deps.getPlansDir());
-    await mkdir(plansDir, { recursive: true });
-    const planSlug = nextAvailableSlug(specDoc.frontmatter.slug, plansDir);
-    const planPath = resolve(plansDir, `${planSlug}.md`);
-    const specRelative = relative(plansDir, pending.specPath);
-    await writeFileAtomic(
-      planPath,
-      generatePlanTemplate({ slug: planSlug, specPath: specRelative }),
-    );
-
-    session.setPhase(transition("spec_approved", "openPlan"), "openPlan");
-    session.setPlanPath(planPath);
-    deps.appCtx.lastOpenedPlan = { slug: planSlug, path: planPath };
-    deps.appCtx.lastOpenedKind = "plan";
-
-    await editor({ path: planPath, tui: layout.tui });
-
-    deps.appCtx.pendingPhaseConfirmation = {
-      kind: "plan",
+    await approveSpecAndOpenPlan({
       specPath: pending.specPath,
-      planPath,
       originalPrompt: pending.originalPrompt,
-    };
-    ctx.addMessage("system", `Approve plan '${planSlug}'? [y/n/edit]`);
+      deps,
+      session,
+      layout,
+      ctx,
+    });
     return;
   }
 
-  // Plan approval → execute.
-  const planDoc = await loadPlanFromFile(pending.planPath!);
+  // Plan approval → execute (helper handles transition + dispatch).
+  await approvePlanAndExecute({
+    planPath: pending.planPath!,
+    originalPrompt: pending.originalPrompt,
+    deps,
+    session,
+    layout,
+    ctx,
+    router,
+  });
+}
+
+// ── Shared helpers (also called by the /approve slash command) ───────────
+
+export interface ApproveSpecArgs {
+  specPath: string;
+  /** Original user prompt that triggered the auto-spec flow; null when /approve was invoked manually. */
+  originalPrompt: string | null;
+  deps: SpecPlanCommandDeps;
+  session: Session;
+  layout: AppLayout;
+  ctx: MsgCtx;
+}
+
+export async function approveSpecAndOpenPlan(args: ApproveSpecArgs): Promise<void> {
+  const editor = args.deps.openInEditorImpl ?? openInEditor;
+  const specDoc = await loadSpecFromFile(args.specPath);
+  await writeSpec({ ...specDoc, frontmatter: { ...specDoc.frontmatter, status: "approved" } });
+  args.session.setPhase(transition(args.session.getPhase().currentPhase, "approveSpec"), "approveSpec");
+  args.ctx.addMessage("system", `${ICONS.success} Spec '${specDoc.frontmatter.slug}' approved. Drafting plan.`);
+
+  const plansDir = resolve(args.deps.getPlansDir());
+  await mkdir(plansDir, { recursive: true });
+  const planSlug = nextAvailableSlug(specDoc.frontmatter.slug, plansDir);
+  const planPath = resolve(plansDir, `${planSlug}.md`);
+  const specRelative = relative(plansDir, args.specPath);
+  await writeFileAtomic(
+    planPath,
+    generatePlanTemplate({ slug: planSlug, specPath: specRelative }),
+  );
+
+  args.session.setPhase(transition("spec_approved", "openPlan"), "openPlan");
+  args.session.setPlanPath(planPath);
+  args.deps.appCtx.lastOpenedPlan = { slug: planSlug, path: planPath };
+  args.deps.appCtx.lastOpenedKind = "plan";
+
+  await editor({ path: planPath, tui: args.layout.tui });
+
+  args.deps.appCtx.pendingPhaseConfirmation = {
+    kind: "plan",
+    specPath: args.specPath,
+    planPath,
+    originalPrompt: args.originalPrompt ?? "",
+  };
+  args.ctx.addMessage("system", `Approve plan '${planSlug}'? [y/n/edit]`);
+}
+
+export interface ApprovePlanArgs {
+  planPath: string;
+  /** When non-empty, dispatch this prompt immediately after transitioning to executing. */
+  originalPrompt: string;
+  deps: SpecPlanCommandDeps;
+  session: Session;
+  layout: AppLayout;
+  ctx: MsgCtx;
+  router: PromptRouter;
+}
+
+export async function approvePlanAndExecute(args: ApprovePlanArgs): Promise<void> {
+  const planDoc = await loadPlanFromFile(args.planPath);
   await writePlan({ ...planDoc, frontmatter: { ...planDoc.frontmatter, status: "approved" } });
-  session.setPhase(transition(session.getPhase().currentPhase, "approvePlan"), "approvePlan");
-  session.setPhase(transition("plan_approved", "startExecute"), "startExecute");
-  deps.appCtx.pendingPhaseConfirmation = null;
-  ctx.addMessage(
+  args.session.setPhase(transition(args.session.getPhase().currentPhase, "approvePlan"), "approvePlan");
+  args.session.setPhase(transition("plan_approved", "startExecute"), "startExecute");
+  args.deps.appCtx.pendingPhaseConfirmation = null;
+  args.ctx.addMessage(
     "system",
     `${ICONS.success} Plan '${planDoc.frontmatter.slug}' approved. Executing.`,
   );
 
-  await dispatchNormally(pending.originalPrompt, session, router, layout, ctx);
+  if (args.originalPrompt.trim().length > 0) {
+    await dispatchNormally(args.originalPrompt, args.session, args.router, args.layout, args.ctx);
+  }
 }
 
 // ── Path 3: default dispatch flow (extracted unchanged) ──────────────────

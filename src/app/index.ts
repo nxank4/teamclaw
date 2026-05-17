@@ -117,6 +117,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     const { createApproveCommand } = await import("./commands/approve.js");
     const { createSpecsCommand } = await import("./commands/specs.js");
     const { createPlansCommand } = await import("./commands/plans.js");
+    const { createAbandonCommand } = await import("./commands/abandon.js");
+    const { createReviseCommand } = await import("./commands/revise.js");
+    const { createPhaseCommand } = await import("./commands/phase.js");
     const { readGlobalConfig, buildDefaultGlobalConfig } = await import("../core/global-config.js");
     const specPlanDeps = {
       appCtx: ctx,
@@ -130,6 +133,9 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     registry.register(createApproveCommand(specPlanDeps));
     registry.register(createSpecsCommand(specPlanDeps));
     registry.register(createPlansCommand(specPlanDeps));
+    registry.register(createAbandonCommand(specPlanDeps));
+    registry.register(createReviseCommand(specPlanDeps));
+    registry.register(createPhaseCommand(specPlanDeps));
   }
 
   // ── Input handler + queue ────────────────────────────────────────
