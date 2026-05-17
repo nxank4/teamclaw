@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +7,6 @@ import { handleWithRouter } from "../../src/app/prompt-handler.js";
 import { emptyPhaseBlock, type Phase, type PhaseTrigger } from "../../src/session/phase-machine.js";
 import type { AppContext } from "../../src/app/init-session-router.js";
 import type { AppLayout } from "../../src/app/layout.js";
-import type { OpenInEditorArgs, OpenInEditorResult } from "../../src/utils/open-in-editor.js";
 import type { SpecPlanCommandDeps } from "../../src/app/commands/spec.js";
 import type { PromptRouter } from "../../src/router/prompt-router.js";
 import type { Session } from "../../src/session/session.js";
@@ -17,8 +16,8 @@ import type { Session } from "../../src/session/session.js";
  * SessionStub + harness pieces the unit tests use, but exercises every
  * step end-to-end:
  *
- *   complex prompt → spec editor → y → plan editor → y → executing →
- *   dispatch → /revise re-opens plan → y again → re-dispatch
+ *   complex prompt → spec drafted (file written) → y → plan drafted
+ *   → y → executing → dispatch → /revise rewinds → y → re-dispatch
  *   /abandon flips frontmatter and transitions to abandoned
  */
 
@@ -41,14 +40,12 @@ interface Harness {
   layout: AppLayout;
   deps: SpecPlanCommandDeps;
   messages: { role: string; content: string }[];
-  editorCalls: OpenInEditorArgs[];
   routeCalls: { sessionId: string; text: string }[];
   ctx: { addMessage: (role: string, content: string, options?: { tag?: string }) => void };
 }
 
 function makeHarness(specsDir: string, plansDir: string): Harness {
   const messages: { role: string; content: string }[] = [];
-  const editorCalls: OpenInEditorArgs[] = [];
   const routeCalls: { sessionId: string; text: string }[] = [];
 
   const appCtx = {
@@ -61,7 +58,7 @@ function makeHarness(specsDir: string, plansDir: string): Harness {
 
   const layout = {
     statusBar: { updateSegment: () => {} },
-    tui: { requestRender: () => {}, suspend: () => {}, resume: () => {} },
+    tui: { requestRender: () => {} },
     messages: { addMessage: () => {} },
   } as unknown as AppLayout;
 
@@ -82,25 +79,18 @@ function makeHarness(specsDir: string, plansDir: string): Harness {
     },
   } as unknown as PromptRouter;
 
-  const editorImpl = async (args: OpenInEditorArgs): Promise<OpenInEditorResult> => {
-    editorCalls.push(args);
-    return { exitCode: 0, mtimeBefore: 0, mtimeAfter: 0 };
-  };
-
   const deps: SpecPlanCommandDeps = {
     appCtx,
     tui: layout.tui,
     getSpecsDir: () => specsDir,
     getPlansDir: () => plansDir,
-    openInEditorImpl: editorImpl,
-    phaseNoticeDelayMs: 0,
   };
 
   const ctx = {
     addMessage: (role: string, content: string) => messages.push({ role, content }),
   };
 
-  return { appCtx, session, router, layout, deps, messages, editorCalls, routeCalls, ctx };
+  return { appCtx, session, router, layout, deps, messages, routeCalls, ctx };
 }
 
 function withTempDirs<T>(fn: (s: string, p: string) => Promise<T>): Promise<T> {
@@ -110,12 +100,20 @@ function withTempDirs<T>(fn: (s: string, p: string) => Promise<T>): Promise<T> {
   );
 }
 
+/** Locate the spec/plan path the handler created from the lastOpened* state. */
+function activeSpecPath(h: Harness): string {
+  return h.appCtx.lastOpenedSpec?.path ?? "";
+}
+function activePlanPath(h: Harness): string {
+  return h.appCtx.lastOpenedPlan?.path ?? "";
+}
+
 describe("integration: spec-driven feature flow", () => {
   it("complex prompt → spec → y → plan → y → executing → dispatch with original prompt", async () => {
     await withTempDirs(async (s, p) => {
       const h = makeHarness(s, p);
 
-      // Turn 1: complex prompt creates spec
+      // Turn 1: complex prompt drafts spec on disk
       await handleWithRouter(
         "refactor the authentication module across login signup reset",
         h.session as unknown as Session,
@@ -126,11 +124,11 @@ describe("integration: spec-driven feature flow", () => {
         h.deps,
       );
       expect(h.session.getPhase().currentPhase).toBe("spec_drafting");
-      expect(h.editorCalls).toHaveLength(1);
-      const specPath = h.editorCalls[0]?.path ?? "";
+      const specPath = activeSpecPath(h);
+      expect(existsSync(specPath)).toBe(true);
       expect(readFileSync(specPath, "utf8")).toContain("slug: refactor-the-authentication-module-across");
 
-      // Turn 2: y approves spec, opens plan editor
+      // Turn 2: y approves spec, drafts plan on disk
       await handleWithRouter(
         "y",
         h.session as unknown as Session,
@@ -141,8 +139,9 @@ describe("integration: spec-driven feature flow", () => {
         h.deps,
       );
       expect(h.session.getPhase().currentPhase).toBe("plan_drafting");
-      expect(h.editorCalls).toHaveLength(2);
       expect(readFileSync(specPath, "utf8")).toContain("status: approved");
+      const planPath = activePlanPath(h);
+      expect(existsSync(planPath)).toBe(true);
 
       // Turn 3: y approves plan, transitions to executing, dispatches original prompt
       await handleWithRouter(
@@ -159,7 +158,6 @@ describe("integration: spec-driven feature flow", () => {
       expect(h.routeCalls[0]?.text).toBe(
         "refactor the authentication module across login signup reset",
       );
-      const planPath = h.editorCalls[1]?.path ?? "";
       expect(readFileSync(planPath, "utf8")).toContain("status: approved");
 
       // Verify history: every transition recorded
@@ -185,11 +183,9 @@ describe("integration: spec-driven feature flow", () => {
       expect(h.session.getPhase().currentPhase).toBe("executing");
 
       // Now a fresh prompt in executing should go straight to router.route
-      // without spawning more editors.
-      const editorsBefore = h.editorCalls.length;
+      // without any new spec/plan being drafted.
       const routesBefore = h.routeCalls.length;
       await handleWithRouter("now polish the docs", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
-      expect(h.editorCalls.length).toBe(editorsBefore);
       expect(h.routeCalls.length).toBe(routesBefore + 1);
       expect(h.routeCalls[routesBefore]?.text).toBe("now polish the docs");
     });
@@ -200,10 +196,10 @@ describe("integration: spec-driven feature flow", () => {
       const h = makeHarness(s, p);
       await handleWithRouter("refactor stuff everywhere refactor", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
       await handleWithRouter("y", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
-      // Now in plan_drafting with a plan file open. n abandons.
+      // Now in plan_drafting with a plan file drafted. n abandons.
       await handleWithRouter("n", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
       expect(h.session.getPhase().currentPhase).toBe("abandoned");
-      const planPath = h.editorCalls[1]?.path ?? "";
+      const planPath = activePlanPath(h);
       expect(readFileSync(planPath, "utf8")).toContain("status: abandoned");
       expect(h.routeCalls).toHaveLength(0);
     });

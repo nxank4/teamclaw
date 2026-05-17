@@ -43,7 +43,7 @@ function planBody(slug: string): string {
 }
 
 describe("createApproveCommand — phase-aware", () => {
-  it("from spec_drafting: flips spec to approved, creates plan, opens plan editor", async () => {
+  it("from spec_drafting: flips spec to approved, drafts plan, sets plan pending", async () => {
     await withTempDirs(async (s, p) => {
       const h = makeHarness(s, p);
       // Seed a spec file on disk + put the session in spec_drafting.
@@ -60,8 +60,7 @@ describe("createApproveCommand — phase-aware", () => {
       const spec = await loadSpecFromFile(specPath);
       expect(spec.frontmatter.status).toBe("approved");
       expect(h.session.getPhase().currentPhase).toBe("plan_drafting");
-      expect(h.editorCalls).toHaveLength(1);
-      const planPath = h.editorCalls[0]?.path ?? "";
+      const planPath = h.appCtx.pendingPhaseConfirmation?.planPath ?? "";
       expect(planPath).toContain("/plans/alpha.md");
       expect(h.appCtx.pendingPhaseConfirmation?.kind).toBe("plan");
     });
@@ -105,7 +104,7 @@ describe("createApproveCommand — phase-aware", () => {
       expect(spec.frontmatter.status).toBe("approved");
       // Legacy path doesn't transition or create a plan.
       expect(h.session.getPhase().currentPhase).toBe("idle");
-      expect(h.editorCalls).toHaveLength(0);
+      expect(h.appCtx.lastOpenedPlan).toBeNull();
     });
   });
 });

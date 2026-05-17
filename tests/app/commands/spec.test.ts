@@ -20,11 +20,11 @@ describe("createSpecCommand", () => {
       const cmd = createSpecCommand(h.makeDeps());
       await cmd.execute("", h.ctx);
       expect(h.messages.some((m) => m.content.includes("Usage: /spec"))).toBe(true);
-      expect(h.editorCalls).toHaveLength(0);
+      expect(h.appCtx.lastOpenedSpec).toBeNull();
     });
   });
 
-  it("with a valid slug, creates the spec file + opens the editor + records lastOpenedSpec", async () => {
+  it("with a valid slug, drafts the spec file + records lastOpenedSpec", async () => {
     await withTempDirs(async (specsDir, plansDir) => {
       const h = makeHarness(specsDir, plansDir);
       const cmd = createSpecCommand(h.makeDeps());
@@ -33,14 +33,14 @@ describe("createSpecCommand", () => {
       const file = readFileSync(path, "utf8");
       expect(file).toContain("slug: user-auth");
       expect(file).toContain("## Summary");
-      expect(h.editorCalls).toHaveLength(1);
-      expect(h.editorCalls[0]?.path).toBe(path);
       expect(h.appCtx.lastOpenedSpec).toEqual({ slug: "user-auth", path });
       expect(h.appCtx.lastOpenedKind).toBe("spec");
+      // The system message tells the user where to find the file + how to proceed.
+      expect(h.messages.some((m) => m.content.includes(path) && m.content.includes("editor"))).toBe(true);
     });
   });
 
-  it("with a slug for an existing spec, opens without recreating", async () => {
+  it("with a slug for an existing spec, registers without recreating", async () => {
     await withTempDirs(async (specsDir, plansDir) => {
       const h = makeHarness(specsDir, plansDir);
       const cmd = createSpecCommand(h.makeDeps());
@@ -50,7 +50,8 @@ describe("createSpecCommand", () => {
       await cmd.execute("billing", h.ctx);
       const secondBytes = readFileSync(path, "utf8");
       expect(secondBytes).toBe(firstBytes);
-      expect(h.editorCalls).toHaveLength(2);
+      // Both invocations register the same file as active.
+      expect(h.appCtx.lastOpenedSpec?.path).toBe(path);
     });
   });
 
@@ -60,7 +61,7 @@ describe("createSpecCommand", () => {
       const cmd = createSpecCommand(h.makeDeps());
       await cmd.execute("Bad_Slug!", h.ctx);
       expect(h.messages.some((m) => m.role === "error" && m.content.includes("Invalid slug"))).toBe(true);
-      expect(h.editorCalls).toHaveLength(0);
+      expect(h.appCtx.lastOpenedSpec).toBeNull();
     });
   });
 });

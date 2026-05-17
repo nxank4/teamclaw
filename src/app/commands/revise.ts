@@ -1,15 +1,18 @@
 /**
  * /revise slash command.
  *
- * From the `executing` phase, re-opens the linked plan in $EDITOR and
- * rewinds the phase to `plan_drafting` (preserves the approved spec).
- * After the user re-saves and re-approves, the dispatch can restart.
+ * From the `executing` phase, rewinds the phase machine back to
+ * `plan_drafting` (preserving the approved spec) and asks the user to
+ * edit the plan file externally. After they save, /approve flips it
+ * back to approved and dispatch can restart.
+ *
+ * The previous in-TUI $EDITOR spawn has been removed — the file is
+ * reviewed in whatever editor the user prefers.
  *
  * Errors when not in executing — the user spec restricts /revise to
  * exactly that state.
  */
 
-import { openInEditor } from "../../utils/open-in-editor.js";
 import { transition } from "../../session/phase-machine.js";
 import { ICONS } from "../../tui/constants/icons.js";
 import type { SlashCommand } from "../../tui/slash/registry.js";
@@ -19,7 +22,7 @@ import type { SpecPlanCommandDeps } from "./spec.js";
 export function createReviseCommand(deps: SpecPlanCommandDeps): SlashCommand {
   return {
     name: "revise",
-    description: "From executing, return to plan_drafting and re-open the plan in $EDITOR",
+    description: "From executing, return to plan_drafting so you can edit the plan and re-approve",
     async execute(_args, ctx) {
       const session = deps.appCtx.chatSession;
       if (!session) {
@@ -51,10 +54,6 @@ export function createReviseCommand(deps: SpecPlanCommandDeps): SlashCommand {
       }
 
       session.setPhase(transition("executing", "revise"), "revise");
-      ctx.addMessage("system", `${ICONS.bolt} Returned to plan_drafting. Re-opening plan in editor.`);
-
-      const editor = deps.openInEditorImpl ?? openInEditor;
-      await editor({ path: planPath, tui: deps.tui });
 
       deps.appCtx.pendingPhaseConfirmation = {
         kind: "plan",
@@ -62,7 +61,10 @@ export function createReviseCommand(deps: SpecPlanCommandDeps): SlashCommand {
         planPath,
         originalPrompt: "",
       };
-      ctx.addMessage("system", `Approve plan? [y/n/edit]`);
+      ctx.addMessage(
+        "system",
+        `${ICONS.bolt} Returned to plan_drafting. Edit ${planPath} in your editor, then reply with y to approve, n to abandon.`,
+      );
     },
   };
 }

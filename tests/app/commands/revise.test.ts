@@ -19,16 +19,16 @@ describe("createReviseCommand", () => {
       const h = makeHarness(s, p);
       await createReviseCommand(h.makeDeps()).execute("", h.ctx);
       expect(h.messages.some((m) => m.role === "error" && m.content.includes("executing"))).toBe(true);
-      expect(h.editorCalls).toHaveLength(0);
+      expect(h.appCtx.pendingPhaseConfirmation).toBeNull();
     });
   });
 
-  it("from executing: aborts router, rewinds to plan_drafting, re-opens plan editor, sets pending plan confirmation", async () => {
+  it("from executing: aborts router, rewinds to plan_drafting, points user at the plan file, sets pending plan confirmation", async () => {
     await withTempDirs(async (s, p) => {
       const h = makeHarness(s, p);
       const { mkdirSync } = await import("node:fs");
       mkdirSync(p, { recursive: true });
-      // Pre-populate a plan file so the re-open has something real on disk.
+      // Pre-populate a plan file so the hint can name a real path.
       const planPath = join(p, "alpha.md");
       writeFileSync(planPath, [
         "---",
@@ -56,9 +56,10 @@ describe("createReviseCommand", () => {
 
       expect(h.routerAbortCalls).toHaveLength(1);
       expect(h.session.getPhase().currentPhase).toBe("plan_drafting");
-      expect(h.editorCalls).toHaveLength(1);
-      expect(h.editorCalls[0]?.path).toBe(planPath);
       expect(h.appCtx.pendingPhaseConfirmation?.kind).toBe("plan");
+      expect(h.appCtx.pendingPhaseConfirmation?.planPath).toBe(planPath);
+      // The hint message names the plan path + tells the user to edit externally.
+      expect(h.messages.some((m) => m.content.includes(planPath) && m.content.includes("editor"))).toBe(true);
     });
   });
 });
