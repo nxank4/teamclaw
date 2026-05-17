@@ -232,16 +232,28 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
 interface PrintArgs {
   goal: string;
   workdir?: string;
+  specPath?: string;
+  planPath?: string;
+  noSpec?: boolean;
 }
 
 export function parsePrintArgs(args: string[]): PrintArgs | { error: string } {
   let goal: string | null = null;
   let workdir: string | undefined;
+  let specPath: string | undefined;
+  let planPath: string | undefined;
+  let noSpec = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--workdir" && args[i + 1]) {
       workdir = args[++i]!;
+    } else if (arg === "--spec" && args[i + 1]) {
+      specPath = args[++i]!;
+    } else if (arg === "--plan" && args[i + 1]) {
+      planPath = args[++i]!;
+    } else if (arg === "--no-spec") {
+      noSpec = true;
     } else if (arg && !arg.startsWith("--") && goal === null) {
       goal = arg;
     } else {
@@ -252,14 +264,14 @@ export function parsePrintArgs(args: string[]): PrintArgs | { error: string } {
   if (goal === null) {
     return { error: "missing prompt" };
   }
-  return { goal, workdir };
+  return { goal, workdir, specPath, planPath, noSpec };
 }
 
 export async function runPrint(args: string[]): Promise<void> {
   const parsed = parsePrintArgs(args);
   if ("error" in parsed) {
     console.error(`Error: ${parsed.error}`);
-    console.error("Usage: openpawl -p <prompt> [--workdir <path>]");
+    console.error("Usage: openpawl -p <prompt> [--workdir <path>] [--spec <path>] [--plan <path>] [--no-spec]");
     console.error('  openpawl -p "/status"');
     process.exit(1);
   }
@@ -280,6 +292,9 @@ export async function runPrint(args: string[]): Promise<void> {
   const result = await runHeadless({
     goal: parsed.goal,
     workdir: parsed.workdir,
+    specPath: parsed.specPath,
+    planPath: parsed.planPath,
+    noSpec: parsed.noSpec,
   });
   process.exit(result.exitCode);
 }

@@ -9,15 +9,20 @@
  * subagent runner.
  */
 
+import { resolve } from "node:path";
+
 import pc from "picocolors";
 
 import { loadAgentRegistry } from "../agents/registry/markdown-registry.js";
 import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
 import { debugLog } from "../debug/logger.js";
 import { dispatch as orchestratorDispatch } from "../orchestrator/dispatcher.js";
+import { loadPlanFromFile } from "../plans/loader.js";
 import { ToolEvent } from "../router/event-types.js";
 import { createSessionManager } from "../session/index.js";
+import { emptyPhaseBlock, transition } from "../session/phase-machine.js";
 import { classify } from "../spec/complexity.js";
+import { loadSpecFromFile } from "../spec/loader.js";
 import { registerBuiltInTools } from "../tools/built-in/index.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { PermissionResolver } from "../tools/permissions.js";
@@ -29,6 +34,12 @@ export interface RunHeadlessArgs {
   goal: string;
   /** Defaults to process.cwd(). */
   workdir?: string;
+  /** Path to a pre-approved spec file. Bypasses spec authoring. */
+  specPath?: string;
+  /** Path to a pre-approved plan file. Bypasses plan authoring. */
+  planPath?: string;
+  /** Skip the spec/plan gate entirely (treat the prompt as trivial). */
+  noSpec?: boolean;
 }
 
 export interface HeadlessResult {
@@ -42,19 +53,38 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
   const originalCwd = process.cwd();
   if (workdir !== originalCwd) process.chdir(workdir);
 
-  // Complexity classification — log only, no dispatch change yet.
-  // Matches the call in src/app/prompt-handler.ts so the same signal
-  // is observable from both the TUI and headless entry points.
-  {
-    const cfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
-    const result = classify(args.goal, cfg.complexityThreshold);
-    debugLog("info", "orchestrator", "complexity_classified", {
-      data: {
-        class: result.class,
-        reasons: result.reasons,
-        prompt_excerpt: args.goal.slice(0, 80),
-      },
-    });
+  const cfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
+  const classification = classify(args.goal, cfg.complexityThreshold);
+  debugLog("info", "orchestrator", "complexity_classified", {
+    data: {
+      class: classification.class,
+      reasons: classification.reasons,
+      prompt_excerpt: args.goal.slice(0, 80),
+    },
+  });
+
+  // Phase-gate enforcement for headless. Three legitimate cases:
+  //   1. Trivial classification           → bypass entirely
+  //   2. --no-spec flag                   → bypass entirely
+  //   3. --spec + --plan flags supplied   → pre-load + advance to executing
+  // Anything else (complex + no flags) → exit 2 with an actionable hint.
+  let preApprovedSpec: string | undefined;
+  let preApprovedPlan: string | undefined;
+  if (classification.class === "complex" && !args.noSpec) {
+    if (!args.specPath || !args.planPath) {
+      console.error(pc.red(
+        "\nComplex prompt detected; pass --spec <path> AND --plan <path> with pre-approved artefacts,\n" +
+        "or --no-spec to bypass the spec/plan gate. Headless mode can't author specs interactively.",
+      ));
+      return { exitCode: 2 };
+    }
+    try {
+      preApprovedSpec = await readArtefact(args.specPath, "spec");
+      preApprovedPlan = await readArtefact(args.planPath, "plan");
+    } catch (err) {
+      console.error(pc.red(`\n${err instanceof Error ? err.message : String(err)}`));
+      return { exitCode: 2 };
+    }
   }
 
   try {
@@ -86,10 +116,37 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
     let tokenCount = 0;
     const agentStartTimes = new Map<string, number>();
 
+    // When pre-approved artefacts were supplied, advance the session
+    // phase to "executing" so the dispatcher gate (commit 2) is opened.
+    // Trivial / --no-spec paths leave phase undefined and bypass the
+    // gate entirely. The session's persisted phase block still reads
+    // "idle" — we only override the dispatcher's view of it.
+    const phaseForDispatch = preApprovedSpec && preApprovedPlan
+      ? { ...emptyPhaseBlock(), currentPhase: transition(
+            transition(
+              transition(
+                transition(
+                  transition(
+                    transition("idle", "classifyComplex"),
+                    "openSpec",
+                  ),
+                  "approveSpec",
+                ),
+                "openPlan",
+              ),
+              "approvePlan",
+            ),
+            "startExecute",
+          ) }
+      : undefined;
+
     const dispatchResult = await orchestratorDispatch({
       task: args.goal,
       registry,
       sessionId: session.id,
+      phase: phaseForDispatch,
+      approvedSpec: preApprovedSpec,
+      approvedPlan: preApprovedPlan,
       getToolSchemas: (toolNames) => toolReg.exportForLLM(toolNames),
       getNativeTools: (toolNames) => toolReg.exportForAPI(toolNames),
       executeTool: async (toolName, toolArgs) => {
@@ -185,4 +242,32 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
   } finally {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd);
   }
+}
+
+/**
+ * Read and validate a spec/plan file by path. Verifies that its
+ * frontmatter status is "approved" — refusing to inject a draft into
+ * the subagent context catches "I forgot to run /approve" mistakes
+ * before they reach the LLM.
+ */
+async function readArtefact(path: string, kind: "spec" | "plan"): Promise<string> {
+  const absPath = resolve(path);
+  if (kind === "spec") {
+    const doc = await loadSpecFromFile(absPath);
+    if (doc.frontmatter.status !== "approved") {
+      throw new Error(
+        `Spec at ${absPath} has status '${doc.frontmatter.status}', not 'approved'. ` +
+        `Run /approve on it first, or remove --spec to author interactively.`,
+      );
+    }
+    return doc.body;
+  }
+  const doc = await loadPlanFromFile(absPath);
+  if (doc.frontmatter.status !== "approved") {
+    throw new Error(
+      `Plan at ${absPath} has status '${doc.frontmatter.status}', not 'approved'. ` +
+      `Run /approve on it first, or remove --plan to author interactively.`,
+    );
+  }
+  return doc.body;
 }
