@@ -1,26 +1,58 @@
 /**
- * Prompt routing handlers — dispatch user messages to PromptRouter or fallback LLM.
+ * Prompt routing handlers — dispatch user messages to PromptRouter or
+ * the fallback LLM, gated by the spec/plan phase machine.
+ *
+ * Three control paths in handleWithRouter:
+ *   - the previous input ended with a "Approve spec? [y/n/edit]" or
+ *     "Approve plan? [y/n/edit]" question → interpret this input as
+ *     the answer and advance the phase machine accordingly
+ *   - this is a fresh prompt classified as "complex" and the session
+ *     is idle → auto-create a spec file, open it in $EDITOR, set the
+ *     pending-confirmation field, return without dispatching
+ *   - otherwise → existing flow: optional clarification + router.route
+ *     + render results
  */
 
-import { getAgentColorFn, agentDisplayName } from "./agent-display.js";
+import { mkdir } from "node:fs/promises";
+import { basename, relative, resolve } from "node:path";
+
+import { agentDisplayName, getAgentColorFn } from "./agent-display.js";
+import { autoCompactIfNeeded, type CompactCommandDeps } from "./commands/compact.js";
+import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
+import { getConnectionState, setConnectionState } from "../core/connection-state.js";
+import { debugLog } from "../debug/logger.js";
+import { refreshPhaseSegment } from "./phase-display.js";
+import { loadPlanFromFile } from "../plans/loader.js";
+import { generatePlanTemplate } from "../plans/template.js";
+import { writePlan } from "../plans/writer.js";
+import { transition } from "../session/phase-machine.js";
+import { classify } from "../spec/complexity.js";
+import { loadSpecFromFile } from "../spec/loader.js";
+import { deriveSlug, nextAvailableSlug } from "../spec/slug.js";
+import { generateSpecTemplate } from "../spec/template.js";
+import { writeSpec } from "../spec/writer.js";
 import { ICONS } from "../tui/constants/icons.js";
 import { defaultTheme } from "../tui/themes/default.js";
-import { getConnectionState, setConnectionState } from "../core/connection-state.js";
-import { autoCompactIfNeeded, type CompactCommandDeps } from "./commands/compact.js";
-import { classify } from "../spec/complexity.js";
-import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
-import { debugLog } from "../debug/logger.js";
+import { writeFileAtomic } from "../utils/atomic-write.js";
+import { openInEditor } from "../utils/open-in-editor.js";
+
+import type { SpecPlanCommandDeps } from "./commands/spec.js";
 import type { AppLayout } from "./layout.js";
-import type { Session } from "../session/session.js";
 import type { PromptRouter } from "../router/prompt-router.js";
+import type { Session } from "../session/session.js";
+
+type MsgCtx = {
+  addMessage: (role: string, content: string, options?: { tag?: string }) => void;
+};
 
 export async function handleWithRouter(
   text: string,
   session: Session,
   router: PromptRouter,
   layout: AppLayout,
-  ctx: { addMessage: (role: string, content: string, options?: { tag?: string }) => void },
+  ctx: MsgCtx,
   compactDeps?: CompactCommandDeps | null,
+  specPlanDeps?: SpecPlanCommandDeps | null,
 ): Promise<void> {
   if (compactDeps) {
     await autoCompactIfNeeded({
@@ -30,22 +62,227 @@ export async function handleWithRouter(
     });
   }
 
-  // Complexity classification — log only, no dispatch change yet.
-  // The dispatcher will consume this output in a follow-up batch to
-  // gate the spec-first workflow. Logging here keeps the signal
-  // observable via `openpawl logs debug --grep complexity_classified`.
-  {
-    const cfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
-    const result = classify(text, cfg.complexityThreshold);
-    debugLog("info", "orchestrator", "complexity_classified", {
-      data: {
-        class: result.class,
-        reasons: result.reasons,
-        prompt_excerpt: text.slice(0, 80),
-      },
-    });
+  // Path 1 — the previous turn left a pending phase question. Interpret
+  // this input as the y/n/edit answer.
+  if (specPlanDeps?.appCtx.pendingPhaseConfirmation) {
+    await handlePendingPhaseAnswer(text, session, router, layout, ctx, specPlanDeps);
+    return;
   }
 
+  // Complexity classification (debug-log only) — feeds the gate below.
+  const cfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
+  const cls = classify(text, cfg.complexityThreshold);
+  debugLog("info", "orchestrator", "complexity_classified", {
+    data: {
+      class: cls.class,
+      reasons: cls.reasons,
+      prompt_excerpt: text.slice(0, 80),
+    },
+  });
+
+  // Path 2 — fresh complex prompt on an idle session. Spawn the spec flow.
+  if (
+    specPlanDeps &&
+    !specPlanDeps.bypass &&
+    cls.class === "complex" &&
+    session.getPhase().currentPhase === "idle"
+  ) {
+    await handleAutoSpec(text, session, layout, ctx, specPlanDeps);
+    return;
+  }
+
+  // Path 3 — default flow: clarification + router.route + render.
+  await dispatchNormally(text, session, router, layout, ctx);
+  refreshPhaseSegment(layout, session.getPhase().currentPhase);
+}
+
+// ── Path 2: auto-spec flow ────────────────────────────────────────────────
+
+async function handleAutoSpec(
+  prompt: string,
+  session: Session,
+  layout: AppLayout,
+  ctx: MsgCtx,
+  deps: SpecPlanCommandDeps,
+): Promise<void> {
+  const specsDir = resolve(deps.getSpecsDir());
+  await mkdir(specsDir, { recursive: true });
+  const slug = nextAvailableSlug(deriveSlug(prompt), specsDir);
+  const specPath = resolve(specsDir, `${slug}.md`);
+  await writeFileAtomic(specPath, generateSpecTemplate(slug));
+
+  const phase = session.getPhase().currentPhase;
+  session.setPhase(transition(phase, "classifyComplex"), "classifyComplex");
+  session.setPhase(transition("spec_required", "openSpec"), "openSpec");
+  session.setSpecPath(specPath);
+  deps.appCtx.lastOpenedSpec = { slug, path: specPath };
+  deps.appCtx.lastOpenedKind = "spec";
+
+  ctx.addMessage(
+    "system",
+    `${ICONS.bolt} Complex prompt → drafting spec '${slug}'. Edit the template, save, then approve.`,
+  );
+
+  const editor = deps.openInEditorImpl ?? openInEditor;
+  await editor({ path: specPath, tui: layout.tui });
+
+  deps.appCtx.pendingPhaseConfirmation = {
+    kind: "spec",
+    specPath,
+    originalPrompt: prompt,
+  };
+  ctx.addMessage("system", `Approve spec '${slug}'? [y/n/edit]`);
+}
+
+// ── Path 1: pending-confirmation answer ──────────────────────────────────
+
+async function handlePendingPhaseAnswer(
+  text: string,
+  session: Session,
+  router: PromptRouter,
+  layout: AppLayout,
+  ctx: MsgCtx,
+  deps: SpecPlanCommandDeps,
+): Promise<void> {
+  const pending = deps.appCtx.pendingPhaseConfirmation!;
+  const answer = text.trim().toLowerCase();
+  const editor = deps.openInEditorImpl ?? openInEditor;
+
+  if (answer === "e" || answer === "edit") {
+    const path = pending.kind === "spec" ? pending.specPath : pending.planPath!;
+    await editor({ path, tui: layout.tui });
+    ctx.addMessage("system", `Approve ${pending.kind} '${basename(path, ".md")}'? [y/n/edit]`);
+    return;
+  }
+
+  if (answer === "n" || answer === "no" || answer === "abandon") {
+    deps.appCtx.pendingPhaseConfirmation = null;
+    const currentPhase = session.getPhase().currentPhase;
+    session.setPhase(transition(currentPhase, "abandon"), "abandon");
+    if (pending.kind === "spec") {
+      const doc = await loadSpecFromFile(pending.specPath);
+      await writeSpec({ ...doc, frontmatter: { ...doc.frontmatter, status: "abandoned" } });
+    } else {
+      const doc = await loadPlanFromFile(pending.planPath!);
+      await writePlan({ ...doc, frontmatter: { ...doc.frontmatter, status: "abandoned" } });
+    }
+    ctx.addMessage("system", `${ICONS.warning} Abandoned. File status set to 'abandoned'.`);
+    return;
+  }
+
+  if (answer !== "y" && answer !== "yes") {
+    ctx.addMessage("error", "Reply with y, n, or edit.");
+    return; // pending stays set; the next input still applies
+  }
+
+  // Y branch — approve and advance.
+  if (pending.kind === "spec") {
+    await approveSpecAndOpenPlan({
+      specPath: pending.specPath,
+      originalPrompt: pending.originalPrompt,
+      deps,
+      session,
+      layout,
+      ctx,
+    });
+    return;
+  }
+
+  // Plan approval → execute (helper handles transition + dispatch).
+  await approvePlanAndExecute({
+    planPath: pending.planPath!,
+    originalPrompt: pending.originalPrompt,
+    deps,
+    session,
+    layout,
+    ctx,
+    router,
+  });
+}
+
+// ── Shared helpers (also called by the /approve slash command) ───────────
+
+export interface ApproveSpecArgs {
+  specPath: string;
+  /** Original user prompt that triggered the auto-spec flow; null when /approve was invoked manually. */
+  originalPrompt: string | null;
+  deps: SpecPlanCommandDeps;
+  session: Session;
+  layout: AppLayout;
+  ctx: MsgCtx;
+}
+
+export async function approveSpecAndOpenPlan(args: ApproveSpecArgs): Promise<void> {
+  const editor = args.deps.openInEditorImpl ?? openInEditor;
+  const specDoc = await loadSpecFromFile(args.specPath);
+  await writeSpec({ ...specDoc, frontmatter: { ...specDoc.frontmatter, status: "approved" } });
+  args.session.setPhase(transition(args.session.getPhase().currentPhase, "approveSpec"), "approveSpec");
+  args.ctx.addMessage("system", `${ICONS.success} Spec '${specDoc.frontmatter.slug}' approved. Drafting plan.`);
+
+  const plansDir = resolve(args.deps.getPlansDir());
+  await mkdir(plansDir, { recursive: true });
+  const planSlug = nextAvailableSlug(specDoc.frontmatter.slug, plansDir);
+  const planPath = resolve(plansDir, `${planSlug}.md`);
+  const specRelative = relative(plansDir, args.specPath);
+  await writeFileAtomic(
+    planPath,
+    generatePlanTemplate({ slug: planSlug, specPath: specRelative }),
+  );
+
+  args.session.setPhase(transition("spec_approved", "openPlan"), "openPlan");
+  args.session.setPlanPath(planPath);
+  args.deps.appCtx.lastOpenedPlan = { slug: planSlug, path: planPath };
+  args.deps.appCtx.lastOpenedKind = "plan";
+
+  await editor({ path: planPath, tui: args.layout.tui });
+
+  args.deps.appCtx.pendingPhaseConfirmation = {
+    kind: "plan",
+    specPath: args.specPath,
+    planPath,
+    originalPrompt: args.originalPrompt ?? "",
+  };
+  args.ctx.addMessage("system", `Approve plan '${planSlug}'? [y/n/edit]`);
+  refreshPhaseSegment(args.layout, args.session.getPhase().currentPhase);
+}
+
+export interface ApprovePlanArgs {
+  planPath: string;
+  /** When non-empty, dispatch this prompt immediately after transitioning to executing. */
+  originalPrompt: string;
+  deps: SpecPlanCommandDeps;
+  session: Session;
+  layout: AppLayout;
+  ctx: MsgCtx;
+  router: PromptRouter;
+}
+
+export async function approvePlanAndExecute(args: ApprovePlanArgs): Promise<void> {
+  const planDoc = await loadPlanFromFile(args.planPath);
+  await writePlan({ ...planDoc, frontmatter: { ...planDoc.frontmatter, status: "approved" } });
+  args.session.setPhase(transition(args.session.getPhase().currentPhase, "approvePlan"), "approvePlan");
+  args.session.setPhase(transition("plan_approved", "startExecute"), "startExecute");
+  args.deps.appCtx.pendingPhaseConfirmation = null;
+  args.ctx.addMessage(
+    "system",
+    `${ICONS.success} Plan '${planDoc.frontmatter.slug}' approved. Executing.`,
+  );
+
+  if (args.originalPrompt.trim().length > 0) {
+    await dispatchNormally(args.originalPrompt, args.session, args.router, args.layout, args.ctx);
+  }
+  refreshPhaseSegment(args.layout, args.session.getPhase().currentPhase);
+}
+
+// ── Path 3: default dispatch flow (extracted unchanged) ──────────────────
+
+async function dispatchNormally(
+  text: string,
+  session: Session,
+  router: PromptRouter,
+  layout: AppLayout,
+  ctx: MsgCtx,
+): Promise<void> {
   try {
     const { ClarificationDetector } = await import("../conversation/clarification.js");
     const detector = new ClarificationDetector();
@@ -96,6 +333,8 @@ export async function handleWithRouter(
   layout.statusBar.updateSegment(3, "idle", defaultTheme.dim);
   layout.tui.requestRender();
 }
+
+// ── handleChatFallback (unchanged from prior commits) ────────────────────
 
 export async function handleChatFallback(
   text: string,

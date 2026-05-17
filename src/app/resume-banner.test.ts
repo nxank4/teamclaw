@@ -53,4 +53,38 @@ describe("buildResumeBannerContent", () => {
     ));
     expect(out).toMatch(/alpha · 3 messages · /);
   });
+
+  it("appends a phase hint when session is in spec_drafting", () => {
+    const session = {
+      messageCount: 1,
+      getState: () => ({ title: "x", updatedAt: new Date().toISOString() }),
+      getPhase: () => ({ currentPhase: "spec_drafting", currentSpecPath: null, currentPlanPath: null, history: [] }),
+    } as unknown as Session;
+    const out = stripAnsi(buildResumeBannerContent(session));
+    expect(out).toContain("spec_drafting");
+    expect(out).toContain("/spec");
+  });
+
+  it("appends a phase hint when session is in plan_drafting", () => {
+    const session = {
+      messageCount: 1,
+      getState: () => ({ title: "x", updatedAt: new Date().toISOString() }),
+      getPhase: () => ({ currentPhase: "plan_drafting", currentSpecPath: null, currentPlanPath: null, history: [] }),
+    } as unknown as Session;
+    const out = stripAnsi(buildResumeBannerContent(session));
+    expect(out).toContain("plan_drafting");
+    expect(out).toContain("/plan");
+  });
+
+  it("skips the phase hint for idle and terminal phases", () => {
+    for (const phase of ["idle", "done", "abandoned"] as const) {
+      const session = {
+        messageCount: 1,
+        getState: () => ({ title: "x", updatedAt: new Date().toISOString() }),
+        getPhase: () => ({ currentPhase: phase, currentSpecPath: null, currentPlanPath: null, history: [] }),
+      } as unknown as Session;
+      const out = stripAnsi(buildResumeBannerContent(session));
+      expect(out).not.toContain("Session is in");
+    }
+  });
 });

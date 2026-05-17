@@ -189,6 +189,35 @@ export class Session {
     this.touch();
   }
 
+  // ========================= PHASE TRACKING ================================
+
+  /**
+   * Transition the session phase. The caller is responsible for using
+   * `phase-machine.ts:transition()` to compute the next phase — this
+   * method just records the result + appends a history entry. Keeping
+   * the validation in the machine module keeps Session free of phase
+   * logic; here we only persist.
+   */
+  setPhase(next: import("./phase-machine.js").Phase, trigger: import("./phase-machine.js").PhaseTrigger): void {
+    this.state.phase.currentPhase = next;
+    this.state.phase.history.push({ phase: next, at: new Date().toISOString(), trigger });
+    this.touch();
+  }
+
+  setSpecPath(path: string | null): void {
+    this.state.phase.currentSpecPath = path;
+    this.touch();
+  }
+
+  setPlanPath(path: string | null): void {
+    this.state.phase.currentPlanPath = path;
+    this.touch();
+  }
+
+  getPhase(): Readonly<import("./phase-machine.js").PhaseBlock> {
+    return this.state.phase;
+  }
+
   // ========================= CONTEXT BUILDING ==============================
 
   /**

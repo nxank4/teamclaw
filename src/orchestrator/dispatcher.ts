@@ -20,6 +20,7 @@ import type { ToolDef } from "../engine/llm.js";
 import type { NativeToolDefinition } from "../providers/stream-types.js";
 import type { ToolExecutor } from "../router/agent-turn.js";
 import type { AgentResult, DispatchResult } from "../router/router-types.js";
+import type { Phase, PhaseBlock } from "../session/phase-machine.js";
 
 import {
   runSubagent,
@@ -48,11 +49,48 @@ export interface OrchestratorDispatchArgs {
   signal?: AbortSignal;
   onProgress?: SubagentProgressEmitter;
   onToken?: SubagentTokenEmitter;
+  /**
+   * When supplied, the dispatcher refuses to spawn subagents unless
+   * `phase.currentPhase === "executing"`. Omit to bypass the gate
+   * (trivial prompts, --no-spec runs, tests).
+   */
+  phase?: PhaseBlock;
+  /** Approved spec body to inject into subagent system prompts. */
+  approvedSpec?: string;
+  /** Approved plan body to inject into subagent system prompts. */
+  approvedPlan?: string;
 }
+
+/**
+ * Discriminated outcome from `dispatch()`. The `executed` branch wraps
+ * the legacy `DispatchResult` shape so existing callers can keep using
+ * the same accessors. The `blocked` branch signals the phase gate
+ * refused dispatch; the caller is expected to surface an actionable
+ * message ("run /spec" / "pass --spec" / etc.).
+ */
+export type OrchestratorDispatchOutcome =
+  | { kind: "executed"; result: DispatchResult }
+  | { kind: "blocked"; reason: "phase_gate"; currentPhase: Phase; message: string };
 
 export async function dispatch(
   args: OrchestratorDispatchArgs,
-): Promise<DispatchResult> {
+): Promise<OrchestratorDispatchOutcome> {
+  // Phase gate: if a phase block is supplied and it's not in the
+  // "executing" state, refuse dispatch. Callers that intentionally
+  // bypass (trivial prompts, --no-spec) simply omit args.phase.
+  if (args.phase && args.phase.currentPhase !== "executing") {
+    const current = args.phase.currentPhase;
+    debugLog("info", "orchestrator", "dispatch_blocked", {
+      data: { reason: "phase_gate", currentPhase: current, task_excerpt: args.task.slice(0, 80) },
+    });
+    return {
+      kind: "blocked",
+      reason: "phase_gate",
+      currentPhase: current,
+      message: `Dispatch blocked — session is in phase '${current}'. Complete the spec/plan workflow (or run /abandon) before dispatching.`,
+    };
+  }
+
   const start = Date.now();
   const candidates = args.registry.all();
   const matches = await similarityTopK(args.task, candidates, {
@@ -81,11 +119,14 @@ export async function dispatch(
 
   if (chosen.length === 0) {
     return {
-      strategy: "single",
-      agentResults: [],
-      totalDuration: Date.now() - start,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
+      kind: "executed",
+      result: {
+        strategy: "single",
+        agentResults: [],
+        totalDuration: Date.now() - start,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+      },
     };
   }
 
@@ -107,6 +148,8 @@ export async function dispatch(
         signal: args.signal,
         onProgress: args.onProgress,
         onToken: args.onToken,
+        approvedSpec: args.approvedSpec,
+        approvedPlan: args.approvedPlan,
       }),
     ),
   );
@@ -141,10 +184,13 @@ export async function dispatch(
   });
 
   return {
-    strategy: chosen.length > 1 ? "parallel" : "single",
-    agentResults,
-    totalDuration: Date.now() - start,
-    totalInputTokens: agentResults.reduce((s, r) => s + r.inputTokens, 0),
-    totalOutputTokens: agentResults.reduce((s, r) => s + r.outputTokens, 0),
+    kind: "executed",
+    result: {
+      strategy: chosen.length > 1 ? "parallel" : "single",
+      agentResults,
+      totalDuration: Date.now() - start,
+      totalInputTokens: agentResults.reduce((s, r) => s + r.inputTokens, 0),
+      totalOutputTokens: agentResults.reduce((s, r) => s + r.outputTokens, 0),
+    },
   };
 }

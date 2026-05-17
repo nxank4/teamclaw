@@ -5,11 +5,37 @@
  * spawning editors.
  */
 
+import { emptyPhaseBlock, type Phase, type PhaseTrigger } from "../../../src/session/phase-machine.js";
 import type { CommandContext } from "../../../src/tui/slash/registry.js";
 import type { TUI } from "../../../src/tui/core/tui.js";
 import type { AppContext } from "../../../src/app/init-session-router.js";
 import type { OpenInEditorArgs, OpenInEditorResult } from "../../../src/utils/open-in-editor.js";
 import type { SpecPlanCommandDeps } from "../../../src/app/commands/spec.js";
+import type { Session } from "../../../src/session/session.js";
+import type { PromptRouter } from "../../../src/router/prompt-router.js";
+
+/**
+ * Minimal Session stub that tracks phase state. Cast through unknown
+ * to Session — only the methods the slash commands and phase helpers
+ * call need to be present (getPhase, setPhase, setSpecPath, setPlanPath).
+ */
+export class PhaseSessionStub {
+  id = "test-session";
+  private block = emptyPhaseBlock();
+  getPhase() {
+    return { ...this.block };
+  }
+  setPhase(phase: Phase, trigger: PhaseTrigger) {
+    this.block = { ...this.block, currentPhase: phase };
+    this.block.history.push({ phase, at: new Date().toISOString(), trigger });
+  }
+  setSpecPath(p: string | null) {
+    this.block = { ...this.block, currentSpecPath: p };
+  }
+  setPlanPath(p: string | null) {
+    this.block = { ...this.block, currentPlanPath: p };
+  }
+}
 
 export interface MessageRecord {
   role: string;
@@ -20,8 +46,10 @@ export interface MessageRecord {
 export interface TestHarness {
   ctx: CommandContext;
   appCtx: AppContext;
+  session: PhaseSessionStub;
   messages: MessageRecord[];
   editorCalls: OpenInEditorArgs[];
+  routerAbortCalls: string[];
   /** Build a SpecPlanCommandDeps pointing at the test dirs. */
   makeDeps: (overrides?: Partial<SpecPlanCommandDeps>) => SpecPlanCommandDeps;
 }
@@ -37,10 +65,27 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     exit: () => {},
   };
 
+  const session = new PhaseSessionStub();
+  const routerAbortCalls: string[] = [];
+  const routerStub = {
+    abort: (sid: string) => routerAbortCalls.push(sid),
+    route: async () => ({
+      isErr: () => false,
+      isOk: () => true,
+      value: {
+        strategy: "single" as const,
+        agentResults: [],
+        totalDuration: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+      },
+    }),
+  } as unknown as PromptRouter;
+
   const appCtx = {
     sessionMgr: null,
-    router: null,
-    chatSession: null,
+    router: routerStub,
+    chatSession: session as unknown as Session,
     cleanupRouter: null,
     cleanupSession: null,
     doomLoopDetector: null,
@@ -54,6 +99,8 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     lastOpenedSpec: null,
     lastOpenedPlan: null,
     lastOpenedKind: null,
+    pendingPhaseConfirmation: null,
+    specPlanDeps: null,
   } as unknown as AppContext;
 
   const tui = { suspend: () => {}, resume: () => {} } as unknown as TUI;
@@ -72,5 +119,5 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     ...overrides,
   });
 
-  return { ctx, appCtx, messages, editorCalls, makeDeps };
+  return { ctx, appCtx, session, messages, editorCalls, routerAbortCalls, makeDeps };
 }
