@@ -21,6 +21,7 @@ import { autoCompactIfNeeded, type CompactCommandDeps } from "./commands/compact
 import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
 import { getConnectionState, setConnectionState } from "../core/connection-state.js";
 import { debugLog } from "../debug/logger.js";
+import { refreshPhaseSegment } from "./phase-display.js";
 import { loadPlanFromFile } from "../plans/loader.js";
 import { generatePlanTemplate } from "../plans/template.js";
 import { writePlan } from "../plans/writer.js";
@@ -92,6 +93,7 @@ export async function handleWithRouter(
 
   // Path 3 — default flow: clarification + router.route + render.
   await dispatchNormally(text, session, router, layout, ctx);
+  refreshPhaseSegment(layout, session.getPhase().currentPhase);
 }
 
 // ── Path 2: auto-spec flow ────────────────────────────────────────────────
@@ -241,6 +243,7 @@ export async function approveSpecAndOpenPlan(args: ApproveSpecArgs): Promise<voi
     originalPrompt: args.originalPrompt ?? "",
   };
   args.ctx.addMessage("system", `Approve plan '${planSlug}'? [y/n/edit]`);
+  refreshPhaseSegment(args.layout, args.session.getPhase().currentPhase);
 }
 
 export interface ApprovePlanArgs {
@@ -268,6 +271,7 @@ export async function approvePlanAndExecute(args: ApprovePlanArgs): Promise<void
   if (args.originalPrompt.trim().length > 0) {
     await dispatchNormally(args.originalPrompt, args.session, args.router, args.layout, args.ctx);
   }
+  refreshPhaseSegment(args.layout, args.session.getPhase().currentPhase);
 }
 
 // ── Path 3: default dispatch flow (extracted unchanged) ──────────────────
