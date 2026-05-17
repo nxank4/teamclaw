@@ -74,15 +74,65 @@ Registry assembly: `src/agents/registry/markdown-registry.ts`.
 
 ## Specs and Plans `[v0.4.x]`
 
-The spec/plan file system is the v0.4.x roadmap surface. Convention
-(not yet wired into the dispatcher):
+When a user prompt is classified as **complex** on an `idle` session,
+the prompt-handler runs an interview-driven authoring flow before
+dispatching anything to the agent registry:
 
-- `./specs/<slug>.md`  — user-editable feature spec, git-tracked
-- `./plans/<slug>.md`  — generated implementation plan, git-tracked
+```
+complex prompt
+  → src/spec/codebase-scan.ts    scanForInterview(prompt, root)
+                                  - walks the project root (depth 2)
+                                  - reads CLAUDE.md, AGENTS.md,
+                                    package.json, README.md
+                                  - surfaces keyword-matched files
+                                  - hard caps: 8k tokens, 5s wall time
+  → src/spec/interview.ts        generateInterviewQuestions(...)
+                                  - LLM call (user's configured model)
+                                  - adaptive 3-15 questions, clamped
+                                  - rationale field on each question
+  → ask sequentially in chat     src/tui/components/interview-prompt/
+                                  - inline branded box, not modal
+                                  - 1. / 2. options, "all", "skip",
+                                    free-text override
+  → src/spec/interview.ts        generateSpecFromAnswers(...)
+  → src/spec/slug-gen.ts         generateSlug(prompt) → fallback
+                                  to deriveSlug when LLM fails
+  → write ./specs/<slug>.md
+  → user reviews in their external editor (VS Code, vim, …)
+  → /approve → repeat for plan   generatePlanFromAnswers(...)
+  → /approve → executing → original prompt dispatched
+```
 
-A future commit wires the spec/plan flow into the orchestrator so
-multi-file goals route through a `spec → plan → execute → review`
-sequence with a drift checkpoint between phases.
+Artefacts on disk:
+- `./specs/<slug>.md`  — LLM-drafted feature spec, git-tracked. Body
+  follows ## Summary / ## Goals / ## Non-Goals / ## Approach /
+  ## Open questions / ## Assumptions. The Assumptions section
+  surfaces every interview answer the user `skip`-ped along with the
+  default the model applied.
+- `./plans/<slug>.md`  — LLM-drafted implementation plan, git-tracked.
+  Body follows ## Tasks (checkbox list) / ## Risks / ## Verification.
+
+Slash commands `[v0.4.x]`:
+- `/spec <slug>`   — manual file-only path: writes template, leaves
+                     review to the user's editor.
+- `/plan [<slug>]` — same, linked to the active spec.
+- `/approve`       — phase-aware. From `spec_drafting` with interview
+                     history, starts the plan interview; otherwise
+                     just flips frontmatter draft → approved.
+- `/revise [text]` — re-draft from the original interview answers
+                     plus new feedback. Inline-arg drafts immediately;
+                     no-arg sets `pendingReviseFeedback` and the next
+                     turn supplies the feedback.
+- `/abandon`       — flip phase to `abandoned` + frontmatter to
+                     `abandoned`; clear all pending* fields.
+
+The auto-spec flow lives in `src/app/auto-spec.ts`. AppContext
+carries the in-progress interview state across user turns
+(`pendingInterview`), the y/n confirmation after a draft
+(`pendingPhaseConfirmation`), and the wait state for bare /revise
+(`pendingReviseFeedback`). Test seams: `SpecPlanCommandDeps.interviewServices`
+overrides each LLM call individually so the suite never hits a
+real provider.
 
 ## Key Patterns
 

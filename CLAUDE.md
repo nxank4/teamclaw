@@ -106,10 +106,37 @@ See `docs/architecture.md` for the full component map.
 ### App sub-modules (`src/app/`)
 `init-session-router.ts`, `router-wiring.ts`, `input-handler.ts`,
 `config-wiring.ts`, `keybindings-setup.ts`, `session-helpers.ts`,
-`prompt-handler.ts` (auto-trigger `/compact` at ≥70% context),
+`prompt-handler.ts` (auto-trigger `/compact` at ≥70% context;
+gates complex prompts through the interview flow),
+`auto-spec.ts` (interview state machine — codebase scan, question
+generation, spec/plan drafting, /revise re-draft),
 `tool-permission.ts`, `welcome.ts`, `tui-callbacks.ts`,
 `agent-display.ts`, `startup.ts`, `layout.ts`, `autocomplete.ts`,
 `file-ref.ts`, `shell.ts`, `config-check.ts`.
+
+### Spec/Plan Interview Flow (`src/spec/`, `src/app/auto-spec.ts`)
+
+Complex prompts on an idle session run through an interview before
+dispatch:
+
+```
+complex prompt
+  → codebase-scan.ts    scanForInterview (8k tokens, 5s budget)
+  → interview.ts        generateInterviewQuestions (adaptive 3-15)
+  → user answers one at a time inline in chat
+  → interview.ts        generateSpecFromAnswers
+  → slug-gen.ts         generateSlug (LLM + deriveSlug fallback)
+  → write ./specs/<slug>.md, /approve to continue
+  → repeat for plan, then executing → router.route(originalPrompt)
+```
+
+Files are reviewed in the user's external editor of choice — no
+in-TUI editor. AppContext carries the in-progress state across
+turns (`pendingInterview`, `pendingPhaseConfirmation`,
+`pendingReviseFeedback`). LLM calls are injectable via
+`SpecPlanCommandDeps.interviewServices` so tests don't touch a real
+provider. See `docs/architecture.md#specs-and-plans-v04x` for the
+full pipeline.
 
 ### Router (`src/router/`)
 `prompt-router.ts`, `dispatch-strategy.ts`,
