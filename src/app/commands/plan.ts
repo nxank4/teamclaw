@@ -15,6 +15,7 @@ import { relative, resolve } from "node:path";
 import { writeFileAtomic } from "../../utils/atomic-write.js";
 import { openInEditor } from "../../utils/open-in-editor.js";
 import { PLAN_SLUG_PATTERN } from "../../plans/types.js";
+
 import { loadPlanFromFile, PlanLoadError } from "../../plans/loader.js";
 import { generatePlanTemplate } from "../../plans/template.js";
 import { ICONS } from "../../tui/constants/icons.js";
@@ -33,6 +34,8 @@ export interface PlanCommandDeps {
   tui: SpecPlanCommandDeps["tui"];
   getSpecsDir: SpecPlanCommandDeps["getSpecsDir"];
   getPlansDir: SpecPlanCommandDeps["getPlansDir"];
+  /** Test seam — defaults to the real openInEditor. */
+  openInEditorImpl?: SpecPlanCommandDeps["openInEditorImpl"];
   /** @deprecated unused; kept for source-compat with the old createPlanCommand signature. */
   flashMessage?: (msg: string) => void;
 }
@@ -90,8 +93,9 @@ async function openPlan(
   path: string,
   slugHint?: string,
 ): Promise<void> {
+  const editorImpl = deps.openInEditorImpl ?? openInEditor;
   try {
-    await openInEditor({ path, tui: deps.tui });
+    await editorImpl({ path, tui: deps.tui });
   } catch (err) {
     ctx.addMessage("error", `Editor failed: ${err instanceof Error ? err.message : String(err)}`);
     return;

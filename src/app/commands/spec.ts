@@ -20,7 +20,11 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { writeFileAtomic } from "../../utils/atomic-write.js";
-import { openInEditor } from "../../utils/open-in-editor.js";
+import {
+  openInEditor,
+  type OpenInEditorArgs,
+  type OpenInEditorResult,
+} from "../../utils/open-in-editor.js";
 import { SPEC_SLUG_PATTERN } from "../../spec/types.js";
 import { loadSpecFromFile, SpecLoadError } from "../../spec/loader.js";
 import { generateSpecTemplate } from "../../spec/template.js";
@@ -36,6 +40,8 @@ export interface SpecPlanCommandDeps {
   getSpecsDir: () => string;
   /** Resolve the configured plans directory each call. */
   getPlansDir: () => string;
+  /** Test seam — defaults to the real openInEditor. */
+  openInEditorImpl?: (args: OpenInEditorArgs) => Promise<OpenInEditorResult>;
 }
 
 export function createSpecCommand(deps: SpecPlanCommandDeps): SlashCommand {
@@ -81,8 +87,9 @@ async function openSpec(
   path: string,
   slugHint?: string,
 ): Promise<void> {
+  const editorImpl = deps.openInEditorImpl ?? openInEditor;
   try {
-    await openInEditor({ path, tui: deps.tui });
+    await editorImpl({ path, tui: deps.tui });
   } catch (err) {
     ctx.addMessage("error", `Editor failed: ${err instanceof Error ? err.message : String(err)}`);
     return;
