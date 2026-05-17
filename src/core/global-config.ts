@@ -41,6 +41,15 @@ export interface OpenPawlGlobalConfig {
   };
   dashboardPort: number;
   debugMode: boolean;
+  /** Project-relative directory where spec markdown files live. Default: "./specs". */
+  specsDirectory: string;
+  /** Project-relative directory where plan markdown files live. Default: "./plans". */
+  plansDirectory: string;
+  /** Thresholds that flip a prompt from "trivial" to "complex" for the spec/plan classifier. */
+  complexityThreshold: {
+    tokens: number;
+    fileMentions: number;
+  };
   agentModels?: Record<string, string>;
   modelAliases?: Record<string, string>;
   modelAllowlist?: string[];
@@ -171,6 +180,10 @@ export interface OpenPawlGlobalConfig {
 }
 
 const DEFAULT_DASHBOARD_PORT = 9001;
+const DEFAULT_SPECS_DIR = "./specs";
+const DEFAULT_PLANS_DIR = "./plans";
+const DEFAULT_COMPLEXITY_TOKENS = 100;
+const DEFAULT_COMPLEXITY_FILE_MENTIONS = 2;
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -201,12 +214,35 @@ export function buildDefaultGlobalConfig(): OpenPawlGlobalConfig {
     version: 1,
     dashboardPort: DEFAULT_DASHBOARD_PORT,
     debugMode: false,
+    specsDirectory: DEFAULT_SPECS_DIR,
+    plansDirectory: DEFAULT_PLANS_DIR,
+    complexityThreshold: {
+      tokens: DEFAULT_COMPLEXITY_TOKENS,
+      fileMentions: DEFAULT_COMPLEXITY_FILE_MENTIONS,
+    },
   };
 }
 
 export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): OpenPawlGlobalConfig {
   const dashboardPort = toPositiveInt(input.dashboardPort, DEFAULT_DASHBOARD_PORT);
   const debugMode = typeof input.debugMode === "boolean" ? input.debugMode : false;
+
+  // Spec/plan workspace primitives. Old configs missing these keys
+  // silently receive defaults so the migration is just "next read".
+  const specsDirectory = typeof input.specsDirectory === "string" && input.specsDirectory.trim()
+    ? input.specsDirectory.trim()
+    : DEFAULT_SPECS_DIR;
+  const plansDirectory = typeof input.plansDirectory === "string" && input.plansDirectory.trim()
+    ? input.plansDirectory.trim()
+    : DEFAULT_PLANS_DIR;
+  const rawComplexity = (input as Record<string, unknown>).complexityThreshold;
+  const complexityObj = rawComplexity && typeof rawComplexity === "object" && !Array.isArray(rawComplexity)
+    ? (rawComplexity as Record<string, unknown>)
+    : undefined;
+  const complexityThreshold = {
+    tokens: toPositiveInt(complexityObj?.tokens, DEFAULT_COMPLEXITY_TOKENS),
+    fileMentions: toPositiveInt(complexityObj?.fileMentions, DEFAULT_COMPLEXITY_FILE_MENTIONS),
+  };
 
   // Parse agentModels: Record<string, string>
   const rawAgentModels = (input as Record<string, unknown>).agentModels;
@@ -423,6 +459,9 @@ export function normalizeGlobalConfig(input: Partial<OpenPawlGlobalConfig>): Ope
     ...(meta ? { meta } : {}),
     dashboardPort,
     debugMode,
+    specsDirectory,
+    plansDirectory,
+    complexityThreshold,
     ...(agentModels && Object.keys(agentModels).length > 0 ? { agentModels } : {}),
     ...(modelAliases && Object.keys(modelAliases).length > 0 ? { modelAliases } : {}),
     ...(modelAllowlist && modelAllowlist.length > 0 ? { modelAllowlist } : {}),
