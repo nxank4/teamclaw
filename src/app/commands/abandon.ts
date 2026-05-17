@@ -39,6 +39,8 @@ export function createAbandonCommand(deps: SpecPlanCommandDeps): SlashCommand {
 
       session.setPhase(transition(phase.currentPhase, "abandon"), "abandon");
       deps.appCtx.pendingPhaseConfirmation = null;
+      deps.appCtx.pendingInterview = null;
+      deps.appCtx.pendingReviseFeedback = null;
 
       // Flip frontmatter on disk so future /specs / /plans listings
       // show this abandonment rather than a stale 'draft'.

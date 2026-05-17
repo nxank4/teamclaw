@@ -67,6 +67,43 @@ export type InterviewAnswer =
   | { questionId: string; kind: "text"; text: string }
   | { questionId: string; kind: "skip" };
 
+// ── Interview-in-progress state (carried on AppContext) ─────────
+
+/**
+ * Discriminated by `kind`. Tracks an in-progress interview between
+ * user turns: the question list, the user's answers so far, and the
+ * cursor pointing at the next unanswered question.
+ *
+ *   kind: "spec"
+ *     The interview drives the spec phase. No spec on disk yet —
+ *     finalisation will draft the spec, write it, and set
+ *     pendingPhaseConfirmation { kind: "spec" }.
+ *
+ *   kind: "plan"
+ *     The spec is already drafted + approved (specPath, specBody).
+ *     Finalisation drafts the plan, writes it, and sets
+ *     pendingPhaseConfirmation { kind: "plan", planPath }.
+ */
+export type PendingInterview =
+  | {
+      kind: "spec";
+      questions: InterviewQuestion[];
+      answers: AnsweredQuestion[];
+      currentIndex: number;
+      originalPrompt: string;
+      codebaseContext: import("./codebase-scan.js").CodebaseContext;
+    }
+  | {
+      kind: "plan";
+      questions: InterviewQuestion[];
+      answers: AnsweredQuestion[];
+      currentIndex: number;
+      originalPrompt: string;
+      codebaseContext: import("./codebase-scan.js").CodebaseContext;
+      specPath: string;
+      specBody: string;
+    };
+
 // ── Bounds + filler questions ────────────────────────────────────
 
 export const MIN_QUESTIONS = 3;

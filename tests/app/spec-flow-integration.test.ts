@@ -7,19 +7,66 @@ import { handleWithRouter } from "../../src/app/prompt-handler.js";
 import { emptyPhaseBlock, type Phase, type PhaseTrigger } from "../../src/session/phase-machine.js";
 import type { AppContext } from "../../src/app/init-session-router.js";
 import type { AppLayout } from "../../src/app/layout.js";
-import type { SpecPlanCommandDeps } from "../../src/app/commands/spec.js";
+import type { InterviewServices, SpecPlanCommandDeps } from "../../src/app/commands/spec.js";
 import type { PromptRouter } from "../../src/router/prompt-router.js";
 import type { Session } from "../../src/session/session.js";
+import type { InterviewQuestion } from "../../src/spec/interview.js";
+import type { CodebaseContext } from "../../src/spec/codebase-scan.js";
 
 /**
- * Integration coverage for the full spec-driven flow. Drives the same
- * SessionStub + harness pieces the unit tests use, but exercises every
- * step end-to-end:
+ * End-to-end coverage of the interview-driven flow. Mocks the LLM
+ * services so the tests run deterministically: each call returns the
+ * same canned data.
  *
- *   complex prompt → spec drafted (file written) → y → plan drafted
- *   → y → executing → dispatch → /revise rewinds → y → re-dispatch
- *   /abandon flips frontmatter and transitions to abandoned
+ *   complex prompt
+ *     → interview Q1..Q3 answered
+ *     → spec drafted + pendingPhaseConfirmation set
+ *   y
+ *     → spec approved + plan interview Q1..Q3 answered
+ *     → plan drafted + pendingPhaseConfirmation set
+ *   y
+ *     → plan approved → executing → original prompt dispatched
  */
+
+const QUESTIONS: InterviewQuestion[] = [
+  {
+    id: "scope",
+    question: "Scope?",
+    type: "single_select",
+    options: [{ label: "Narrow" }, { label: "Broad" }],
+    allowCustomInput: true,
+  },
+  {
+    id: "approach",
+    question: "Approach?",
+    type: "single_select",
+    options: [{ label: "Incremental" }, { label: "Big bang" }],
+    allowCustomInput: true,
+  },
+  {
+    id: "anything-else",
+    question: "Anything else?",
+    type: "free_text",
+    allowCustomInput: true,
+  },
+];
+
+const CTX: CodebaseContext = {
+  fileTree: "src/\n  auth/\n",
+  conventions: "",
+  keyFiles: [],
+  truncated: false,
+};
+
+function services(): InterviewServices {
+  return {
+    scanCodebase: async () => CTX,
+    generateQuestions: async () => QUESTIONS.map((q) => ({ ...q })),
+    generateSpec: async () => "## Summary\nSpec body.\n",
+    generatePlan: async () => "## Tasks\n- [ ] do x\n",
+    generateSlug: async () => "refactor-auth-flow",
+  };
+}
 
 class SessionStub {
   id = "test";
@@ -50,6 +97,8 @@ function makeHarness(specsDir: string, plansDir: string): Harness {
 
   const appCtx = {
     pendingPhaseConfirmation: null,
+    pendingInterview: null,
+    pendingReviseFeedback: null,
     lastOpenedSpec: null,
     lastOpenedPlan: null,
     lastOpenedKind: null,
@@ -84,6 +133,8 @@ function makeHarness(specsDir: string, plansDir: string): Harness {
     tui: layout.tui,
     getSpecsDir: () => specsDir,
     getPlansDir: () => plansDir,
+    getProjectRoot: () => specsDir,
+    interviewServices: services(),
   };
 
   const ctx = {
@@ -100,59 +151,46 @@ function withTempDirs<T>(fn: (s: string, p: string) => Promise<T>): Promise<T> {
   );
 }
 
-/** Locate the spec/plan path the handler created from the lastOpened* state. */
-function activeSpecPath(h: Harness): string {
-  return h.appCtx.lastOpenedSpec?.path ?? "";
-}
-function activePlanPath(h: Harness): string {
-  return h.appCtx.lastOpenedPlan?.path ?? "";
+function run(h: Harness, text: string): Promise<void> {
+  return handleWithRouter(text, h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
 }
 
-describe("integration: spec-driven feature flow", () => {
-  it("complex prompt → spec → y → plan → y → executing → dispatch with original prompt", async () => {
+describe("integration: interview-driven spec/plan flow", () => {
+  it("complex prompt → 3 interview answers → y → 3 plan answers → y → executing + dispatch", async () => {
     await withTempDirs(async (s, p) => {
       const h = makeHarness(s, p);
 
-      // Turn 1: complex prompt drafts spec on disk
-      await handleWithRouter(
-        "refactor the authentication module across login signup reset",
-        h.session as unknown as Session,
-        h.router,
-        h.layout,
-        h.ctx,
-        null,
-        h.deps,
-      );
+      // Turn 1: start interview.
+      await run(h, "refactor the authentication module across login signup reset");
       expect(h.session.getPhase().currentPhase).toBe("spec_drafting");
-      const specPath = activeSpecPath(h);
-      expect(existsSync(specPath)).toBe(true);
-      expect(readFileSync(specPath, "utf8")).toContain("slug: refactor-the-authentication-module-across");
+      expect(h.appCtx.pendingInterview?.kind).toBe("spec");
 
-      // Turn 2: y approves spec, drafts plan on disk
-      await handleWithRouter(
-        "y",
-        h.session as unknown as Session,
-        h.router,
-        h.layout,
-        h.ctx,
-        null,
-        h.deps,
-      );
+      // Turns 2-4: answer 3 questions → spec drafted + pendingPhaseConfirmation set.
+      await run(h, "1");
+      await run(h, "2");
+      await run(h, "no migrations");
+      expect(h.appCtx.pendingInterview).toBeNull();
+      expect(h.appCtx.pendingPhaseConfirmation?.kind).toBe("spec");
+      const specPath = h.appCtx.lastOpenedSpec?.path ?? "";
+      expect(existsSync(specPath)).toBe(true);
+      expect(readFileSync(specPath, "utf8")).toContain("slug: refactor-auth-flow");
+
+      // Turn 5: y approves spec, starts plan interview.
+      await run(h, "y");
       expect(h.session.getPhase().currentPhase).toBe("plan_drafting");
+      expect(h.appCtx.pendingInterview?.kind).toBe("plan");
       expect(readFileSync(specPath, "utf8")).toContain("status: approved");
-      const planPath = activePlanPath(h);
+
+      // Turns 6-8: answer 3 plan questions → plan drafted.
+      await run(h, "1");
+      await run(h, "1");
+      await run(h, "tests too");
+      expect(h.appCtx.pendingPhaseConfirmation?.kind).toBe("plan");
+      const planPath = h.appCtx.lastOpenedPlan?.path ?? "";
       expect(existsSync(planPath)).toBe(true);
 
-      // Turn 3: y approves plan, transitions to executing, dispatches original prompt
-      await handleWithRouter(
-        "y",
-        h.session as unknown as Session,
-        h.router,
-        h.layout,
-        h.ctx,
-        null,
-        h.deps,
-      );
+      // Turn 9: y approves plan → executing + dispatch.
+      await run(h, "y");
       expect(h.session.getPhase().currentPhase).toBe("executing");
       expect(h.routeCalls).toHaveLength(1);
       expect(h.routeCalls[0]?.text).toBe(
@@ -160,9 +198,8 @@ describe("integration: spec-driven feature flow", () => {
       );
       expect(readFileSync(planPath, "utf8")).toContain("status: approved");
 
-      // Verify history: every transition recorded
-      const history = h.session.getPhase().history.map((e) => e.trigger);
-      expect(history).toEqual([
+      const triggers = h.session.getPhase().history.map((e) => e.trigger);
+      expect(triggers).toEqual([
         "classifyComplex",
         "openSpec",
         "approveSpec",
@@ -176,30 +213,31 @@ describe("integration: spec-driven feature flow", () => {
   it("subsequent prompts in executing phase dispatch directly (no re-gate)", async () => {
     await withTempDirs(async (s, p) => {
       const h = makeHarness(s, p);
-      // Drive to executing.
-      await handleWithRouter("refactor the authentication module across files", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
-      await handleWithRouter("y", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
-      await handleWithRouter("y", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
+      await run(h, "refactor the authentication module across files");
+      await run(h, "1"); await run(h, "1"); await run(h, "x");
+      await run(h, "y");
+      await run(h, "1"); await run(h, "1"); await run(h, "x");
+      await run(h, "y");
       expect(h.session.getPhase().currentPhase).toBe("executing");
 
-      // Now a fresh prompt in executing should go straight to router.route
-      // without any new spec/plan being drafted.
       const routesBefore = h.routeCalls.length;
-      await handleWithRouter("now polish the docs", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
+      await run(h, "now polish the docs");
       expect(h.routeCalls.length).toBe(routesBefore + 1);
       expect(h.routeCalls[routesBefore]?.text).toBe("now polish the docs");
     });
   });
 
-  it("n on plan abandons + sets frontmatter to abandoned", async () => {
+  it("n on pending plan confirmation abandons + flips plan frontmatter", async () => {
     await withTempDirs(async (s, p) => {
       const h = makeHarness(s, p);
-      await handleWithRouter("refactor stuff everywhere refactor", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
-      await handleWithRouter("y", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
-      // Now in plan_drafting with a plan file drafted. n abandons.
-      await handleWithRouter("n", h.session as unknown as Session, h.router, h.layout, h.ctx, null, h.deps);
+      await run(h, "refactor stuff everywhere refactor");
+      await run(h, "1"); await run(h, "1"); await run(h, "x");
+      await run(h, "y");
+      await run(h, "1"); await run(h, "1"); await run(h, "x");
+      // Plan drafted, pendingPhaseConfirmation = { plan }.
+      await run(h, "n");
       expect(h.session.getPhase().currentPhase).toBe("abandoned");
-      const planPath = activePlanPath(h);
+      const planPath = h.appCtx.lastOpenedPlan?.path ?? "";
       expect(readFileSync(planPath, "utf8")).toContain("status: abandoned");
       expect(h.routeCalls).toHaveLength(0);
     });

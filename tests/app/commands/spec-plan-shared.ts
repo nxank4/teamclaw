@@ -100,6 +100,8 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     lastOpenedPlan: null,
     lastOpenedKind: null,
     pendingPhaseConfirmation: null,
+    pendingInterview: null,
+    pendingReviseFeedback: null,
     specPlanDeps: null,
   } as unknown as AppContext;
 

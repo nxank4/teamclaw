@@ -30,6 +30,27 @@ import { ICONS } from "../../tui/constants/icons.js";
 import type { SlashCommand } from "../../tui/slash/registry.js";
 import type { TUI } from "../../tui/core/tui.js";
 import type { AppContext } from "../init-session-router.js";
+import type { scanForInterview } from "../../spec/codebase-scan.js";
+import type {
+  generateInterviewQuestions,
+  generatePlanFromAnswers,
+  generateSpecFromAnswers,
+} from "../../spec/interview.js";
+import type { generateSlug } from "../../spec/slug-gen.js";
+
+/**
+ * Test-seam bundle so the prompt-handler's auto-spec flow can be
+ * driven by canned LLM responses in tests. Each field is optional and
+ * defaults to the real implementation. Production code leaves the
+ * whole `interviewServices` field unset.
+ */
+export interface InterviewServices {
+  scanCodebase?: typeof scanForInterview;
+  generateQuestions?: typeof generateInterviewQuestions;
+  generateSpec?: typeof generateSpecFromAnswers;
+  generatePlan?: typeof generatePlanFromAnswers;
+  generateSlug?: typeof generateSlug;
+}
 
 export interface SpecPlanCommandDeps {
   appCtx: AppContext;
@@ -38,6 +59,8 @@ export interface SpecPlanCommandDeps {
   getSpecsDir: () => string;
   /** Resolve the configured plans directory each call. */
   getPlansDir: () => string;
+  /** Project root for the codebase scan; defaults to process.cwd(). */
+  getProjectRoot?: () => string;
   /**
    * When true, the prompt-handler skips the spec/plan gate entirely
    * (--no-spec, trivial-mode overrides). Unused by the slash commands
@@ -45,6 +68,8 @@ export interface SpecPlanCommandDeps {
    * because the same deps object is shared with prompt-handler.
    */
   bypass?: boolean;
+  /** Test-seam bundle (codebase scan + LLM calls). Optional. */
+  interviewServices?: InterviewServices;
 }
 
 export function createSpecCommand(deps: SpecPlanCommandDeps): SlashCommand {

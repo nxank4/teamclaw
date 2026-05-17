@@ -2,25 +2,27 @@
  * Prompt routing handlers — dispatch user messages to PromptRouter or
  * the fallback LLM, gated by the spec/plan phase machine.
  *
- * Three control paths in handleWithRouter:
- *   - the previous input ended with a "Approve spec? [y/n]" or
- *     "Approve plan? [y/n]" question → interpret this input as the
- *     answer and advance the phase machine accordingly
- *   - this is a fresh prompt classified as "complex" and the session
- *     is idle → auto-create a spec file, point the user at it, set
- *     the pending-confirmation field, return without dispatching
- *   - otherwise → existing flow: optional clarification + router.route
- *     + render results
+ * Control flow in handleWithRouter (first match wins):
+ *   1. pendingReviseFeedback set → treat input as /revise feedback
+ *   2. pendingInterview set      → treat input as the next answer
+ *   3. pendingPhaseConfirmation  → treat input as y / n / edit
+ *   4. complex prompt + idle     → kick off the auto-spec interview
+ *   5. otherwise                 → existing flow (clarification + route)
  *
- * Spec and plan files are reviewed in the user's external editor of
- * choice (VS Code, vim, Notepad, …). The in-TUI editor flow that
- * lived here previously has been removed.
+ * The interview flow lives in {@link auto-spec.ts} — this file
+ * handles the y/n confirmation and the default dispatch path.
  */
 
 import { mkdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
 import { agentDisplayName, getAgentColorFn } from "./agent-display.js";
+import {
+  handlePendingInterviewAnswer,
+  reviseFromFeedback,
+  startAutoSpec,
+  startPlanInterview,
+} from "./auto-spec.js";
 import { autoCompactIfNeeded, type CompactCommandDeps } from "./commands/compact.js";
 import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
 import { getConnectionState, setConnectionState } from "../core/connection-state.js";
@@ -32,9 +34,8 @@ import { writePlan } from "../plans/writer.js";
 import { transition } from "../session/phase-machine.js";
 import { classify } from "../spec/complexity.js";
 import { loadSpecFromFile } from "../spec/loader.js";
-import { deriveSlug, nextAvailableSlug } from "../spec/slug.js";
-import { generateSpecTemplate } from "../spec/template.js";
 import { writeSpec } from "../spec/writer.js";
+import { nextAvailableSlug } from "../spec/slug.js";
 import { ICONS } from "../tui/constants/icons.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
@@ -65,8 +66,24 @@ export async function handleWithRouter(
     });
   }
 
-  // Path 1 — the previous turn left a pending phase question. Interpret
-  // this input as the y/n/edit answer.
+  // Path 1: a bare /revise left us waiting for feedback text.
+  if (specPlanDeps?.appCtx.pendingReviseFeedback) {
+    specPlanDeps.appCtx.pendingReviseFeedback = null;
+    if (text.trim() === "") {
+      ctx.addMessage("system", "Revise cancelled.");
+      return;
+    }
+    await reviseFromFeedback(text, session, ctx, specPlanDeps);
+    return;
+  }
+
+  // Path 2: a question is awaiting an answer.
+  if (specPlanDeps?.appCtx.pendingInterview) {
+    await handlePendingInterviewAnswer(text, session, ctx, specPlanDeps);
+    return;
+  }
+
+  // Path 3: a y/n confirmation is pending.
   if (specPlanDeps?.appCtx.pendingPhaseConfirmation) {
     await handlePendingPhaseAnswer(text, session, router, layout, ctx, specPlanDeps);
     return;
@@ -83,59 +100,23 @@ export async function handleWithRouter(
     },
   });
 
-  // Path 2 — fresh complex prompt on an idle session. Spawn the spec flow.
+  // Path 4: fresh complex prompt on an idle session → auto-spec.
   if (
     specPlanDeps &&
     !specPlanDeps.bypass &&
     cls.class === "complex" &&
     session.getPhase().currentPhase === "idle"
   ) {
-    await handleAutoSpec(text, session, layout, ctx, specPlanDeps);
+    await startAutoSpec(text, session, ctx, specPlanDeps, cls.reasons);
     return;
   }
 
-  // Path 3 — default flow: clarification + router.route + render.
+  // Path 5: default dispatch.
   await dispatchNormally(text, session, router, layout, ctx);
   refreshPhaseSegment(layout, session.getPhase().currentPhase);
 }
 
-// ── Path 2: auto-spec flow ────────────────────────────────────────────────
-
-async function handleAutoSpec(
-  prompt: string,
-  session: Session,
-  _layout: AppLayout,
-  ctx: MsgCtx,
-  deps: SpecPlanCommandDeps,
-): Promise<void> {
-  const specsDir = resolve(deps.getSpecsDir());
-  await mkdir(specsDir, { recursive: true });
-  const slug = nextAvailableSlug(deriveSlug(prompt), specsDir);
-  const specPath = resolve(specsDir, `${slug}.md`);
-  await writeFileAtomic(specPath, generateSpecTemplate(slug));
-
-  const phase = session.getPhase().currentPhase;
-  session.setPhase(transition(phase, "classifyComplex"), "classifyComplex");
-  session.setPhase(transition("spec_required", "openSpec"), "openSpec");
-  session.setSpecPath(specPath);
-  deps.appCtx.lastOpenedSpec = { slug, path: specPath };
-  deps.appCtx.lastOpenedKind = "spec";
-
-  deps.appCtx.pendingPhaseConfirmation = {
-    kind: "spec",
-    specPath,
-    originalPrompt: prompt,
-  };
-
-  ctx.addMessage(
-    "system",
-    `${ICONS.bolt} Complex prompt → drafted spec '${slug}' at ${specPath}.\n` +
-      `Open it in your editor (code, vim, notepad, ...), fill in the sections, save.\n` +
-      `Then reply with y to approve, n to abandon.`,
-  );
-}
-
-// ── Path 1: pending-confirmation answer ──────────────────────────────────
+// ── Pending phase-confirmation y / n / edit ──────────────────────────────
 
 async function handlePendingPhaseAnswer(
   text: string,
@@ -174,10 +155,10 @@ async function handlePendingPhaseAnswer(
 
   if (answer !== "y" && answer !== "yes") {
     ctx.addMessage("error", "Reply with y to approve, n to abandon.");
-    return; // pending stays set; the next input still applies
+    return;
   }
 
-  // Y branch — approve and advance.
+  // y branch — approve and advance.
   if (pending.kind === "spec") {
     await approveSpecAndOpenPlan({
       specPath: pending.specPath,
@@ -190,7 +171,6 @@ async function handlePendingPhaseAnswer(
     return;
   }
 
-  // Plan approval → execute (helper handles transition + dispatch).
   await approvePlanAndExecute({
     planPath: pending.planPath!,
     originalPrompt: pending.originalPrompt,
@@ -214,21 +194,54 @@ export interface ApproveSpecArgs {
   ctx: MsgCtx;
 }
 
+/**
+ * Approve a spec and start the plan-phase interview. When the spec
+ * arrived via the auto-spec flow, the codebaseContext + interview
+ * history sit on `pendingPhaseConfirmation` — we reuse them. When
+ * /approve was invoked manually (legacy path, no interview state),
+ * we fall back to creating an empty plan template so the user can
+ * continue editing externally.
+ */
 export async function approveSpecAndOpenPlan(args: ApproveSpecArgs): Promise<void> {
   const specDoc = await loadSpecFromFile(args.specPath);
   await writeSpec({ ...specDoc, frontmatter: { ...specDoc.frontmatter, status: "approved" } });
-  args.session.setPhase(transition(args.session.getPhase().currentPhase, "approveSpec"), "approveSpec");
-  args.ctx.addMessage("system", `${ICONS.success} Spec '${specDoc.frontmatter.slug}' approved. Drafting plan.`);
+
+  const pending = args.deps.appCtx.pendingPhaseConfirmation;
+  const hasInterviewHistory =
+    pending?.kind === "spec" && !!pending.codebaseContext && !!pending.specBody;
+
+  if (hasInterviewHistory && pending) {
+    args.deps.appCtx.pendingPhaseConfirmation = null;
+    await startPlanInterview(
+      pending.specBody ?? "",
+      args.specPath,
+      args.originalPrompt ?? pending.originalPrompt,
+      pending.codebaseContext!,
+      args.session,
+      args.ctx,
+      args.deps,
+    );
+    refreshPhaseSegment(args.layout, args.session.getPhase().currentPhase);
+    return;
+  }
+
+  // Legacy path — no interview state. Write a plan template and queue
+  // a y/n confirmation pointing at the new file.
+  args.session.setPhase(
+    transition(args.session.getPhase().currentPhase, "approveSpec"),
+    "approveSpec",
+  );
+  args.ctx.addMessage(
+    "system",
+    `${ICONS.success} Spec '${specDoc.frontmatter.slug}' approved. Drafting plan template.`,
+  );
 
   const plansDir = resolve(args.deps.getPlansDir());
   await mkdir(plansDir, { recursive: true });
   const planSlug = nextAvailableSlug(specDoc.frontmatter.slug, plansDir);
   const planPath = resolve(plansDir, `${planSlug}.md`);
   const specRelative = relative(plansDir, args.specPath);
-  await writeFileAtomic(
-    planPath,
-    generatePlanTemplate({ slug: planSlug, specPath: specRelative }),
-  );
+  await writeFileAtomic(planPath, generatePlanTemplate({ slug: planSlug, specPath: specRelative }));
 
   args.session.setPhase(transition("spec_approved", "openPlan"), "openPlan");
   args.session.setPlanPath(planPath);
@@ -277,7 +290,7 @@ export async function approvePlanAndExecute(args: ApprovePlanArgs): Promise<void
   refreshPhaseSegment(args.layout, args.session.getPhase().currentPhase);
 }
 
-// ── Path 3: default dispatch flow (extracted unchanged) ──────────────────
+// ── Path 5: default dispatch flow ────────────────────────────────────────
 
 async function dispatchNormally(
   text: string,

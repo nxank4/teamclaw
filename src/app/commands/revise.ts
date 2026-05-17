@@ -1,19 +1,27 @@
 /**
- * /revise slash command.
+ * /revise slash command — re-draft the active spec or plan from the
+ * original interview answers plus user feedback.
  *
- * From the `executing` phase, rewinds the phase machine back to
- * `plan_drafting` (preserving the approved spec) and asks the user to
- * edit the plan file externally. After they save, /approve flips it
- * back to approved and dispatch can restart.
+ * Two forms:
+ *   /revise <text>   inline-arg: use <text> as feedback, re-draft now.
+ *   /revise          no-arg: emit "What should change?", capture the
+ *                    next user turn as feedback (pendingReviseFeedback
+ *                    on AppContext).
  *
- * The previous in-TUI $EDITOR spawn has been removed — the file is
- * reviewed in whatever editor the user prefers.
+ * Works in two phase contexts:
+ *   - spec_drafting with pendingPhaseConfirmation { kind: "spec" }
+ *     → overwrite ./specs/<slug>.md
+ *   - plan_drafting with pendingPhaseConfirmation { kind: "plan" }
+ *     → overwrite ./plans/<slug>.md
+ *   - executing
+ *     → not supported by the interview flow; emit a guidance error.
  *
- * Errors when not in executing — the user spec restricts /revise to
- * exactly that state.
+ * /revise inherits its actual re-draft mechanics from
+ * {@link reviseFromFeedback} so both inline-arg and follow-up paths
+ * end up in the same code.
  */
 
-import { transition } from "../../session/phase-machine.js";
+import { reviseFromFeedback } from "../auto-spec.js";
 import { ICONS } from "../../tui/constants/icons.js";
 import type { SlashCommand } from "../../tui/slash/registry.js";
 
@@ -22,49 +30,46 @@ import type { SpecPlanCommandDeps } from "./spec.js";
 export function createReviseCommand(deps: SpecPlanCommandDeps): SlashCommand {
   return {
     name: "revise",
-    description: "From executing, return to plan_drafting so you can edit the plan and re-approve",
-    async execute(_args, ctx) {
+    description: "Re-draft the active spec or plan from new feedback",
+    args: "[feedback]",
+    async execute(args, ctx) {
       const session = deps.appCtx.chatSession;
       if (!session) {
         ctx.addMessage("error", "No active session.");
         return;
       }
-      const phase = session.getPhase();
-      if (phase.currentPhase !== "executing") {
+      const pending = deps.appCtx.pendingPhaseConfirmation;
+      if (!pending) {
         ctx.addMessage(
           "error",
-          `/revise only runs from 'executing'; current phase is '${phase.currentPhase}'.`,
+          "/revise needs a recently drafted spec or plan. None is pending.",
         );
         return;
       }
-      const planPath = phase.currentPlanPath;
-      if (!planPath) {
-        ctx.addMessage("error", "Session is executing but no plan path is linked.");
+
+      const feedback = args.trim();
+      if (feedback === "") {
+        // No-arg form — wait for the next user turn to supply feedback.
+        deps.appCtx.pendingReviseFeedback = { kind: pending.kind };
+        ctx.addMessage(
+          "system",
+          `${ICONS.bolt} What should change about the ${pending.kind}? (next message is your feedback; empty input cancels)`,
+        );
         return;
       }
 
-      // Best-effort abort of any in-flight router dispatch. The
-      // dispatcher hooks AbortSignal off the controller stored on the
-      // PromptRouter; calling abort() resolves the in-flight dispatch
-      // with an "aborted" error which the prompt-handler renders.
+      // Best-effort abort of any in-flight router dispatch (matches the
+      // previous /revise semantics where executing-phase reverts to plan).
       try {
         deps.appCtx.router?.abort(session.id);
       } catch {
         // best-effort
       }
 
-      session.setPhase(transition("executing", "revise"), "revise");
-
-      deps.appCtx.pendingPhaseConfirmation = {
-        kind: "plan",
-        specPath: phase.currentSpecPath ?? "",
-        planPath,
-        originalPrompt: "",
+      const msgCtx = {
+        addMessage: (role: string, content: string) => ctx.addMessage(role, content),
       };
-      ctx.addMessage(
-        "system",
-        `${ICONS.bolt} Returned to plan_drafting. Edit ${planPath} in your editor, then reply with y to approve, n to abandon.`,
-      );
+      await reviseFromFeedback(feedback, session, msgCtx, deps);
     },
   };
 }
