@@ -116,6 +116,10 @@ export interface SessionState {
   compressionCheckpoint: number;
   compressedSummary: string | null;
 
+  // Spec/plan phase tracking — drives the dispatcher gate. See
+  // src/session/phase-machine.ts for the state machine.
+  phase: import("./phase-machine.js").PhaseBlock;
+
   // Recovery
   lastCheckpointAt: string;
   checkpointVersion: number;
@@ -174,6 +178,7 @@ export function createEmptySession(workingDirectory: string): SessionState {
     providerBreakdown: {},
     compressionCheckpoint: 0,
     compressedSummary: null,
+    phase: { currentPhase: "idle", currentSpecPath: null, currentPlanPath: null, history: [] },
     lastCheckpointAt: now,
     checkpointVersion: 0,
   };

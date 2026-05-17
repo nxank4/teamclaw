@@ -89,6 +89,7 @@ export function deserialize(raw: string): Result<SessionState, SessionError> {
     providerBreakdown: {},
     compressionCheckpoint: 0,
     compressedSummary: null,
+    phase: { currentPhase: "idle", currentSpecPath: null, currentPlanPath: null, history: [] },
     lastCheckpointAt: state.createdAt as string,
     checkpointVersion: 0,
   };
