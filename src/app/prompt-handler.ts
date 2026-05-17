@@ -34,7 +34,7 @@ import { writeSpec } from "../spec/writer.js";
 import { ICONS } from "../tui/constants/icons.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
-import { openInEditor } from "../utils/open-in-editor.js";
+import { openInEditor, resolveEditorName } from "../utils/open-in-editor.js";
 
 import type { SpecPlanCommandDeps } from "./commands/spec.js";
 import type { AppLayout } from "./layout.js";
@@ -44,6 +44,12 @@ import type { Session } from "../session/session.js";
 type MsgCtx = {
   addMessage: (role: string, content: string, options?: { tag?: string }) => void;
 };
+
+/** Promise-based sleep so the notice has time to render before $EDITOR takes over. */
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export async function handleWithRouter(
   text: string,
@@ -87,7 +93,7 @@ export async function handleWithRouter(
     cls.class === "complex" &&
     session.getPhase().currentPhase === "idle"
   ) {
-    await handleAutoSpec(text, session, layout, ctx, specPlanDeps);
+    await handleAutoSpec(text, session, layout, ctx, specPlanDeps, cls.reasons);
     return;
   }
 
@@ -104,6 +110,7 @@ async function handleAutoSpec(
   layout: AppLayout,
   ctx: MsgCtx,
   deps: SpecPlanCommandDeps,
+  reasons: string[],
 ): Promise<void> {
   const specsDir = resolve(deps.getSpecsDir());
   await mkdir(specsDir, { recursive: true });
@@ -118,10 +125,19 @@ async function handleAutoSpec(
   deps.appCtx.lastOpenedSpec = { slug, path: specPath };
   deps.appCtx.lastOpenedKind = "spec";
 
+  // Three-line notice before suspending the TUI so the user knows what
+  // the editor swap is for and how to bail. The 1s delay gives them a
+  // beat to read the lines before the alt-screen takes over; tests
+  // pass phaseNoticeDelayMs: 0 to keep the suite fast.
+  const editorName = resolveEditorName();
+  const reasonsText = reasons.length > 0 ? reasons.join(", ") : "complex prompt";
+  ctx.addMessage("system", `${ICONS.bolt} Complex prompt detected (reasons: ${reasonsText})`);
+  ctx.addMessage("system", `Opening spec template '${slug}' in ${editorName}`);
   ctx.addMessage(
     "system",
-    `${ICONS.bolt} Complex prompt → drafting spec '${slug}'. Edit the template, save, then approve.`,
+    defaultTheme.dim("Skip with /abandon. Bypass next time with --no-spec or a shorter prompt."),
   );
+  await sleep(deps.phaseNoticeDelayMs ?? 1000);
 
   const editor = deps.openInEditorImpl ?? openInEditor;
   await editor({ path: specPath, tui: layout.tui });
@@ -233,6 +249,17 @@ export async function approveSpecAndOpenPlan(args: ApproveSpecArgs): Promise<voi
   args.session.setPlanPath(planPath);
   args.deps.appCtx.lastOpenedPlan = { slug: planSlug, path: planPath };
   args.deps.appCtx.lastOpenedKind = "plan";
+
+  // Two-line notice before opening the plan editor — mirrors the
+  // auto-spec announcement so the user gets the same affordance on the
+  // second leg of the flow.
+  const editorName = resolveEditorName();
+  args.ctx.addMessage(
+    "system",
+    `${ICONS.bolt} Spec '${specDoc.frontmatter.slug}' approved. Opening plan template in ${editorName}`,
+  );
+  args.ctx.addMessage("system", defaultTheme.dim("Skip with /abandon."));
+  await sleep(args.deps.phaseNoticeDelayMs ?? 1000);
 
   await editor({ path: planPath, tui: args.layout.tui });
 

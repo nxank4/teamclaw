@@ -37,7 +37,14 @@ export interface OpenInEditorResult {
   mtimeAfter: number;
 }
 
-function resolveEditor(args: OpenInEditorArgs): string {
+/**
+ * Resolve the editor binary name without spawning anything. Exported so
+ * the prompt-handler can announce "Opening … in <name>" before the
+ * editor takes over the terminal — see src/app/prompt-handler.ts.
+ *
+ * Resolution: explicit override → $VISUAL → $EDITOR → "vi".
+ */
+export function resolveEditorName(args: { editor?: string; env?: NodeJS.ProcessEnv } = {}): string {
   const env = args.env ?? process.env;
   return args.editor ?? env.VISUAL ?? env.EDITOR ?? "vi";
 }
@@ -59,7 +66,7 @@ async function statMtime(path: string): Promise<number> {
 }
 
 export async function openInEditor(args: OpenInEditorArgs): Promise<OpenInEditorResult> {
-  const editor = resolveEditor(args);
+  const editor = resolveEditorName({ editor: args.editor, env: args.env });
   const mtimeBefore = await statMtime(args.path);
 
   args.tui?.suspend();

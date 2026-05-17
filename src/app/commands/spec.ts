@@ -49,6 +49,13 @@ export interface SpecPlanCommandDeps {
   bypass?: boolean;
   /** Test seam — defaults to the real openInEditor. */
   openInEditorImpl?: (args: OpenInEditorArgs) => Promise<OpenInEditorResult>;
+  /**
+   * Delay (in ms) between the phase-transition notice and the editor
+   * spawn so the user has time to read the chat lines before the
+   * alt-screen takes over. Defaults to 1000 in production; tests pass
+   * 0 to keep the suite fast.
+   */
+  phaseNoticeDelayMs?: number;
 }
 
 export function createSpecCommand(deps: SpecPlanCommandDeps): SlashCommand {
