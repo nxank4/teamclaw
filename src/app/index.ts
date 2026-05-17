@@ -79,6 +79,8 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     lastOpenedPlan: null,
     lastOpenedKind: null,
     pendingPhaseConfirmation: null,
+    pendingInterview: null,
+    pendingReviseFeedback: null,
     specPlanDeps: null,
   };
 

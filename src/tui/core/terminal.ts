@@ -18,14 +18,6 @@ export interface Terminal {
   start(): void;
   /** Restore terminal to original state. */
   stop(): void;
-  /**
-   * Temporarily yield the terminal so a subprocess (e.g. $EDITOR) can
-   * run with normal cooked-mode stdio. The TUI's input/resize handlers
-   * stay registered; resume() puts them back into effect.
-   */
-  suspend(): void;
-  /** Re-enter raw mode / alt screen / mouse tracking after a suspend(). */
-  resume(): void;
 }
 
 /**
@@ -36,7 +28,6 @@ export class ProcessTerminal implements Terminal {
   private inputHandlers: ((data: Buffer) => void)[] = [];
   private resizeHandlers: (() => void)[] = [];
   private started = false;
-  private suspended = false;
   private writeBuffer = "";
   private flushScheduled = false;
 
@@ -111,7 +102,6 @@ export class ProcessTerminal implements Terminal {
   stop(): void {
     if (!this.started) return;
     this.started = false;
-    this.suspended = false;
 
     // Flush any remaining writes synchronously
     if (this.writeBuffer) {
@@ -135,52 +125,6 @@ export class ProcessTerminal implements Terminal {
     process.stdin.pause();
     process.stdin.removeAllListeners("data");
     process.stdout.removeAllListeners("resize");
-  }
-
-  /**
-   * Drop raw mode + alt screen + mouse tracking without tearing down
-   * the registered input/resize handlers. The handlers stay live so
-   * resume() can flip the terminal back without re-registering them
-   * (and without the 16ms drain delay that start() pays on cold boot).
-   */
-  suspend(): void {
-    if (!this.started || this.suspended) return;
-    this.suspended = true;
-
-    if (this.writeBuffer) {
-      process.stdout.write(this.writeBuffer);
-      this.writeBuffer = "";
-    }
-
-    process.stdout.write("\x1b[?1000l");
-    process.stdout.write("\x1b[?1002l");
-    process.stdout.write("\x1b[?1006l");
-    process.stdout.write("\x1b[?25h"); // show cursor
-    process.stdout.write("\x1b[?2004l"); // bracketed paste off
-    process.stdout.write("\x1b[0m");
-    process.stdout.write("\x1b[?1049l"); // leave alt screen
-
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false);
-    }
-  }
-
-  /** Re-enter the full-screen terminal state suspended() left. */
-  resume(): void {
-    if (!this.started || !this.suspended) return;
-    this.suspended = false;
-
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-    }
-
-    process.stdout.write("\x1b[?1049h"); // enter alt screen
-    process.stdout.write("\x1b[H");
-    process.stdout.write("\x1b[?1000h");
-    process.stdout.write("\x1b[?1002h");
-    process.stdout.write("\x1b[?1006h");
-    process.stdout.write("\x1b[?25l"); // hide cursor
-    process.stdout.write("\x1b[?2004h");
   }
 }
 
@@ -238,14 +182,6 @@ export class VirtualTerminal implements Terminal {
   }
 
   stop(): void {
-    // No-op for virtual terminal
-  }
-
-  suspend(): void {
-    // No-op for virtual terminal
-  }
-
-  resume(): void {
     // No-op for virtual terminal
   }
 

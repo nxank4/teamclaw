@@ -21,7 +21,7 @@ describe("createPlanCommand", () => {
       const cmd = createPlanCommand(h.makeDeps());
       await cmd.execute("", h.ctx);
       expect(h.messages.some((m) => m.role === "error" && m.content.includes("No spec"))).toBe(true);
-      expect(h.editorCalls).toHaveLength(0);
+      expect(h.appCtx.lastOpenedPlan).toBeNull();
     });
   });
 

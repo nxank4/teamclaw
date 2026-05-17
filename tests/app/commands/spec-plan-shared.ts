@@ -1,15 +1,16 @@
 /**
  * Test helpers shared by the /spec, /plan, /approve, /specs, /plans
  * command suites. Build a minimal AppContext + CommandContext + a noop
- * TUI so the slash commands run without touching the real terminal or
- * spawning editors.
+ * TUI so the slash commands run without touching the real terminal.
+ *
+ * The in-TUI editor flow was removed — commands write files directly
+ * and report paths to the user; the harness no longer mocks an editor.
  */
 
 import { emptyPhaseBlock, type Phase, type PhaseTrigger } from "../../../src/session/phase-machine.js";
 import type { CommandContext } from "../../../src/tui/slash/registry.js";
 import type { TUI } from "../../../src/tui/core/tui.js";
 import type { AppContext } from "../../../src/app/init-session-router.js";
-import type { OpenInEditorArgs, OpenInEditorResult } from "../../../src/utils/open-in-editor.js";
 import type { SpecPlanCommandDeps } from "../../../src/app/commands/spec.js";
 import type { Session } from "../../../src/session/session.js";
 import type { PromptRouter } from "../../../src/router/prompt-router.js";
@@ -48,7 +49,6 @@ export interface TestHarness {
   appCtx: AppContext;
   session: PhaseSessionStub;
   messages: MessageRecord[];
-  editorCalls: OpenInEditorArgs[];
   routerAbortCalls: string[];
   /** Build a SpecPlanCommandDeps pointing at the test dirs. */
   makeDeps: (overrides?: Partial<SpecPlanCommandDeps>) => SpecPlanCommandDeps;
@@ -100,25 +100,20 @@ export function makeHarness(specsDir: string, plansDir: string): TestHarness {
     lastOpenedPlan: null,
     lastOpenedKind: null,
     pendingPhaseConfirmation: null,
+    pendingInterview: null,
+    pendingReviseFeedback: null,
     specPlanDeps: null,
   } as unknown as AppContext;
 
-  const tui = { suspend: () => {}, resume: () => {} } as unknown as TUI;
-  const editorCalls: OpenInEditorArgs[] = [];
-  const editorImpl = async (args: OpenInEditorArgs): Promise<OpenInEditorResult> => {
-    editorCalls.push(args);
-    return { exitCode: 0, mtimeBefore: 0, mtimeAfter: 0 };
-  };
+  const tui = {} as unknown as TUI;
 
   const makeDeps = (overrides: Partial<SpecPlanCommandDeps> = {}): SpecPlanCommandDeps => ({
     appCtx,
     tui,
     getSpecsDir: () => specsDir,
     getPlansDir: () => plansDir,
-    openInEditorImpl: editorImpl,
-    phaseNoticeDelayMs: 0,
     ...overrides,
   });
 
-  return { ctx, appCtx, session, messages, editorCalls, routerAbortCalls, makeDeps };
+  return { ctx, appCtx, session, messages, routerAbortCalls, makeDeps };
 }

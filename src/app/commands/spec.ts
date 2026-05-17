@@ -1,18 +1,21 @@
 /**
- * /spec slash command — create or open a spec file in $EDITOR.
+ * /spec slash command — write a spec file at ./specs/<slug>.md.
+ *
+ * The in-TUI editor flow that lived here previously has been removed:
+ * spec files are now reviewed in the user's external editor of choice
+ * (VS Code, vim, Notepad, …). After /spec creates the template the
+ * user opens the file out-of-band, edits, saves, then returns here to
+ * /approve, /revise, or /abandon.
  *
  * Behaviour:
  *   - `/spec` with no args:
- *     - if a spec is already linked to this session, open it.
+ *     - if a spec is already linked to this session, print its path.
  *     - otherwise emit a hint about supplying a slug.
  *   - `/spec <slug>`:
- *     - if `<specsDirectory>/<slug>.md` exists, open it.
- *     - otherwise write the template skeleton and open it.
- *
- * After the editor exits the file is reloaded so frontmatter errors
- * surface to the user. The session's `lastOpenedSpec` / `lastOpenedKind`
- * are updated so `/approve` and the upcoming dispatcher can find the
- * active spec.
+ *     - if `<specsDirectory>/<slug>.md` exists, register it as the
+ *       active spec and print its path.
+ *     - otherwise write the template skeleton, register it, and print
+ *       its path.
  */
 
 import { existsSync } from "node:fs";
@@ -20,11 +23,6 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { writeFileAtomic } from "../../utils/atomic-write.js";
-import {
-  openInEditor,
-  type OpenInEditorArgs,
-  type OpenInEditorResult,
-} from "../../utils/open-in-editor.js";
 import { SPEC_SLUG_PATTERN } from "../../spec/types.js";
 import { loadSpecFromFile, SpecLoadError } from "../../spec/loader.js";
 import { generateSpecTemplate } from "../../spec/template.js";
@@ -32,6 +30,27 @@ import { ICONS } from "../../tui/constants/icons.js";
 import type { SlashCommand } from "../../tui/slash/registry.js";
 import type { TUI } from "../../tui/core/tui.js";
 import type { AppContext } from "../init-session-router.js";
+import type { scanForInterview } from "../../spec/codebase-scan.js";
+import type {
+  generateInterviewQuestions,
+  generatePlanFromAnswers,
+  generateSpecFromAnswers,
+} from "../../spec/interview.js";
+import type { generateSlug } from "../../spec/slug-gen.js";
+
+/**
+ * Test-seam bundle so the prompt-handler's auto-spec flow can be
+ * driven by canned LLM responses in tests. Each field is optional and
+ * defaults to the real implementation. Production code leaves the
+ * whole `interviewServices` field unset.
+ */
+export interface InterviewServices {
+  scanCodebase?: typeof scanForInterview;
+  generateQuestions?: typeof generateInterviewQuestions;
+  generateSpec?: typeof generateSpecFromAnswers;
+  generatePlan?: typeof generatePlanFromAnswers;
+  generateSlug?: typeof generateSlug;
+}
 
 export interface SpecPlanCommandDeps {
   appCtx: AppContext;
@@ -40,6 +59,8 @@ export interface SpecPlanCommandDeps {
   getSpecsDir: () => string;
   /** Resolve the configured plans directory each call. */
   getPlansDir: () => string;
+  /** Project root for the codebase scan; defaults to process.cwd(). */
+  getProjectRoot?: () => string;
   /**
    * When true, the prompt-handler skips the spec/plan gate entirely
    * (--no-spec, trivial-mode overrides). Unused by the slash commands
@@ -47,28 +68,21 @@ export interface SpecPlanCommandDeps {
    * because the same deps object is shared with prompt-handler.
    */
   bypass?: boolean;
-  /** Test seam — defaults to the real openInEditor. */
-  openInEditorImpl?: (args: OpenInEditorArgs) => Promise<OpenInEditorResult>;
-  /**
-   * Delay (in ms) between the phase-transition notice and the editor
-   * spawn so the user has time to read the chat lines before the
-   * alt-screen takes over. Defaults to 1000 in production; tests pass
-   * 0 to keep the suite fast.
-   */
-  phaseNoticeDelayMs?: number;
+  /** Test-seam bundle (codebase scan + LLM calls). Optional. */
+  interviewServices?: InterviewServices;
 }
 
 export function createSpecCommand(deps: SpecPlanCommandDeps): SlashCommand {
   return {
     name: "spec",
-    description: "Create or open a feature spec at ./specs/<slug>.md",
+    description: "Create a feature spec at ./specs/<slug>.md (review in your editor, then /approve)",
     args: "[slug]",
     async execute(args, ctx) {
       const slug = args.trim();
 
-      // No slug + a spec is already open → reopen the active one.
+      // No slug + a spec is already open → reprint its path.
       if (!slug && deps.appCtx.lastOpenedSpec) {
-        await openSpec(deps, ctx, deps.appCtx.lastOpenedSpec.path);
+        await registerSpec(deps, ctx, deps.appCtx.lastOpenedSpec.path);
         return;
       }
       if (!slug) {
@@ -87,34 +101,29 @@ export function createSpecCommand(deps: SpecPlanCommandDeps): SlashCommand {
       if (!existsSync(path)) {
         const template = generateSpecTemplate(slug);
         await writeFileAtomic(path, template);
-        ctx.addMessage("system", `${ICONS.success} Created ${path}`);
+        ctx.addMessage("system", `${ICONS.success} Drafted ${path}`);
       }
 
-      await openSpec(deps, ctx, path, slug);
+      await registerSpec(deps, ctx, path, slug);
     },
   };
 }
 
-async function openSpec(
+async function registerSpec(
   deps: SpecPlanCommandDeps,
   ctx: { addMessage: (role: string, content: string) => void },
   path: string,
   slugHint?: string,
 ): Promise<void> {
-  const editorImpl = deps.openInEditorImpl ?? openInEditor;
-  try {
-    await editorImpl({ path, tui: deps.tui });
-  } catch (err) {
-    ctx.addMessage("error", `Editor failed: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-
-  // Reload + validate so frontmatter errors surface immediately.
   try {
     const doc = await loadSpecFromFile(path);
     deps.appCtx.lastOpenedSpec = { slug: doc.frontmatter.slug, path };
     deps.appCtx.lastOpenedKind = "spec";
-    ctx.addMessage("system", `${ICONS.success} Spec '${doc.frontmatter.slug}' (status: ${doc.frontmatter.status}) — ${path}`);
+    ctx.addMessage(
+      "system",
+      `${ICONS.success} Spec '${doc.frontmatter.slug}' (status: ${doc.frontmatter.status}) — ${path}\n` +
+        `Open in your editor (code, vim, notepad, ...) to review, then /approve, /revise, or /abandon here.`,
+    );
   } catch (err) {
     if (err instanceof SpecLoadError) {
       ctx.addMessage("error", `Spec validation failed:\n  ${err.message}`);

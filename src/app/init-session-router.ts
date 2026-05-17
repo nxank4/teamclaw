@@ -47,10 +47,10 @@ export interface AppContext {
   lastOpenedPlan: { slug: string; path: string } | null;
   lastOpenedKind: "spec" | "plan" | null;
   /**
-   * When set, the next user input is interpreted as a y/n/edit answer
-   * to a phase-confirmation question (e.g. "Approve spec? [y/n/edit]")
-   * rather than as a new prompt. The prompt-handler reads + clears
-   * this field; the slash command layer sets it after editor exit.
+   * When set, the next user input is interpreted as a y/n answer to a
+   * phase-confirmation question ("Approve spec? [y/n]") rather than
+   * as a new prompt. Carries the interview history + codebase context
+   * so /revise can re-draft using the original answers + new feedback.
    */
   pendingPhaseConfirmation: {
     kind: "spec" | "plan";
@@ -58,7 +58,31 @@ export interface AppContext {
     planPath?: string;
     /** The original prompt that triggered the spec flow — dispatched once plan is approved. */
     originalPrompt: string;
+    /**
+     * Interview state captured at draft time. Optional because the
+     * slash-command paths (/spec, /plan) don't go through an interview
+     * and so don't carry these fields. The auto-spec flow sets them.
+     */
+    questions?: import("../spec/interview.js").InterviewQuestion[];
+    answers?: import("../spec/interview.js").AnsweredQuestion[];
+    codebaseContext?: import("../spec/codebase-scan.js").CodebaseContext;
+    /** Set only on plan-phase confirmations; needed by /revise to re-draft. */
+    specBody?: string;
   } | null;
+  /**
+   * When set, the next user input is interpreted as the next answer
+   * to an in-progress interview rather than as a new prompt. The
+   * prompt-handler appends the answer, advances the index, and either
+   * surfaces the next question or finalizes the interview.
+   */
+  pendingInterview: import("../spec/interview.js").PendingInterview | null;
+  /**
+   * Wait state for the no-arg `/revise` form — the user typed `/revise`
+   * alone, the handler emitted "What should change?", and the next
+   * user input is the feedback text. Cleared by the prompt-handler on
+   * the next turn whether or not feedback was supplied.
+   */
+  pendingReviseFeedback: { kind: "spec" | "plan" } | null;
   /**
    * Single deps blob shared by the /spec /plan /approve /specs /plans
    * slash commands and the prompt-handler's auto-spec flow. Built when

@@ -1,11 +1,11 @@
 /**
- * /plan slash command — create or open an implementation plan at
+ * /plan slash command — write an implementation plan at
  * ./plans/<slug>.md. Requires a linked spec via /spec first.
  *
- * Replaces the previous "ask the agent to plan before executing"
- * behaviour, which had the same name but a different shape. The file-
- * based plan workflow subsumes that intent: the plan file IS the
- * planning artefact, and the dispatcher (next batch) will consume it.
+ * The in-TUI editor flow has been removed: plan files are reviewed in
+ * the user's external editor of choice. After /plan creates the
+ * template the user opens the file out-of-band, edits, saves, then
+ * returns here to /approve, /revise, or /abandon.
  */
 
 import { existsSync } from "node:fs";
@@ -13,7 +13,6 @@ import { mkdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
 import { writeFileAtomic } from "../../utils/atomic-write.js";
-import { openInEditor } from "../../utils/open-in-editor.js";
 import { PLAN_SLUG_PATTERN } from "../../plans/types.js";
 
 import { loadPlanFromFile, PlanLoadError } from "../../plans/loader.js";
@@ -34,8 +33,6 @@ export interface PlanCommandDeps {
   tui: SpecPlanCommandDeps["tui"];
   getSpecsDir: SpecPlanCommandDeps["getSpecsDir"];
   getPlansDir: SpecPlanCommandDeps["getPlansDir"];
-  /** Test seam — defaults to the real openInEditor. */
-  openInEditorImpl?: SpecPlanCommandDeps["openInEditorImpl"];
   /** @deprecated unused; kept for source-compat with the old createPlanCommand signature. */
   flashMessage?: (msg: string) => void;
 }
@@ -43,14 +40,14 @@ export interface PlanCommandDeps {
 export function createPlanCommand(deps: PlanCommandDeps): SlashCommand {
   return {
     name: "plan",
-    description: "Create or open an implementation plan at ./plans/<slug>.md",
+    description: "Create an implementation plan at ./plans/<slug>.md (review in your editor, then /approve)",
     args: "[slug]",
     async execute(args, ctx) {
       const argSlug = args.trim();
 
-      // No arg + we have an open plan → reopen.
+      // No arg + we have an open plan → reprint its path.
       if (!argSlug && deps.appCtx.lastOpenedPlan) {
-        await openPlan(deps, ctx, deps.appCtx.lastOpenedPlan.path);
+        await registerPlan(deps, ctx, deps.appCtx.lastOpenedPlan.path);
         return;
       }
 
@@ -79,28 +76,20 @@ export function createPlanCommand(deps: PlanCommandDeps): SlashCommand {
         const specRelative = relative(dir, linkedSpec.path);
         const template = generatePlanTemplate({ slug, specPath: specRelative });
         await writeFileAtomic(path, template);
-        ctx.addMessage("system", `${ICONS.success} Created ${path}`);
+        ctx.addMessage("system", `${ICONS.success} Drafted ${path}`);
       }
 
-      await openPlan(deps, ctx, path, slug);
+      await registerPlan(deps, ctx, path, slug);
     },
   };
 }
 
-async function openPlan(
+async function registerPlan(
   deps: PlanCommandDeps,
   ctx: { addMessage: (role: string, content: string) => void },
   path: string,
   slugHint?: string,
 ): Promise<void> {
-  const editorImpl = deps.openInEditorImpl ?? openInEditor;
-  try {
-    await editorImpl({ path, tui: deps.tui });
-  } catch (err) {
-    ctx.addMessage("error", `Editor failed: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-
   try {
     const doc = await loadPlanFromFile(path);
     deps.appCtx.lastOpenedPlan = { slug: doc.frontmatter.slug, path };
@@ -108,7 +97,8 @@ async function openPlan(
     const taskCount = doc.tasks.length;
     ctx.addMessage(
       "system",
-      `${ICONS.success} Plan '${doc.frontmatter.slug}' (status: ${doc.frontmatter.status}, ${taskCount} task${taskCount === 1 ? "" : "s"}) — ${path}`,
+      `${ICONS.success} Plan '${doc.frontmatter.slug}' (status: ${doc.frontmatter.status}, ${taskCount} task${taskCount === 1 ? "" : "s"}) — ${path}\n` +
+        `Open in your editor to review, then /approve, /revise, or /abandon here.`,
     );
   } catch (err) {
     if (err instanceof PlanLoadError) {
