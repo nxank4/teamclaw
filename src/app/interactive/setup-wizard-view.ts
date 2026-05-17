@@ -581,15 +581,21 @@ export class SetupWizardView extends InteractiveView {
       return true;
     }
 
-    // Component-specific: Enter validates and advances
+    // Component-specific: Enter validates and advances.
+    // Capture the current buffer synchronously into a local before
+    // kicking off the async validation. Reading `this.apiKey` inside
+    // the awaited validateApiKey() call would be a value-race if any
+    // step transition or other path mutated the instance state between
+    // the Enter press and the network response.
     if (event.type === "enter") {
-      if (!this.editBuffer.trim()) {
+      const key = this.editBuffer.trim();
+      if (!key) {
         this.validationError = "API key is required";
         this.render();
         return true;
       }
-      this.apiKey = this.editBuffer.trim();
-      void this.validateAndAdvance();
+      this.apiKey = key;
+      void this.validateAndAdvance(key);
       return true;
     }
 
@@ -604,7 +610,16 @@ export class SetupWizardView extends InteractiveView {
     return true;
   }
 
-  private async validateAndAdvance(): Promise<void> {
+  /**
+   * Validate the supplied API key and advance to the model step on
+   * success. `keyOverride` lets the Enter handler pass a value captured
+   * synchronously at keypress time so the validation request can't pick
+   * up a stale `this.apiKey`. Defaults to `this.apiKey` so the env-key
+   * branch (which sets the instance field during prepareApiKeyStep)
+   * continues to work without changes.
+   */
+  private async validateAndAdvance(keyOverride?: string): Promise<void> {
+    const key = keyOverride ?? this.apiKey;
     this.loading = true;
     this.loadingText = "Validating API key...";
     this.validationError = null;
@@ -612,7 +627,7 @@ export class SetupWizardView extends InteractiveView {
 
     const meta = getProviderMeta(this.selectedProvider);
     const baseUrl = meta?.baseURL ?? "";
-    const result = await validateApiKey(this.selectedProvider, this.apiKey, baseUrl);
+    const result = await validateApiKey(this.selectedProvider, key, baseUrl);
 
     if (result.isErr()) {
       this.loading = false;
@@ -627,7 +642,7 @@ export class SetupWizardView extends InteractiveView {
     try {
       const store = new CredentialStore();
       await store.initialize();
-      await store.setCredential(this.selectedProvider, "apiKey", this.apiKey);
+      await store.setCredential(this.selectedProvider, "apiKey", key);
     } catch { /* best-effort */ }
 
     this.loading = false;
