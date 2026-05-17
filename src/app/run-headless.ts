@@ -150,9 +150,18 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
       );
     }
 
+    if (dispatchResult.kind === "blocked") {
+      console.error(pc.red(`\n${dispatchResult.message}`));
+      await sessionMgr.delete(session.id);
+      await sessionMgr.shutdown();
+      return { exitCode: 2 };
+    }
+
+    const executed = dispatchResult.result;
+
     console.log("");
     let hadSuccess = false;
-    for (const agentResult of dispatchResult.agentResults) {
+    for (const agentResult of executed.agentResults) {
       if (agentResult.error || !agentResult.success) {
         console.log(pc.dim("─".repeat(60)));
         console.log(`${pc.bold(`[${agentResult.agentId}]`)} ${pc.red("error")}`);
@@ -165,8 +174,8 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
       }
     }
 
-    const totalIn = dispatchResult.totalInputTokens;
-    const totalOut = dispatchResult.totalOutputTokens;
+    const totalIn = executed.totalInputTokens;
+    const totalOut = executed.totalOutputTokens;
     const cost = (totalIn * 3 + totalOut * 15) / 1_000_000;
     console.log(pc.dim(`Tokens: ${totalIn}in/${totalOut}out | Cost: $${cost.toFixed(4)}`));
 
