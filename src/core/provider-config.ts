@@ -111,6 +111,16 @@ function emitChange(type: "provider" | "model"): void {
     model: resolvedModel,
   };
   emitter.emit("change", event);
+
+  // Mirror the change onto the provider-registry's "config:changed"
+  // channel so the status-bar wiring in config-wiring.ts re-runs auth
+  // validation. Without this, changing provider/model via /settings
+  // updates the display segment but leaves segment 1's auth indicator
+  // stale until restart. Dynamic import avoids a static cycle into
+  // src/providers/ from this core module.
+  void import("../providers/provider-registry.js").then(({ getProviderRegistry }) => {
+    getProviderRegistry().emit("config:changed");
+  });
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
