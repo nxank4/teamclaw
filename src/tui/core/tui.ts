@@ -152,6 +152,22 @@ export class TUI {
     this.terminal.stop();
   }
 
+  /**
+   * Temporarily yield the terminal so a subprocess (e.g. $EDITOR) can
+   * run with normal cooked-mode stdio. Input/resize handlers stay live;
+   * resume() flips raw mode + alt screen back on and re-renders.
+   */
+  suspend(): void {
+    if (!this.running) return;
+    this.terminal.suspend();
+  }
+
+  resume(): void {
+    if (!this.running) return;
+    this.terminal.resume();
+    this.requestRender();
+  }
+
   // ── Resize ──────────────────────────────────────────────
 
   /** Debounced resize — batches rapid SIGWINCH events into one re-render. */

@@ -12,9 +12,12 @@
 import pc from "picocolors";
 
 import { loadAgentRegistry } from "../agents/registry/markdown-registry.js";
+import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
+import { debugLog } from "../debug/logger.js";
 import { dispatch as orchestratorDispatch } from "../orchestrator/dispatcher.js";
 import { ToolEvent } from "../router/event-types.js";
 import { createSessionManager } from "../session/index.js";
+import { classify } from "../spec/complexity.js";
 import { registerBuiltInTools } from "../tools/built-in/index.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { PermissionResolver } from "../tools/permissions.js";
@@ -38,6 +41,21 @@ export async function runHeadless(args: RunHeadlessArgs): Promise<HeadlessResult
   // Per-run cwd switch so agent tool calls (file_write etc.) target workdir.
   const originalCwd = process.cwd();
   if (workdir !== originalCwd) process.chdir(workdir);
+
+  // Complexity classification — log only, no dispatch change yet.
+  // Matches the call in src/app/prompt-handler.ts so the same signal
+  // is observable from both the TUI and headless entry points.
+  {
+    const cfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
+    const result = classify(args.goal, cfg.complexityThreshold);
+    debugLog("info", "orchestrator", "complexity_classified", {
+      data: {
+        class: result.class,
+        reasons: result.reasons,
+        prompt_excerpt: args.goal.slice(0, 80),
+      },
+    });
+  }
 
   try {
     const sessionMgr = createSessionManager();

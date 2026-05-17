@@ -7,6 +7,9 @@ import { ICONS } from "../tui/constants/icons.js";
 import { defaultTheme } from "../tui/themes/default.js";
 import { getConnectionState, setConnectionState } from "../core/connection-state.js";
 import { autoCompactIfNeeded, type CompactCommandDeps } from "./commands/compact.js";
+import { classify } from "../spec/complexity.js";
+import { buildDefaultGlobalConfig, readGlobalConfig } from "../core/global-config.js";
+import { debugLog } from "../debug/logger.js";
 import type { AppLayout } from "./layout.js";
 import type { Session } from "../session/session.js";
 import type { PromptRouter } from "../router/prompt-router.js";
@@ -24,6 +27,22 @@ export async function handleWithRouter(
       deps: compactDeps,
       sessionId: session.id,
       emit: (lines, tag) => ctx.addMessage("system", lines.join("\n"), { tag }),
+    });
+  }
+
+  // Complexity classification — log only, no dispatch change yet.
+  // The dispatcher will consume this output in a follow-up batch to
+  // gate the spec-first workflow. Logging here keeps the signal
+  // observable via `openpawl logs debug --grep complexity_classified`.
+  {
+    const cfg = readGlobalConfig() ?? buildDefaultGlobalConfig();
+    const result = classify(text, cfg.complexityThreshold);
+    debugLog("info", "orchestrator", "complexity_classified", {
+      data: {
+        class: result.class,
+        reasons: result.reasons,
+        prompt_excerpt: text.slice(0, 80),
+      },
     });
   }
 

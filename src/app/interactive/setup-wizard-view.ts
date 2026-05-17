@@ -20,7 +20,7 @@ import { getProviderRegistry } from "../../providers/provider-registry.js";
 import { validateApiKey } from "../../providers/validate.js";
 import { fetchModelsForProvider } from "../../providers/model-fetcher.js";
 import { getCachedModels, setCachedModels } from "../../providers/model-cache.js";
-import { readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js";
+import { buildDefaultGlobalConfig, readGlobalConfig, writeGlobalConfig } from "../../core/global-config.js";
 import { CredentialStore } from "../../credentials/credential-store.js";
 import { maskCredential } from "../../credentials/masking.js";
 
@@ -1056,7 +1056,7 @@ export class SetupWizardView extends InteractiveView {
     }
 
     const config: OpenPawlGlobalConfig = {
-      ...(existing ?? { version: 1, dashboardPort: 9001, debugMode: false }),
+      ...(existing ?? buildDefaultGlobalConfig()),
       activeProvider: this.selectedProvider,
       activeModel: this.selectedModel,
       model: this.selectedModel,

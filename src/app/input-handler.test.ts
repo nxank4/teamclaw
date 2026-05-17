@@ -71,6 +71,9 @@ function makeStubCtx(): AppContext {
     toolRegistry: null,
     toolExecutor: null,
     compactDeps: null,
+    lastOpenedSpec: null,
+    lastOpenedPlan: null,
+    lastOpenedKind: null,
   };
 }
 

@@ -22,15 +22,13 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 
-import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 import {
   AGENT_NAME_PATTERN,
   type AgentDefinition,
 } from "../../orchestrator/types.js";
-
-const FRONTMATTER_DELIM = "---";
+import { splitFrontmatter } from "../../utils/frontmatter.js";
 
 const AgentFrontmatterSchema = z.object({
   name: z
@@ -61,35 +59,6 @@ export class MarkdownAgentLoadError extends Error {
   }
 }
 
-interface ParsedMarkdown {
-  frontmatter: unknown;
-  body: string;
-}
-
-/**
- * Split a raw markdown file into frontmatter (YAML) + body. Returns null
- * if the file has no leading frontmatter block.
- */
-function splitFrontmatter(raw: string): ParsedMarkdown | null {
-  // Normalise leading whitespace; tolerate a BOM.
-  const text = raw.replace(/^﻿/, "");
-  if (!text.startsWith(FRONTMATTER_DELIM)) return null;
-
-  // Find the closing delimiter on its own line.
-  const lines = text.split(/\r?\n/);
-  let closeIndex = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === FRONTMATTER_DELIM) {
-      closeIndex = i;
-      break;
-    }
-  }
-  if (closeIndex === -1) return null;
-
-  const yamlBlock = lines.slice(1, closeIndex).join("\n");
-  const body = lines.slice(closeIndex + 1).join("\n").trimStart();
-  return { frontmatter: parseYaml(yamlBlock) as unknown, body };
-}
 
 /**
  * Resolve a tools.allow/deny pair into a single allow-list. When `allow`

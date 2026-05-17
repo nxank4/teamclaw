@@ -9,6 +9,7 @@ import { getProviderRegistry } from "../providers/provider-registry.js";
 import { maskCredential } from "../credentials/masking.js";
 import { CredentialStore } from "../credentials/credential-store.js";
 import {
+  buildDefaultGlobalConfig,
   writeGlobalConfig,
   readGlobalConfig,
   type OpenPawlGlobalConfig,
@@ -218,7 +219,7 @@ export async function runSetup(options?: SetupOptions): Promise<void> {
   const existingProviders = existingConfig?.providers?.filter((p) => p.type !== selectedProvider) ?? [];
 
   const newConfig: OpenPawlGlobalConfig = {
-    ...(existingConfig ?? { version: 1, dashboardPort: 9001, debugMode: false }),
+    ...(existingConfig ?? buildDefaultGlobalConfig()),
     activeProvider: selectedProvider,
     activeModel: selectedModel,
     model: selectedModel,
