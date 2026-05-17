@@ -161,9 +161,23 @@ export class SettingsView extends InteractiveView {
       return;
     }
 
-    // Dynamic model discovery — load real models for the model field
+    // Model row — delegate to the same ModelView that /model uses so
+    // the two surfaces share one picker implementation. Reuses
+    // setActiveModel from provider-config (the canonical write path).
     if (field.key === "model") {
-      void this.loadAndEditModels(field);
+      this.deactivate();
+      void import("./model-view.js").then(({ ModelView }) => {
+        const current = this.values.get("model") ?? "";
+        const view = new ModelView(
+          this.tui,
+          current,
+          (model) => {
+            setActiveModel(model);
+          },
+          () => { /* closed */ },
+        );
+        view.activate();
+      });
       return;
     }
 
@@ -199,61 +213,6 @@ export class SettingsView extends InteractiveView {
       this.editCursor = this.editBuffer.length;
     }
     this.render();
-  }
-
-  private async loadAndEditModels(field: SettingField): Promise<void> {
-    // Provider IDs from model-discovery are always lowercase; normalize the
-    // stored value so a mixed-case entry like "Anthropic" still matches both
-    // the discovery filter and the catalog fallback below.
-    const selectedProvider = (this.values.get("provider") ?? "").toLowerCase();
-    this.editError = "Loading models...";
-    this.render();
-
-    try {
-      const { discoverModels } = await import("../../providers/model-discovery.js");
-      const result = await discoverModels(true); // force refresh
-
-      // Filter to selected provider only
-      let available = result.models.filter(
-        (m) => (m.status === "available" || m.status === "configured") &&
-               (!selectedProvider || m.provider === selectedProvider),
-      );
-
-      // Fallback: show default models from registry if live discovery found nothing
-      if (available.length === 0 && selectedProvider) {
-        const defaults = getProviderRegistry().getDefinition(selectedProvider)?.defaultModels ?? [];
-        available = defaults.map((id) => ({
-          provider: selectedProvider,
-          model: id,
-          displayName: id,
-          status: "configured" as const,
-        }));
-      }
-
-      if (available.length === 0) {
-        this.editError = selectedProvider
-          ? `No models found for ${selectedProvider}. Is it running?`
-          : "No models found. Is your provider running?";
-        this.render();
-        return;
-      }
-
-      field.options = available.map((m) => m.model);
-      this.selectList.setItems(field.options);
-      this.selectFilterText = "";
-      this.editing = true;
-      this.editError = null;
-
-      const current = this.values.get("model") ?? "";
-      this.selectIndex = field.options.indexOf(current);
-      if (this.selectIndex < 0) this.selectIndex = 0;
-      this.selectScrollOffset = 0;
-      this.adjustSelectScroll(field.options.length);
-      this.render();
-    } catch {
-      this.editError = "Failed to discover models";
-      this.render();
-    }
   }
 
   private handleEditKey(event: KeyEvent): boolean {
