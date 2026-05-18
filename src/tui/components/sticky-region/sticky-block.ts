@@ -189,8 +189,10 @@ function collapseItems(items: readonly StickyItem[], itemBudget: number): string
     }
   }
 
-  const shownDone = done.slice(-doneSlots);
-  const shownPending = pending.slice(0, pendingSlots);
+  // `slice(-0)` returns the whole array; clamp to an empty slice when
+  // we want zero items.
+  const shownDone = doneSlots > 0 ? done.slice(-doneSlots) : [];
+  const shownPending = pendingSlots > 0 ? pending.slice(0, pendingSlots) : [];
   const elidedDone = done.length - shownDone.length;
   const elidedPending = pending.length - shownPending.length;
 
