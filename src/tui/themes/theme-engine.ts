@@ -7,20 +7,31 @@ import type { Theme } from "./theme.js";
 import type { ThemeDefinition } from "./theme-types.js";
 import { getBuiltInThemes } from "./built-in/index.js";
 import { setActiveTheme } from "./default.js";
+import type { Palette } from "./semantic-tokens.js";
+import { getBuiltInPalettes, DEFAULT_PALETTE_ID, getPaletteById } from "./palettes/index.js";
+import { setActivePalette } from "./active.js";
 
 export class ThemeEngine extends EventEmitter {
   private themes = new Map<string, ThemeDefinition>();
+  private palettes = new Map<string, Palette>();
   private current: ThemeDefinition;
   private maxBrightness = 1.0;
 
   constructor() {
     super();
-    // Register all built-in themes
+    // Register legacy Theme definitions (back-compat for old defaultTheme proxy).
     for (const td of getBuiltInThemes()) {
       this.themes.set(td.id, td);
     }
-    // Default to catppuccin-mocha
+    // Register new Palette definitions for the token system.
+    for (const p of getBuiltInPalettes()) {
+      this.palettes.set(p.id, p);
+    }
+    // Legacy default still resolves to mocha (until commit 11 removes it).
     this.current = this.themes.get("catppuccin-mocha")!;
+    // Token system default is pawlwinkle.
+    const defaultPalette = this.palettes.get(DEFAULT_PALETTE_ID)!;
+    setActivePalette(defaultPalette);
   }
 
   /** Get the currently active theme. */
@@ -38,14 +49,30 @@ export class ThemeEngine extends EventEmitter {
     return this.current.id;
   }
 
-  /** Switch to a different theme by ID. Updates the global defaultTheme proxy. */
+  /** Switch to a different theme by ID. Updates legacy + new token systems. */
   switchTheme(themeId: string): boolean {
     const td = this.themes.get(themeId);
-    if (!td) return false;
-    this.current = td;
-    setActiveTheme(td.theme);
+    if (td) {
+      this.current = td;
+      setActiveTheme(td.theme);
+    }
+    const palette = this.palettes.get(themeId);
+    if (palette) {
+      setActivePalette(palette);
+    }
+    if (!td && !palette) return false;
     this.emit("theme:changed", themeId);
     return true;
+  }
+
+  /** Get the Palette definition for a theme id (used by /themes preview). */
+  getPalette(themeId: string): Palette | undefined {
+    return this.palettes.get(themeId) ?? getPaletteById(themeId);
+  }
+
+  /** List palette ids (the canonical 3-theme registry). */
+  listPalettes(): readonly Palette[] {
+    return [...this.palettes.values()];
   }
 
   /** List all available theme IDs. */
