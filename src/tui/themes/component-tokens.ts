@@ -77,6 +77,11 @@ export const COMPONENT_TO_SEMANTIC = {
   "badge.info":            "status.info",
   "badge.pending":         "text.tertiary",
 
+  // ── inline pickers (interactive-block, /themes) ───────────────────
+  "picker.itemSelected":   "brand.primary",
+  "picker.itemUnselected": "text.secondary",
+  "picker.hint":           "text.tertiary",
+
   // ── markdown (markdown.ts: 10 sites) ──────────────────────────────
   "md.h1":                 "brand.primary",
   "md.h2":                 "brand.accent",
