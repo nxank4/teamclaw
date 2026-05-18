@@ -13,6 +13,39 @@ export default [
       ],
     },
   },
+  // Theme tokens: forbid the raw palette + chalk + hex literals outside
+  // src/tui/themes/. Components must go through the `tokens` API so the
+  // 3-layer system stays the single source of truth for color.
+  {
+    files: ["src/**/*.ts", "src/**/*.tsx"],
+    ignores: [
+      "src/tui/themes/**",
+      "src/web/**",
+      "**/*.test.ts",
+      "**/*.test.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": ["error", {
+        paths: [
+          {
+            name: "chalk",
+            message: "Use `tokens` from src/tui/themes/tokens.js instead of chalk.",
+          },
+        ],
+        patterns: [
+          {
+            group: ["**/themes/default", "**/themes/default.js"],
+            importNames: ["ctp"],
+            message: "Use the `tokens` API from src/tui/themes/tokens.js instead of the raw palette.",
+          },
+        ],
+      }],
+      "no-restricted-syntax": ["error", {
+        selector: "Literal[value=/^#[0-9a-fA-F]{6}$/]",
+        message: "Raw hex literals belong in palette files only — use a token.",
+      }],
+    },
+  },
   {
     files: ["src/web/client/**/*.ts", "src/web/client/**/*.tsx"],
     plugins: { "react-hooks": reactHooks },
