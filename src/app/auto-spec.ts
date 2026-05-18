@@ -125,27 +125,41 @@ function emitInterviewQuestion(
   ctx.addMessage("system", lines.join("\n"), { tag: INTERVIEW_MESSAGE_TAG });
 }
 
+/**
+ * Render the post-spec / post-plan notice in three flat chat lines that
+ * follow the `→ <noun>: <value>` convention used elsewhere (theme picker
+ * selection, sticky-region completion). The tag stays on the artifact
+ * line only so scrollback features can still locate the spec/plan path
+ * by tag, without re-parsing a multi-line branded box.
+ */
+function emitArtifactDraftedNotice(
+  ctx: MsgCtx,
+  noun: "spec" | "plan",
+  path: string,
+  approveHint: string,
+): void {
+  const arrow = defaultTheme.muted("→ ");
+  const label = defaultTheme.muted(`${noun}: `);
+  ctx.addMessage("system", arrow + label + defaultTheme.primary(path), { tag: `op:${noun}` });
+  ctx.addMessage("system", "Open in your editor (code, notepad, vim) to review.");
+  ctx.addMessage("system", defaultTheme.dim(approveHint));
+}
+
 function emitSpecDraftedNotice(ctx: MsgCtx, specPath: string): void {
-  ctx.addMessage(
-    "system",
-    renderBrandedBox("op:spec", [
-      defaultTheme.primary(`${ICONS.success} Drafted spec: ${specPath}`),
-      "Open in your editor to review (code, vim, notepad, …)",
-      defaultTheme.dim("Then /approve to continue · /revise to iterate · /abandon to cancel"),
-    ]),
-    { tag: "op:spec" },
+  emitArtifactDraftedNotice(
+    ctx,
+    "spec",
+    specPath,
+    "/approve to continue · /revise to iterate · /abandon to cancel",
   );
 }
 
 function emitPlanDraftedNotice(ctx: MsgCtx, planPath: string): void {
-  ctx.addMessage(
-    "system",
-    renderBrandedBox("op:plan", [
-      defaultTheme.primary(`${ICONS.success} Drafted plan: ${planPath}`),
-      "Open in your editor to review",
-      defaultTheme.dim("Then /approve to execute · /revise to iterate · /abandon to cancel"),
-    ]),
-    { tag: "op:plan" },
+  emitArtifactDraftedNotice(
+    ctx,
+    "plan",
+    planPath,
+    "/approve to execute · /revise to iterate · /abandon to cancel",
   );
 }
 
