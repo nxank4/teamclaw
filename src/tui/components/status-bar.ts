@@ -120,6 +120,11 @@ export class StatusBarComponent implements Component {
     this.rightText = text;
   }
 
+  /** Read the current right-side text. */
+  getRightText(): string {
+    return this.rightText;
+  }
+
   // ── Legacy API (backward compatible) ──
 
   setLeft(...items: string[]): void {
