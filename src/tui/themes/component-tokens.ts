@@ -70,6 +70,13 @@ export const COMPONENT_TO_SEMANTIC = {
   "status.dotConnecting":  "text.tertiary",
   "status.spinnerDefault": "status.info",
 
+  // ── status badges (badge.ts) ──────────────────────────────────────
+  "badge.success":         "status.success",
+  "badge.error":           "status.error",
+  "badge.warning":         "status.warning",
+  "badge.info":            "status.info",
+  "badge.pending":         "text.tertiary",
+
   // ── markdown (markdown.ts: 10 sites) ──────────────────────────────
   "md.h1":                 "brand.primary",
   "md.h2":                 "brand.accent",

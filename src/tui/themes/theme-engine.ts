@@ -29,7 +29,8 @@ export class ThemeEngine extends EventEmitter {
     }
     // Legacy default still resolves to mocha (until commit 11 removes it).
     this.current = this.themes.get("catppuccin-mocha")!;
-    // Token system default is pawlwinkle.
+    // Token system default (already pre-set in active.ts; explicit here
+    // so a fresh engine re-asserts it after tests reset state).
     const defaultPalette = this.palettes.get(DEFAULT_PALETTE_ID)!;
     setActivePalette(defaultPalette);
   }

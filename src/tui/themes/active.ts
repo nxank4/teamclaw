@@ -10,28 +10,21 @@
  * invalidates the resolver's StyleFn cache.
  */
 import type { Palette } from "./semantic-tokens.js";
+import { pawlwinkle } from "./palettes/pawlwinkle.js";
 import { invalidateCache } from "./resolver.js";
 
-let _activePalette: Palette | null = null;
+/**
+ * Initial palette is pawlwinkle so token reads work from module load —
+ * tests and standalone scripts don't need to construct ThemeEngine.
+ * The engine calls setActivePalette() on /theme switch to swap.
+ */
+let _activePalette: Palette = pawlwinkle;
 
 export function setActivePalette(palette: Palette): void {
   _activePalette = palette;
   invalidateCache();
 }
 
-/**
- * Read the active palette. Throws if no palette has been set yet —
- * this should only happen if a token is read before app startup wires
- * the theme engine.
- */
 export function activePalette(): Palette {
-  if (!_activePalette) {
-    throw new Error("No active palette set. Theme engine must initialize before tokens are read.");
-  }
   return _activePalette;
-}
-
-/** True if a palette has been set. Used by guarded callsites in startup. */
-export function hasActivePalette(): boolean {
-  return _activePalette !== null;
 }

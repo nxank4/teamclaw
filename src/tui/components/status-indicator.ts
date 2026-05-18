@@ -2,19 +2,19 @@
  * Shared status indicators — single source of truth for status dots
  * and inline loading spinners across all TUI views.
  */
-import { ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
 import { ICONS } from "../constants/icons.js";
 
 // ── Status Dots ──────────────────────────────────────────────────
 
 const STATUS_DOT = {
-  active:       { symbol: ICONS.dotFilled, color: ctp.green },     // ● green — currently in use
-  configured:   { symbol: ICONS.dotFilled, color: ctp.yellow },    // ● yellow — set up but not active
-  offline:      { symbol: ICONS.dotFilled, color: ctp.overlay0 },  // ● dim — unreachable
-  unconfigured: { symbol: ICONS.dotEmpty,  color: ctp.overlay0 },  // ○ dim — not set up
-  error:        { symbol: ICONS.dotFilled, color: ctp.red },       // ● red — failed
-  ready:        { symbol: ICONS.dotFilled, color: ctp.blue },      // ● blue — ready, not yet connected
-  connecting:   { symbol: ICONS.dotHalf,   color: ctp.overlay0 },  // ◐ dim — connecting
+  active:       { symbol: ICONS.dotFilled, color: tokens.status.dotActive },
+  configured:   { symbol: ICONS.dotFilled, color: tokens.status.dotConfigured },
+  offline:      { symbol: ICONS.dotFilled, color: tokens.status.dotOffline },
+  unconfigured: { symbol: ICONS.dotEmpty,  color: tokens.status.dotOffline },
+  error:        { symbol: ICONS.dotFilled, color: tokens.status.dotError },
+  ready:        { symbol: ICONS.dotFilled, color: tokens.status.dotReady },
+  connecting:   { symbol: ICONS.dotHalf,   color: tokens.status.dotConnecting },
 } as const;
 
 export type StatusDotKind = keyof typeof STATUS_DOT;
@@ -58,7 +58,7 @@ export interface InlineSpinner {
  * character. Call `stop()` when loading is complete.
  */
 export function createSpinner(colorFn?: (s: string) => string): InlineSpinner {
-  const color = colorFn ?? ctp.teal;
+  const color = colorFn ?? tokens.status.spinnerDefault;
   let idx = 0;
 
   const timer = setInterval(() => { idx++; }, SPINNER_INTERVAL_MS);

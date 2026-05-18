@@ -78,6 +78,13 @@ export interface TokenTree {
     dotConnecting: StyleFn;
     spinnerDefault: StyleFn;
   };
+  badge: {
+    success: StyleFn;
+    error: StyleFn;
+    warning: StyleFn;
+    info: StyleFn;
+    pending: StyleFn;
+  };
   md: {
     h1: StyleFn;
     h2: StyleFn;
@@ -134,13 +141,17 @@ type TopLevel = keyof TokenTree;
 
 const TOP_LEVELS: ReadonlySet<TopLevel> = new Set([
   "chat", "tree", "tool", "diff", "agent",
-  "status", "md", "panel", "ui",
+  "status", "badge", "md", "panel", "ui",
 ]);
 
 /**
- * Build a nested Proxy. `getPalette` is invoked per-call so the live
- * palette is read at the moment the token is dereferenced — supports
- * mid-session theme switching for free.
+ * Build a nested Proxy. The returned leaf StyleFns re-resolve against
+ * `getPalette()` on every invocation, so components that cache a leaf
+ * (e.g. `const fn = tokens.ui.divider`) still pick up a theme switch
+ * without re-fetching. Internally `resolveToken` memoizes per
+ * (paletteId, path), so steady-state cost is one map lookup + one
+ * ANSI string concat — no measurable regression versus direct color
+ * function access.
  */
 function buildTree(getPalette: () => Palette): TokenTree {
   return new Proxy({} as TokenTree, {
@@ -152,7 +163,7 @@ function buildTree(getPalette: () => Palette): TokenTree {
           if (!(path in COMPONENT_TO_SEMANTIC)) {
             throw new Error(`Unknown component token: ${path}`);
           }
-          return resolveToken(path, getPalette());
+          return (s: string): string => resolveToken(path, getPalette())(s);
         },
       });
     },

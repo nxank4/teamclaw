@@ -2,8 +2,8 @@
  * Horizontal divider line with optional dynamic label.
  */
 import type { Component } from "../core/component.js";
-import type { StyleFn } from "../themes/theme.js";
-import { ctp } from "../themes/default.js";
+import type { StyleFn } from "../themes/style-fn.js";
+import { tokens } from "../themes/tokens.js";
 import { separator } from "../primitives/separator.js";
 
 export class DividerComponent implements Component {
@@ -13,7 +13,7 @@ export class DividerComponent implements Component {
   private style: StyleFn;
   private label: string | null = null;
 
-  constructor(id: string, char = "\u2500", style: StyleFn = ctp.surface1) {
+  constructor(id: string, char = "\u2500", style: StyleFn = tokens.ui.divider) {
     this.id = id;
     this.char = char;
     this.style = style;
