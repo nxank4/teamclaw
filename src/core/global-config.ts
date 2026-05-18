@@ -216,6 +216,7 @@ export function buildDefaultGlobalConfig(): OpenPawlGlobalConfig {
     debugMode: false,
     specsDirectory: DEFAULT_SPECS_DIR,
     plansDirectory: DEFAULT_PLANS_DIR,
+    uiTheme: "pawlwinkle",
     complexityThreshold: {
       tokens: DEFAULT_COMPLEXITY_TOKENS,
       fileMentions: DEFAULT_COMPLEXITY_FILE_MENTIONS,
