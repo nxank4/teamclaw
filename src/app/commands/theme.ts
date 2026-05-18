@@ -55,9 +55,8 @@ function openInteractiveBlock(ctx: CommandContext): void {
       await persistTheme(palette.id);
       ctx.tui?.requestRender();
     },
-    summary: (palette) =>
-      tokens.picker.hint(`[${THEMES_MESSAGE_TAG}] switched to `) +
-      tokens.ui.brandPrimary(palette.id),
+    onFormatSelection: (palette) =>
+      tokens.picker.hint("→ theme: ") + tokens.ui.brandPrimary(palette.id),
   });
 }
 

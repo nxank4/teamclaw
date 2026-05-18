@@ -96,7 +96,7 @@ function makeSpec(
     render: (i) => [`row ${i}: ${ITEMS[i]?.label ?? "?"}`],
     onSelect: (item) => { selected.push(item); },
     onCancel: () => { cancelled++; },
-    summary: (item) => `selected ${item.id}`,
+    onFormatSelection: (item) => `selected ${item.id}`,
     ...overrides,
   };
   return { spec, selected, get cancelled() { return cancelled; } } as {
@@ -259,6 +259,41 @@ describe("Enter (select)", () => {
     expect(resolved).toBe(true);
     const lastReplace = [...h.calls].reverse().find((c) => c.kind === "replaceByTag") as { content: string } | undefined;
     expect(lastReplace?.content).toBe("selected a");
+  });
+
+  test("onFormatSelection is called with (item, index) after Enter", async () => {
+    const h = makeHarness();
+    const formatted: Array<{ id: string; index: number }> = [];
+    const { spec } = makeSpec({
+      initialIndex: 2,
+      onFormatSelection: (item, index) => {
+        formatted.push({ id: item.id, index });
+        return `→ thing: ${item.id}`;
+      },
+    });
+    new InteractiveBlock(spec, h.deps).mount();
+    h.handler!.handleKey({ type: "enter", shift: false });
+    await new Promise((r) => setImmediate(r));
+    expect(formatted).toEqual([{ id: ITEMS[2]!.id, index: 2 }]);
+    const lastReplace = [...h.calls].reverse().find((c) => c.kind === "replaceByTag") as { content: string } | undefined;
+    expect(lastReplace?.content).toBe(`→ thing: ${ITEMS[2]!.id}`);
+  });
+
+  test("default summary is \"→ selected\" when onFormatSelection is omitted", async () => {
+    const h = makeHarness();
+    // Build a spec with no onFormatSelection — relies on the default.
+    const spec: InteractiveBlockSpec<Item> = {
+      items: ITEMS,
+      tag: "op:test",
+      statusHint: "hint",
+      render: (i) => [`row ${i}`],
+      onSelect: () => { /* noop */ },
+    };
+    new InteractiveBlock(spec, h.deps).mount();
+    h.handler!.handleKey({ type: "enter", shift: false });
+    await new Promise((r) => setImmediate(r));
+    const lastReplace = [...h.calls].reverse().find((c) => c.kind === "replaceByTag") as { content: string } | undefined;
+    expect(lastReplace?.content).toBe("→ selected");
   });
 });
 

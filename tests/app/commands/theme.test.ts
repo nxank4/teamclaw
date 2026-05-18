@@ -230,14 +230,14 @@ describe("/themes interactive picker", () => {
     h.block!.handleKey({ type: "enter", shift: false });
     // onSelect is fire-and-forget from handleKey; poll until the
     // summary replaceByTag has run.
-    for (let i = 0; i < 50 && !h.blockState.content.includes("switched to"); i++) {
+    for (let i = 0; i < 50 && !h.blockState.content.includes("→ theme:"); i++) {
       await new Promise((r) => setTimeout(r, 10));
     }
 
     expect(activePalette().id).toBe("pawlbon");
     // Block was replaced with the one-line summary, still tagged.
     expect(h.blockState.tag).toBe(THEMES_MESSAGE_TAG);
-    expect(h.blockState.content).toContain("switched to");
+    expect(h.blockState.content).toContain("→ theme:");
     expect(h.blockState.content).toContain("pawlbon");
     expect(h.blockState.hintCleared).toBe(true);
   });

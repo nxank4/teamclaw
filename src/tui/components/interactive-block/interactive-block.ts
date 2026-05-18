@@ -44,11 +44,18 @@ export interface InteractiveBlockSpec<T> {
   onSelect: (item: T, index: number) => void | Promise<void>;
   /** Called on Esc / Ctrl+C / `/` dismiss. Optional. */
   onCancel?: () => void;
-  /** One-line summary that replaces the block after Enter. */
-  summary: (item: T, index: number) => string;
+  /**
+   * One-line replacement for the block after Enter. Convention is
+   * `→ <noun>: <value>` (lowercase noun, no brackets, no `op:` prefix).
+   * See `interactive-block/README.md` for details.
+   * Default when omitted: `() => "→ selected"`.
+   */
+  onFormatSelection?: (item: T, index: number) => string;
   /** Status-bar hint shown while mounted; restored on unmount. */
   statusHint: string;
 }
+
+const DEFAULT_SELECTION_SUMMARY = "→ selected";
 
 export interface InteractiveBlockDeps {
   pushKeyHandler(h: { handleKey: (event: KeyEvent) => boolean }): void;
@@ -196,8 +203,8 @@ export class InteractiveBlock<T> {
     try {
       await this.spec.onSelect(item, idx);
     } finally {
-      const summary = this.spec.summary(item, idx);
-      this.deps.replaceByTag(this.spec.tag, summary);
+      const formatter = this.spec.onFormatSelection ?? (() => DEFAULT_SELECTION_SUMMARY);
+      this.deps.replaceByTag(this.spec.tag, formatter(item, idx));
       this.deps.requestRender();
     }
   }
