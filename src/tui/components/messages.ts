@@ -6,7 +6,7 @@ import type { Component } from "../core/component.js";
 import type { LayoutConfig } from "../layout/responsive.js";
 import { wrapText } from "../utils/wrap.js";
 import { visibleWidth, stripAnsi } from "../utils/text-width.js";
-import { defaultTheme, ctp } from "../themes/default.js";
+import { tokens, bgToken } from "../themes/tokens.js";
 import { ICONS } from "../constants/icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { CopyManager } from "../text/copy-manager.js";
@@ -387,13 +387,13 @@ export class MessagesComponent implements Component {
         // Width: full terminal minus bg padding (1 left) and prefix ("> " = 2) and margin (1 right)
         const wrapWidth = Math.max(20, width - 4);
         const wrapped = wrapText(msg.content || "", wrapWidth);
-        const accentFn = msg.pending ? ctp.overlay0 : defaultTheme.primary;
-        const textFn = msg.pending ? ctp.overlay0 : ctp.text;
+        const accentFn = msg.pending ? tokens.chat.userPending : tokens.chat.userPrompt;
+        const textFn = msg.pending ? tokens.chat.userPending : tokens.chat.userText;
         const rawLines = wrapped.map((line, i) => {
           const prefix = i === 0 ? accentFn("> ") : "  ";
           return prefix + textFn(line);
         });
-        return applyBlockBackground(rawLines, defaultTheme.agentResponseBg, width);
+        return applyBlockBackground(rawLines, bgToken("elevated"), width);
       }
       case "assistant":
       case "agent": {
@@ -424,7 +424,7 @@ export class MessagesComponent implements Component {
           ? toolSegCount + parseInt(collapsedMatch[1]!, 10)
           : toolSegCount;
         if (totalToolCount > 3) {
-          badgeLines.push("  " + agentBadge(nameLabel) + ctp.overlay0(` (used ${totalToolCount} tools)`));
+          badgeLines.push("  " + agentBadge(nameLabel) + tokens.chat.toolCountHint(` (used ${totalToolCount} tools)`));
         } else {
           badgeLines.push("  " + agentBadge(nameLabel));
         }
@@ -438,9 +438,9 @@ export class MessagesComponent implements Component {
           }
         } else {
           // Tree rendering: tool lines with connectors, text blocks indented
-          const BRANCH = ctp.overlay0("├─");
-          const LAST   = ctp.overlay0("└─");
-          const VERT   = ctp.overlay0("│");
+          const BRANCH = tokens.tree.connector("├─");
+          const LAST   = tokens.tree.connector("└─");
+          const VERT   = tokens.tree.connector("│");
 
           // Count tool segments for collapse logic
           const toolSegs: Array<{ type: "tool"; line: string }> = [];
@@ -464,7 +464,7 @@ export class MessagesComponent implements Component {
             // Collapsed summary
             const hiddenCount = toolSegs.length - showFirst - (toolSegs.length > showFirst ? 1 : 0);
             if (hiddenCount > 0) {
-              contentLines.push(" " + BRANCH + "  " + ctp.overlay0(`... ${hiddenCount} more tools completed`));
+              contentLines.push(" " + BRANCH + "  " + tokens.tree.collapsedMore(`... ${hiddenCount} more tools completed`));
             }
             // Last tool
             if (toolSegs.length > showFirst) {
@@ -506,14 +506,14 @@ export class MessagesComponent implements Component {
         const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
         return wrapped.map((line, i) => {
           const prefix = i === 0 ? `${ICONS.error} ` : "  ";
-          return "  " + defaultTheme.error(prefix + line);
+          return "  " + tokens.chat.errorPrefix(prefix + line);
         });
       }
       case "tool": {
         const wrapped = wrapText(msg.content || "", maxBubbleWidth - 4);
         return wrapped.map((line, i) => {
-          const prefix = i === 0 ? ctp.teal(`${ICONS.gear} `) : "  ";
-          return "  " + prefix + ctp.overlay1(line);
+          const prefix = i === 0 ? tokens.chat.toolInline(`${ICONS.gear} `) : "  ";
+          return "  " + prefix + tokens.chat.toolText(line);
         });
       }
       case "system": {
@@ -529,13 +529,13 @@ export class MessagesComponent implements Component {
         }
         // Tool approval prompts get a subtle warm background tint
         if (msg.tag === "tool-approval") {
-          return applyBlockBackground(sysLines, defaultTheme.toolApprovalBg, width);
+          return applyBlockBackground(sysLines, bgToken("selected"), width);
         }
         return sysLines;
       }
       default: {
         const hasAnsi = (msg.content || "").includes("\x1b[");
-        const colorFn = hasAnsi ? (s: string) => s : ctp.overlay1;
+        const colorFn = hasAnsi ? (s: string) => s : tokens.chat.systemDefault;
         const wrapped = wrapText(msg.content || "", maxBubbleWidth);
         return wrapped.map((line) => "  " + colorFn(line));
       }
@@ -546,8 +546,8 @@ export class MessagesComponent implements Component {
   private renderAgentWithLiveTools(msg: ChatMessage, width: number, maxBubbleWidth: number): string[] {
     const nameLabel = msg.agentName ?? "OpenPawl";
     const badgeLines: string[] = [];
-    const BRANCH = ctp.overlay0("├─");
-    const VERT   = ctp.overlay0("│");
+    const BRANCH = tokens.tree.connector("├─");
+    const VERT   = tokens.tree.connector("│");
 
     // Badge (root of tree) — outside background block
     badgeLines.push("  " + agentBadge(nameLabel));
@@ -586,7 +586,7 @@ export class MessagesComponent implements Component {
 
       const hiddenCount = completed.length - showFirst - (completed.length > showFirst ? 1 : 0);
       if (hiddenCount > 0) {
-        contentLines.push(" " + BRANCH + "  " + ctp.overlay0(`... ${hiddenCount} more tools completed`));
+        contentLines.push(" " + BRANCH + "  " + tokens.tree.collapsedMore(`... ${hiddenCount} more tools completed`));
       }
 
       if (completed.length > showFirst) {
@@ -607,7 +607,7 @@ export class MessagesComponent implements Component {
     } else if (running.length === 0 && totalTools > 0) {
       // Agent is thinking (no content yet, no tools running, but had tools)
       contentLines.push(" " + VERT);
-      contentLines.push("   " + ctp.overlay0("thinking..."));
+      contentLines.push("   " + tokens.tree.thinking("thinking..."));
     }
 
     return [...badgeLines, ...contentLines];
@@ -637,7 +637,7 @@ export class MessagesComponent implements Component {
       const preview = msgLines.slice(0, COLLAPSE_PREVIEW);
       allLines.push(...preview);
       const hidden = msgLines.length - COLLAPSE_PREVIEW;
-      allLines.push("  " + ctp.overlay0(`  ${ICONS.cursor} ${hidden} more lines — Ctrl+E to expand`));
+      allLines.push("  " + tokens.chat.collapseHint(`  ${ICONS.cursor} ${hidden} more lines — Ctrl+E to expand`));
     } else {
       allLines.push(...msgLines);
     }
@@ -689,9 +689,9 @@ export class MessagesComponent implements Component {
    * user sees blocks live, not just at phase-summary time.
    */
   addTaskBlockedLine(args: { agentId: string; taskName: string; reasonMessage: string }): void {
-    const glyph = defaultTheme.error(ICONS.blocked);
+    const glyph = tokens.chat.taskBlockedGlyph(ICONS.blocked);
     const head = `${glyph} ${args.agentId}: ${args.taskName}`;
-    const tail = defaultTheme.dim(` blocked: ${args.reasonMessage}`);
+    const tail = tokens.chat.taskBlockedTail(` blocked: ${args.reasonMessage}`);
     this.addMessage({ role: "system", content: `${head}${tail}` });
   }
 
@@ -900,7 +900,7 @@ export class MessagesComponent implements Component {
         const hiddenCount = summaryLines.length - showFirst - 1;
         const parts = [
           ...summaryLines.slice(0, showFirst),
-          ctp.overlay0(`... ${hiddenCount} more tools completed`),
+          tokens.tree.collapsedMore(`... ${hiddenCount} more tools completed`),
           summaryLines[summaryLines.length - 1]!,
         ];
         toolSummary = parts.join("\n");
@@ -1049,19 +1049,19 @@ function detectSystemColor(content: string): (s: string) => string {
   const first = content.slice(0, 60);
   // Error-like messages — check first (most specific patterns)
   if (/^(Error:|Failed |Cannot |Could not )/i.test(first)) {
-    return ctp.red;
+    return tokens.chat.systemError;
   }
   // Negative results — require colon/period after "No"/"Not" to avoid false positives
   if (/^(No\b.+\bfound|Not\b.+\bavailable|No results)/i.test(first)) {
-    return ctp.red;
+    return tokens.chat.systemError;
   }
   // Success / status messages
   if (first.startsWith("**") || /\bactive\b|\bmode\b|\bcaptured\b|\bswitching\b/i.test(first)) {
-    return ctp.green;
+    return tokens.chat.systemSuccess;
   }
   // Help / usage messages
   if (first.startsWith("Usage:") || first.startsWith("Example:") || content.includes("Use `/")) {
-    return ctp.overlay1;
+    return tokens.chat.systemHelp;
   }
-  return ctp.overlay2;
+  return tokens.chat.systemDefault;
 }

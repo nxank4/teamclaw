@@ -4,7 +4,7 @@
  */
 import { visibleWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
-import { ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
 import { separator } from "../primitives/separator.js";
 import { labelValue } from "../primitives/columns.js";
 
@@ -44,9 +44,9 @@ export interface PanelOptions {
  * Returns array of ANSI-styled terminal lines ready for output.
  */
 export function renderPanel(options: PanelOptions, contentLines: string[]): string[] {
-  const bc = options.borderColor ?? ctp.surface1;
-  const tc = options.titleColor ?? ctp.mauve;
-  const fc = options.footerColor ?? ctp.overlay0;
+  const bc = options.borderColor ?? tokens.panel.border;
+  const tc = options.titleColor ?? tokens.panel.title;
+  const fc = options.footerColor ?? tokens.panel.footer;
   const chars = options.border === "none" ? null : BORDERS[options.border ?? "single"];
   const padL = options.padding?.left ?? 1;
   const padR = options.padding?.right ?? 1;
@@ -157,8 +157,8 @@ export function renderPanel(options: PanelOptions, contentLines: string[]): stri
  */
 export function panelSection(title: string, width = 50): string[] {
   return [
-    ctp.text(title),
-    separator({ width: Math.min(width, 50), color: ctp.surface1 }),
+    tokens.panel.rowLabel(title),
+    separator({ width: Math.min(width, 50), color: tokens.panel.border }),
   ];
 }
 
@@ -170,11 +170,11 @@ export function panelRow(
   value: string,
   opts: { selected?: boolean; hovered?: boolean; hint?: string } = {},
 ): string {
-  const prefix = opts.selected ? ctp.mauve("\u276f ") : "  ";
-  const nameColor = (opts.selected || opts.hovered) ? ctp.text : ctp.subtext1;
-  const valueColor = (opts.selected || opts.hovered) ? ctp.subtext1 : ctp.overlay1;
+  const prefix = opts.selected ? tokens.panel.title("\u276f ") : "  ";
+  const nameColor = (opts.selected || opts.hovered) ? tokens.panel.rowLabel : tokens.panel.rowLabelDim;
+  const valueColor = (opts.selected || opts.hovered) ? tokens.panel.rowValue : tokens.panel.rowValueDim;
 
-  return prefix + labelValue(label, value + (opts.hint ? "  " + ctp.overlay0(opts.hint) : ""), {
+  return prefix + labelValue(label, value + (opts.hint ? "  " + tokens.panel.footer(opts.hint) : ""), {
     labelWidth: 16,
     labelColor: nameColor,
     valueColor,
