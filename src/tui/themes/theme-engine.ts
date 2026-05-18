@@ -1,111 +1,53 @@
 /**
- * Theme engine — singleton that manages theme loading, switching, and resolution.
- * Default theme: Catppuccin Mocha.
+ * Theme engine — singleton that manages the active palette and emits
+ * theme:changed events.
+ *
+ * Default palette: pawlwinkle.
  */
 import { EventEmitter } from "node:events";
-import type { Theme } from "./theme.js";
-import type { ThemeDefinition } from "./theme-types.js";
-import { getBuiltInThemes } from "./built-in/index.js";
-import { setActiveTheme } from "./default.js";
 import type { Palette } from "./semantic-tokens.js";
 import { getBuiltInPalettes, DEFAULT_PALETTE_ID, getPaletteById } from "./palettes/index.js";
 import { setActivePalette } from "./active.js";
 
 export class ThemeEngine extends EventEmitter {
-  private themes = new Map<string, ThemeDefinition>();
   private palettes = new Map<string, Palette>();
-  private current: ThemeDefinition;
-  private maxBrightness = 1.0;
+  private currentId: string;
 
   constructor() {
     super();
-    // Register legacy Theme definitions (back-compat for old defaultTheme proxy).
-    for (const td of getBuiltInThemes()) {
-      this.themes.set(td.id, td);
-    }
-    // Register new Palette definitions for the token system.
     for (const p of getBuiltInPalettes()) {
       this.palettes.set(p.id, p);
     }
-    // Legacy default still resolves to mocha (until commit 11 removes it).
-    this.current = this.themes.get("catppuccin-mocha")!;
-    // Token system default (already pre-set in active.ts; explicit here
-    // so a fresh engine re-asserts it after tests reset state).
-    const defaultPalette = this.palettes.get(DEFAULT_PALETTE_ID)!;
-    setActivePalette(defaultPalette);
+    this.currentId = DEFAULT_PALETTE_ID;
+    setActivePalette(this.palettes.get(DEFAULT_PALETTE_ID)!);
   }
 
-  /** Get the currently active theme. */
-  getTheme(): Theme {
-    return this.current.theme;
-  }
-
-  /** Get the current theme definition (with palette). */
-  getDefinition(): ThemeDefinition {
-    return this.current;
-  }
-
-  /** Get the current theme ID. */
-  getCurrentId(): string {
-    return this.current.id;
-  }
-
-  /** Switch to a different theme by ID. Updates legacy + new token systems. */
+  /** Switch the active palette by id. Returns false if the id is unknown. */
   switchTheme(themeId: string): boolean {
-    const td = this.themes.get(themeId);
-    if (td) {
-      this.current = td;
-      setActiveTheme(td.theme);
-    }
     const palette = this.palettes.get(themeId);
-    if (palette) {
-      setActivePalette(palette);
-    }
-    if (!td && !palette) return false;
+    if (!palette) return false;
+    this.currentId = themeId;
+    setActivePalette(palette);
     this.emit("theme:changed", themeId);
     return true;
   }
 
-  /** Get the Palette definition for a theme id (used by /themes preview). */
+  /** The id of the currently active palette. */
+  getCurrentId(): string {
+    return this.currentId;
+  }
+
+  /** Look up a palette by id (used by `/themes` preview). */
   getPalette(themeId: string): Palette | undefined {
     return this.palettes.get(themeId) ?? getPaletteById(themeId);
   }
 
-  /** List palette ids (the canonical 3-theme registry). */
+  /** All known palettes in registration order. */
   listPalettes(): readonly Palette[] {
     return [...this.palettes.values()];
   }
-
-  /** List all available theme IDs. */
-  listThemes(): { id: string; name: string; variant: string }[] {
-    return [...this.themes.values()].map((t) => ({
-      id: t.id,
-      name: t.name,
-      variant: t.variant,
-    }));
-  }
-
-  /** Register a custom theme. */
-  registerTheme(td: ThemeDefinition): void {
-    this.themes.set(td.id, td);
-  }
-
-  /** Set max brightness (0.0–1.0). Affects computed colors. */
-  setMaxBrightness(value: number): void {
-    this.maxBrightness = Math.max(0, Math.min(1, value));
-  }
-
-  getMaxBrightness(): number {
-    return this.maxBrightness;
-  }
-
-  /** Get a theme by ID (for preview). */
-  getThemeById(id: string): ThemeDefinition | undefined {
-    return this.themes.get(id);
-  }
 }
 
-/** Singleton instance. */
 let _engine: ThemeEngine | null = null;
 
 export function getThemeEngine(): ThemeEngine {
