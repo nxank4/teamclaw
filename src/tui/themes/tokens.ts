@@ -85,6 +85,11 @@ export interface TokenTree {
     info: StyleFn;
     pending: StyleFn;
   };
+  picker: {
+    itemSelected: StyleFn;
+    itemUnselected: StyleFn;
+    hint: StyleFn;
+  };
   md: {
     h1: StyleFn;
     h2: StyleFn;
@@ -142,7 +147,7 @@ type TopLevel = keyof TokenTree;
 
 const TOP_LEVELS: ReadonlySet<TopLevel> = new Set([
   "chat", "tree", "tool", "diff", "agent",
-  "status", "badge", "md", "panel", "ui",
+  "status", "badge", "picker", "md", "panel", "ui",
 ]);
 
 /**

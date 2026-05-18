@@ -11,6 +11,11 @@ import { getConnectionState } from "../core/connection-state.js";
 import { findClosest } from "../utils/fuzzy.js";
 import type { AppLayout } from "./layout.js";
 import type { AppContext } from "./init-session-router.js";
+import {
+  InteractiveBlock,
+  type InteractiveBlockSpec,
+  type InteractiveBlockDeps,
+} from "../tui/components/interactive-block/index.js";
 
 export interface PromptQueueState {
   queue: { text: string; fullPrompt: string; attachedFiles?: string[] }[];
@@ -22,23 +27,57 @@ function createMsgCtx(
   layout: AppLayout,
   ctx: AppContext,
 ) {
-  return {
-    addMessage: (role: string, content: string, options?: { tag?: string }) => {
-      layout.messages.addMessage({
-        role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
+  // Tracks the status-bar right text in effect before any interactive
+  // block grabbed it. Restored when the block unmounts. Null = no
+  // saved state (nothing to restore).
+  let savedRightText: string | null = null;
+
+  const addMessage = (role: string, content: string, options?: { tag?: string }) => {
+    layout.messages.addMessage({
+      role: role as "system" | "user" | "error" | "assistant" | "agent" | "tool",
+      content,
+      timestamp: new Date(),
+      tag: options?.tag as "tool-approval" | "thinking" | "op:compact" | "op:themes" | undefined,
+    });
+    if (ctx.chatSession && role !== "error") {
+      ctx.chatSession.addMessage({
+        role: role as "user" | "assistant" | "system" | "tool",
         content,
-        timestamp: new Date(),
-        tag: options?.tag as "tool-approval" | "thinking" | "op:compact" | undefined,
+        metadata: role === "system" ? { transient: true } : undefined,
       });
-      if (ctx.chatSession && role !== "error") {
-        ctx.chatSession.addMessage({
-          role: role as "user" | "assistant" | "system" | "tool",
-          content,
-          metadata: role === "system" ? { transient: true } : undefined,
-        });
+    }
+    layout.tui.requestRender();
+  };
+
+  const blockDeps: InteractiveBlockDeps = {
+    pushKeyHandler: (h) => layout.tui.pushKeyHandler(h),
+    popKeyHandler: () => layout.tui.popKeyHandler(),
+    requestRender: () => layout.tui.requestRender(),
+    addMessage: (role, content, options) => addMessage(role, content, options),
+    replaceByTag: (tag, content) =>
+      layout.messages.replaceByTag(
+        tag as "tool-approval" | "thinking" | "op:compact" | "op:themes",
+        content,
+      ),
+    removeLastByTag: (tag) => layout.messages.removeLastByTag(tag),
+    setStatusHint: (text) => {
+      if (savedRightText === null) {
+        // Capture the prior value once per mount cycle; nested mounts
+        // would otherwise overwrite the original with a hint.
+        savedRightText = layout.statusBar.getRightText();
       }
+      layout.statusBar.setRightText(text);
       layout.tui.requestRender();
     },
+    clearStatusHint: () => {
+      layout.statusBar.setRightText(savedRightText ?? "");
+      savedRightText = null;
+      layout.tui.requestRender();
+    },
+  };
+
+  return {
+    addMessage,
     clearMessages: () => {
       layout.messages.clear();
       ctx.chatSession?.clearMessages();
@@ -46,6 +85,11 @@ function createMsgCtx(
     requestRender: () => layout.tui.requestRender(),
     exit: () => { layout.tui.stop(); },
     tui: layout.tui,
+    mountInteractiveBlock: <T>(spec: InteractiveBlockSpec<T>): InteractiveBlock<T> => {
+      const block = new InteractiveBlock(spec, blockDeps);
+      block.mount();
+      return block;
+    },
   };
 }
 
