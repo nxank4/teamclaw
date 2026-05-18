@@ -201,6 +201,9 @@ function toPositiveInt(value: unknown, fallback: number): number {
 }
 
 export function getGlobalConfigPath(): string {
+  // OPENPAWL_CONFIG_PATH lets tests + advanced users redirect the global
+  // config without touching ~/.openpawl/.
+  if (process.env.OPENPAWL_CONFIG_PATH) return process.env.OPENPAWL_CONFIG_PATH;
   return path.join(os.homedir(), ".openpawl", "config.json");
 }
 
