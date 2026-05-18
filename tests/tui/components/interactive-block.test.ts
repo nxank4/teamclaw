@@ -96,7 +96,7 @@ function makeSpec(
     render: (i) => [`row ${i}: ${ITEMS[i]?.label ?? "?"}`],
     onSelect: (item) => { selected.push(item); },
     onCancel: () => { cancelled++; },
-    summary: (item) => `selected ${item.id}`,
+    onFormatSelection: (item) => `selected ${item.id}`,
     ...overrides,
   };
   return { spec, selected, get cancelled() { return cancelled; } } as {
