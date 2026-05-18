@@ -18,6 +18,7 @@ import { createDevCommand } from "./dev.js";
 import { createWorkspaceCommand } from "./workspace.js";
 import { createThemeCommand, createThemesCommand } from "./theme.js";
 import { createAgentsCommand } from "./agents.js";
+import { createStickyDemoCommand } from "./sticky-demo.js";
 export { createPlanCommand, type PlanCommandDeps } from "./plan.js";
 
 export function registerAllCommands(
@@ -40,5 +41,11 @@ export function registerAllCommands(
   // /plan registered later in app/index.ts.
   if (compactDeps) {
     registry.register(createCompactCommand(compactDeps));
+  }
+  // /sticky-demo is a debug-only exerciser for the sticky region.
+  // It mounts a sample block + completion sequence; useful for visual
+  // QA but noisy enough to hide from the production command list.
+  if (process.env.OPENPAWL_DEBUG === "true") {
+    registry.register(createStickyDemoCommand());
   }
 }

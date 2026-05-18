@@ -77,6 +77,24 @@ export const COMPONENT_TO_SEMANTIC = {
   "badge.info":            "status.info",
   "badge.pending":         "text.tertiary",
 
+  // ── inline pickers (interactive-block, /themes) ───────────────────
+  "picker.itemSelected":   "brand.primary",
+  "picker.itemUnselected": "text.secondary",
+  "picker.hint":           "text.tertiary",
+
+  // ── sticky region (sticky-region component) ───────────────────────
+  "sticky.divider":        "border.divider",
+  "sticky.prefix":         "brand.primary",
+  "sticky.header":         "text.primary",
+  "sticky.meta":           "text.secondary",
+  "sticky.statusPending":  "text.tertiary",
+  "sticky.statusActive":   "brand.primary",
+  "sticky.statusDone":     "status.success",
+  "sticky.statusFailed":   "status.error",
+  "sticky.itemDetail":     "text.tertiary",
+  "sticky.footer":         "text.tertiary",
+  "sticky.spinner":        "brand.accent",
+
   // ── markdown (markdown.ts: 10 sites) ──────────────────────────────
   "md.h1":                 "brand.primary",
   "md.h2":                 "brand.accent",

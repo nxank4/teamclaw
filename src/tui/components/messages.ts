@@ -25,7 +25,7 @@ export interface ChatMessage {
   /** Queued message not yet processed — rendered dimmed. */
   pending?: boolean;
   /** Visual tag for special rendering (e.g., tool approval background tint). */
-  tag?: "tool-approval" | "thinking" | "op:compact";
+  tag?: "tool-approval" | "thinking" | "op:compact" | "op:themes";
 }
 
 /** Lines above which a message is considered collapsible. */

@@ -3,6 +3,10 @@
  * Uses a Trie for fast prefix-based autocomplete.
  */
 import { Trie } from "../autocomplete/trie.js";
+import type {
+  InteractiveBlockSpec,
+  InteractiveBlock,
+} from "../components/interactive-block/index.js";
 
 export interface CommandContext {
   /**
@@ -19,6 +23,13 @@ export interface CommandContext {
   exit: () => void;
   /** Access to the TUI instance (for interactive views). */
   tui?: import("../core/tui.js").TUI;
+  /**
+   * Mount an inline keyboard-driven picker in the chat stream. Optional
+   * because tests + headless contexts may not have a layout to wire
+   * focus capture / status bar against. When absent, slash commands
+   * should fall back to a static block.
+   */
+  mountInteractiveBlock?: <T>(spec: InteractiveBlockSpec<T>) => InteractiveBlock<T>;
 }
 
 export interface SlashCommand {
