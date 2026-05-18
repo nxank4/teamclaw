@@ -4,16 +4,16 @@
  * highlighting, bullet/numbered lists, blockquotes, links, horizontal rules.
  */
 import type { Component } from "../core/component.js";
-import { bold, italic, dim, strikethrough, bgRgb, link as hyperlink } from "../core/ansi.js";
+import { bold, italic, dim, strikethrough, link as hyperlink } from "../core/ansi.js";
 import { wrapText } from "../utils/wrap.js";
 import { visibleWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
-import { defaultTheme, ctp } from "../themes/default.js";
+import { tokens, bgToken } from "../themes/tokens.js";
 import { ICONS } from "../constants/icons.js";
 import { highlight } from "cli-highlight";
 
-// Code block background — Catppuccin mantle (#181825)
-const bgCodeBlock = bgRgb(0x18, 0x18, 0x25);
+// Code block background — `bg.code` from the active palette.
+const bgCodeBlock = bgToken("code");
 
 export class MarkdownComponent implements Component {
   readonly id: string;
@@ -83,11 +83,11 @@ export function renderMarkdown(md: string, width: number): string[] {
       // Blank line before heading (unless first line)
       ensureBlankLine(result);
       if (level === 1) {
-        result.push(bold(ctp.mauve(text)));
+        result.push(bold(tokens.md.h1(text)));
       } else if (level === 2) {
-        result.push(bold(ctp.sapphire(text)));
+        result.push(bold(tokens.md.h2(text)));
       } else {
-        result.push(bold(ctp.subtext1(text)));
+        result.push(bold(tokens.md.h3(text)));
       }
       continue;
     }
@@ -97,7 +97,7 @@ export function renderMarkdown(md: string, width: number): string[] {
       const content = line.slice(2);
       const wrapped = wrapText(processInline(content), width - 4);
       for (const wl of wrapped) {
-        result.push("  " + ctp.surface2("│") + " " + ctp.subtext0(wl));
+        result.push("  " + tokens.md.blockquoteBar("│") + " " + tokens.md.blockquoteText(wl));
       }
       continue;
     }
@@ -110,7 +110,7 @@ export function renderMarkdown(md: string, width: number): string[] {
       const bulletIndent = indent + "  ";
       const wrapped = wrapText(processInline(text), width - bulletIndent.length - 2);
       wrapped.forEach((wl, i) => {
-        const prefix = i === 0 ? bulletIndent + ctp.overlay0(ICONS.bullet + " ") : bulletIndent + "  ";
+        const prefix = i === 0 ? bulletIndent + tokens.md.bullet(ICONS.bullet + " ") : bulletIndent + "  ";
         result.push(prefix + wl);
       });
       continue;
@@ -125,7 +125,7 @@ export function renderMarkdown(md: string, width: number): string[] {
       const numPrefix = indent + "  ";
       const wrapped = wrapText(processInline(text), width - numPrefix.length - num.length - 2);
       wrapped.forEach((wl, i) => {
-        const prefix = i === 0 ? numPrefix + ctp.overlay0(num + ".") + " " : numPrefix + " ".repeat(num.length + 2);
+        const prefix = i === 0 ? numPrefix + tokens.md.numbered(num + ".") + " " : numPrefix + " ".repeat(num.length + 2);
         result.push(prefix + wl);
       });
       continue;
@@ -183,7 +183,7 @@ function emitCodeBlock(result: string[], lines: string[], lang: string, width: n
   // Language label line (dim, right side)
   if (lang) {
     const labelPad = Math.max(0, width - lang.length - 2);
-    result.push(bgCodeBlock(" ".repeat(labelPad) + dim(ctp.overlay1(lang)) + "  "));
+    result.push(bgCodeBlock(" ".repeat(labelPad) + dim(tokens.md.langLabel(lang)) + "  "));
   } else {
     result.push(bgCodeBlock(" ".repeat(width)));
   }
@@ -273,7 +273,7 @@ function emitTable(result: string[], tableLines: string[], width: number): void 
   result.push(headerCells.join(gapStr));
 
   // Separator row (dim dashes)
-  const sepCells = colWidths.map(w => ctp.overlay0("─".repeat(w)));
+  const sepCells = colWidths.map(w => tokens.md.tableSep("─".repeat(w)));
   result.push(sepCells.join(gapStr));
 
   // Data rows
@@ -299,16 +299,16 @@ function highlightCodeBlock(lines: string[], lang: string): string[] {
 function processInline(text: string): string {
   let result = text;
 
-  // Inline code: `code` — warm accent color, no syntax highlighting
+  // Inline code: `code` — accent color, no syntax highlighting
   result = result.replace(/`([^`]+)`/g, (_match, code: string) => {
-    return ctp.rosewater(code);
+    return tokens.md.inlineCode(code);
   });
 
   // Bold+italic: ***text***
   result = result.replace(/\*\*\*(.+?)\*\*\*/g, (_match, t: string) => bold(italic(t)));
 
   // Bold: **text**
-  result = result.replace(/\*\*(.+?)\*\*/g, (_match, t: string) => bold(ctp.subtext1(t)));
+  result = result.replace(/\*\*(.+?)\*\*/g, (_match, t: string) => bold(tokens.md.bold(t)));
 
   // Italic: *text*
   result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_match, t: string) => italic(t));
@@ -318,7 +318,7 @@ function processInline(text: string): string {
 
   // Links: [text](url)
   result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text: string, url: string) => {
-    return hyperlink(url, defaultTheme.markdown.link(text));
+    return hyperlink(url, tokens.md.link(text));
   });
 
   return result;

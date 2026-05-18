@@ -1,4 +1,4 @@
-import { ctp } from "../tui/themes/default.js";
+import { tokens } from "../tui/themes/tokens.js";
 import { isTerminal } from "../session/phase-machine.js";
 import { formatRelativeTime } from "../utils/formatters.js";
 import type { Session } from "../session/session.js";
@@ -23,7 +23,7 @@ export function buildResumeBannerContent(session: Session): string {
     if (hint) lines.push(hint);
   }
 
-  return lines.map((l) => ctp.subtext1(l)).join("\n");
+  return lines.map((l) => tokens.ui.resumeBanner(l)).join("\n");
 }
 
 function hintForPhase(phase: string): string | null {

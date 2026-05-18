@@ -11,7 +11,7 @@
  * enough to read (3s). Coupling the two — as PR #119's first cut did —
  * made the word flicker faster than the eye could follow.
  */
-import { ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
 import { ICONS } from "../constants/icons.js";
 
 const SYMBOL_INTERVAL_MS = 200;
@@ -115,9 +115,9 @@ export class ThinkingIndicator {
     const word = this.currentWord || "Thinking";
     const body = `${frame} ${word}...`;
     if (this.agentName && this.agentColorFn) {
-      return `${this.agentColorFn(`[${this.agentName}]`)} ${ctp.teal(body)}`;
+      return `${this.agentColorFn(`[${this.agentName}]`)} ${tokens.ui.thinking(body)}`;
     }
-    return ctp.teal(body);
+    return tokens.ui.thinking(body);
   }
 
   /**

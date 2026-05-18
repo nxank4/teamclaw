@@ -16,7 +16,7 @@ import { createDebateCommand } from "./debate.js";
 import { createResearchCommand } from "./research.js";
 import { createDevCommand } from "./dev.js";
 import { createWorkspaceCommand } from "./workspace.js";
-import { createThemeCommand } from "./theme.js";
+import { createThemeCommand, createThemesCommand } from "./theme.js";
 import { createAgentsCommand } from "./agents.js";
 export { createPlanCommand, type PlanCommandDeps } from "./plan.js";
 
@@ -35,6 +35,7 @@ export function registerAllCommands(
   registry.register(createDevCommand());
   registry.register(createWorkspaceCommand());
   registry.register(createThemeCommand());
+  registry.register(createThemesCommand());
   registry.register(createAgentsCommand());
   // /plan registered later in app/index.ts.
   if (compactDeps) {

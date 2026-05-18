@@ -1,25 +1,38 @@
 /**
  * Badge and symbol rendering — consistent icons for agents, statuses, and modes.
  */
-import { defaultTheme, ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
 import { bold } from "../core/ansi.js";
 import { ICONS } from "../constants/icons.js";
+import type { StyleFn } from "../themes/style-fn.js";
 
 // ─── Agent colors ───────────────────────────────────────────────────────────
 
-const AGENT_COLOR_MAP: Record<string, (s: string) => string> = {
-  coder: ctp.teal,
-  reviewer: ctp.peach,
-  planner: ctp.sapphire,
-  tester: ctp.mauve,
-  debugger: ctp.red,
-  researcher: ctp.sky,
-  assistant: ctp.lavender,
+const AGENT_COLOR_MAP: Record<string, StyleFn> = {
+  coder: tokens.agent.coder,
+  reviewer: tokens.agent.reviewer,
+  planner: tokens.agent.planner,
+  tester: tokens.agent.tester,
+  debugger: tokens.agent.debugger,
+  researcher: tokens.agent.researcher,
+  assistant: tokens.agent.assistant,
 };
 
-export function getAgentColor(agentId: string): (s: string) => string {
+/** Cycling fallback palette for unknown agent ids. */
+const AGENT_FALLBACK: StyleFn[] = [
+  tokens.agent.coder,
+  tokens.agent.reviewer,
+  tokens.agent.planner,
+  tokens.agent.tester,
+  tokens.agent.researcher,
+  tokens.agent.assistant,
+];
+
+export function getAgentColor(agentId: string): StyleFn {
   const lower = agentId.toLowerCase();
-  return AGENT_COLOR_MAP[lower] ?? defaultTheme.agentColors[hashIndex(lower, defaultTheme.agentColors.length)] ?? ctp.lavender;
+  const known = AGENT_COLOR_MAP[lower];
+  if (known) return known;
+  return AGENT_FALLBACK[hashIndex(lower, AGENT_FALLBACK.length)] ?? tokens.agent.fallback;
 }
 
 export function agentBadge(agentName: string): string {
@@ -29,12 +42,12 @@ export function agentBadge(agentName: string): string {
 
 // ─── Status badges ──────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<string, { icon: string; color: (s: string) => string }> = {
-  success: { icon: defaultTheme.symbols.success, color: ctp.green },
-  error:   { icon: defaultTheme.symbols.error,   color: ctp.red },
-  warning: { icon: defaultTheme.symbols.warning,  color: ctp.yellow },
-  info:    { icon: defaultTheme.symbols.bullet,   color: ctp.teal },
-  pending: { icon: defaultTheme.symbols.pending,  color: ctp.overlay1 },
+const STATUS_CONFIG: Record<string, { icon: string; color: StyleFn }> = {
+  success: { icon: ICONS.success,    color: tokens.badge.success },
+  error:   { icon: ICONS.error,      color: tokens.badge.error },
+  warning: { icon: ICONS.warning,    color: tokens.badge.warning },
+  info:    { icon: ICONS.dotFilled,  color: tokens.badge.info },
+  pending: { icon: ICONS.dotEmpty,   color: tokens.badge.pending },
 };
 
 export function statusBadge(status: "success" | "error" | "warning" | "info" | "pending"): string {
@@ -44,7 +57,7 @@ export function statusBadge(status: "success" | "error" | "warning" | "info" | "
 
 // ─── Mode badges ────────────────────────────────────────────────────────────
 
-export function modeBadge(icon: string, shortName: string, color: (s: string) => string): string {
+export function modeBadge(icon: string, shortName: string, color: StyleFn): string {
   return color(icon + " " + shortName);
 }
 

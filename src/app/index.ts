@@ -99,7 +99,13 @@ export async function launchTUI(opts?: LaunchOptions): Promise<void> {
     const cfg = readGlobalConfig();
     mark("global config read (file I/O)");
     if (cfg?.uiTheme) {
-      getThemeEngine().switchTheme(cfg.uiTheme);
+      const ok = getThemeEngine().switchTheme(cfg.uiTheme);
+      if (!ok) {
+        // Config references a theme that no longer exists (e.g. a
+        // tokyo-night user from before the theme pruning). Fall back
+        // silently to the default; the engine constructor already
+        // primed pawlwinkle so no further action is needed.
+      }
     }
     mark("theme applied");
   }

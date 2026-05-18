@@ -1,13 +1,20 @@
 /**
- * /theme command — switch color themes with interactive picker or direct name.
- * No args → interactive theme picker.
- * With args → switch to named theme directly.
- * Persists selection to global config.
+ * /theme and /themes commands.
+ *
+ * /theme <name>     — switch to a named theme; persists to global config
+ * /theme            — shorthand for /themes
+ * /themes           — print the op:themes branded block with live previews
+ *
+ * Unknown name → warning + valid-name list; active theme unchanged.
  */
 import type { SlashCommand } from "../../tui/index.js";
-import { ThemeView } from "../interactive/theme-view.js";
 import { getThemeEngine } from "../../tui/themes/theme-engine.js";
 import { ICONS } from "../../tui/constants/icons.js";
+import {
+  renderThemesPreview,
+  THEMES_MESSAGE_TAG,
+} from "../../tui/components/themes-preview.js";
+import { PALETTE_DESCRIPTIONS } from "../../tui/themes/palettes/index.js";
 
 async function persistTheme(themeId: string): Promise<void> {
   const { readGlobalConfigWithDefaults, writeGlobalConfig } = await import("../../core/global-config.js");
@@ -16,56 +23,49 @@ async function persistTheme(themeId: string): Promise<void> {
   writeGlobalConfig(config);
 }
 
+function emitThemesBlock(ctx: { addMessage: (role: string, content: string, options?: { tag?: string }) => void }): void {
+  const engine = getThemeEngine();
+  const palettes = engine.listPalettes();
+  const currentId = engine.getCurrentId();
+  const lines = renderThemesPreview(palettes, currentId, PALETTE_DESCRIPTIONS);
+  ctx.addMessage("system", lines.join("\n"), { tag: THEMES_MESSAGE_TAG });
+}
+
 export function createThemeCommand(): SlashCommand {
   return {
     name: "theme",
     aliases: ["t"],
-    description: "Switch or list color themes",
+    description: "Switch the active theme",
     args: "[theme-name]",
     async execute(args, ctx) {
       const engine = getThemeEngine();
+      const trimmed = args.trim();
 
-      if (!args.trim()) {
-        // Interactive mode
-        if (ctx.tui) {
-          const view = new ThemeView(
-            ctx.tui,
-            async (themeId) => {
-              engine.switchTheme(themeId);
-              await persistTheme(themeId);
-              ctx.addMessage("system", `${ICONS.success} Switched to ${themeId}`);
-              ctx.tui?.requestRender();
-            },
-            () => { /* closed */ },
-          );
-          view.activate();
-          return;
-        }
-
-        // Fallback: static list
-        const themes = engine.listThemes();
-        const current = engine.getCurrentId();
-        const lines = ["\u2726 Themes", ""];
-        for (const t of themes) {
-          const marker = t.id === current ? " \u2190 current" : "";
-          const variant = t.variant === "light" ? " (light)" : "";
-          lines.push(`  ${t.id}${variant}${marker}`);
-        }
-        lines.push("", "  /theme <name> to switch");
-        ctx.addMessage("system", lines.join("\n"));
+      if (!trimmed) {
+        // No args: show the same block as /themes.
+        emitThemesBlock(ctx);
         return;
       }
 
-      // Direct switch by name
-      const ok = engine.switchTheme(args.trim());
+      const ok = engine.switchTheme(trimmed);
       if (ok) {
-        await persistTheme(args.trim());
-        ctx.addMessage("system", `${ICONS.success} Switched to ${args.trim()}`);
+        await persistTheme(trimmed);
+        ctx.addMessage("system", `${ICONS.success} Switched to ${trimmed}`);
         ctx.tui?.requestRender();
       } else {
-        const available = engine.listThemes().map((t) => t.id).join(", ");
-        ctx.addMessage("error", `Unknown theme: ${args.trim()}\nAvailable: ${available}`);
+        const available = engine.listPalettes().map((p) => p.id).join(", ");
+        ctx.addMessage("error", `Unknown theme: ${trimmed}\nAvailable: ${available}`);
       }
+    },
+  };
+}
+
+export function createThemesCommand(): SlashCommand {
+  return {
+    name: "themes",
+    description: "List available themes with live color previews",
+    async execute(_args, ctx) {
+      emitThemesBlock(ctx);
     },
   };
 }

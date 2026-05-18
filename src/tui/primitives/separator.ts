@@ -2,7 +2,7 @@
  * Horizontal separator line with optional centered label.
  */
 import { visibleWidth } from "../utils/text-width.js";
-import { ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
 
 export interface SeparatorOptions {
   width?: number;
@@ -16,7 +16,7 @@ export interface SeparatorOptions {
 export function separator(options?: SeparatorOptions): string {
   const w = options?.width ?? 40;
   const ch = options?.char ?? "\u2500";
-  const color = options?.color ?? ctp.surface1;
+  const color = options?.color ?? tokens.ui.separator;
   const pad = options?.padding ?? 0;
   const padStr = " ".repeat(pad);
 

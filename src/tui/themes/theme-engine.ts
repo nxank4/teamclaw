@@ -1,83 +1,53 @@
 /**
- * Theme engine — singleton that manages theme loading, switching, and resolution.
- * Default theme: Catppuccin Mocha.
+ * Theme engine — singleton that manages the active palette and emits
+ * theme:changed events.
+ *
+ * Default palette: pawlwinkle.
  */
 import { EventEmitter } from "node:events";
-import type { Theme } from "./theme.js";
-import type { ThemeDefinition } from "./theme-types.js";
-import { getBuiltInThemes } from "./built-in/index.js";
-import { setActiveTheme } from "./default.js";
+import type { Palette } from "./semantic-tokens.js";
+import { getBuiltInPalettes, DEFAULT_PALETTE_ID, getPaletteById } from "./palettes/index.js";
+import { setActivePalette } from "./active.js";
 
 export class ThemeEngine extends EventEmitter {
-  private themes = new Map<string, ThemeDefinition>();
-  private current: ThemeDefinition;
-  private maxBrightness = 1.0;
+  private palettes = new Map<string, Palette>();
+  private currentId: string;
 
   constructor() {
     super();
-    // Register all built-in themes
-    for (const td of getBuiltInThemes()) {
-      this.themes.set(td.id, td);
+    for (const p of getBuiltInPalettes()) {
+      this.palettes.set(p.id, p);
     }
-    // Default to catppuccin-mocha
-    this.current = this.themes.get("catppuccin-mocha")!;
+    this.currentId = DEFAULT_PALETTE_ID;
+    setActivePalette(this.palettes.get(DEFAULT_PALETTE_ID)!);
   }
 
-  /** Get the currently active theme. */
-  getTheme(): Theme {
-    return this.current.theme;
-  }
-
-  /** Get the current theme definition (with palette). */
-  getDefinition(): ThemeDefinition {
-    return this.current;
-  }
-
-  /** Get the current theme ID. */
-  getCurrentId(): string {
-    return this.current.id;
-  }
-
-  /** Switch to a different theme by ID. Updates the global defaultTheme proxy. */
+  /** Switch the active palette by id. Returns false if the id is unknown. */
   switchTheme(themeId: string): boolean {
-    const td = this.themes.get(themeId);
-    if (!td) return false;
-    this.current = td;
-    setActiveTheme(td.theme);
+    const palette = this.palettes.get(themeId);
+    if (!palette) return false;
+    this.currentId = themeId;
+    setActivePalette(palette);
     this.emit("theme:changed", themeId);
     return true;
   }
 
-  /** List all available theme IDs. */
-  listThemes(): { id: string; name: string; variant: string }[] {
-    return [...this.themes.values()].map((t) => ({
-      id: t.id,
-      name: t.name,
-      variant: t.variant,
-    }));
+  /** The id of the currently active palette. */
+  getCurrentId(): string {
+    return this.currentId;
   }
 
-  /** Register a custom theme. */
-  registerTheme(td: ThemeDefinition): void {
-    this.themes.set(td.id, td);
+  /** Look up a palette by id (used by `/themes` preview). */
+  getPalette(themeId: string): Palette | undefined {
+    return this.palettes.get(themeId) ?? getPaletteById(themeId);
   }
 
-  /** Set max brightness (0.0–1.0). Affects computed colors. */
-  setMaxBrightness(value: number): void {
-    this.maxBrightness = Math.max(0, Math.min(1, value));
-  }
-
-  getMaxBrightness(): number {
-    return this.maxBrightness;
-  }
-
-  /** Get a theme by ID (for preview). */
-  getThemeById(id: string): ThemeDefinition | undefined {
-    return this.themes.get(id);
+  /** All known palettes in registration order. */
+  listPalettes(): readonly Palette[] {
+    return [...this.palettes.values()];
   }
 }
 
-/** Singleton instance. */
 let _engine: ThemeEngine | null = null;
 
 export function getThemeEngine(): ThemeEngine {
