@@ -89,6 +89,7 @@ export const COMPONENT_TO_SEMANTIC = {
   "md.inlineCode":         "brand.accent",
   "md.bold":               "text.secondary",
   "md.link":               "status.info",
+  "md.tableSep":           "text.tertiary",
 
   // ── panel (panel.ts: 9 sites) ─────────────────────────────────────
   "panel.border":          "border.default",

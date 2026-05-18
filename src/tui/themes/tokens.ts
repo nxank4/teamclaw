@@ -97,6 +97,7 @@ export interface TokenTree {
     inlineCode: StyleFn;
     bold: StyleFn;
     link: StyleFn;
+    tableSep: StyleFn;
   };
   panel: {
     border: StyleFn;
@@ -181,4 +182,28 @@ export const tokens: TokenTree = buildTree(activePalette);
 export function withPalette<T>(palette: Palette, fn: (t: TokenTree) => T): T {
   const tree = buildTree(() => palette);
   return fn(tree);
+}
+
+// ── background helpers ────────────────────────────────────────────
+// Components that paint a background (code blocks, selected rows) use
+// these. Re-resolves against the active palette on each call.
+
+type BgKey = keyof Palette["semantic"]["bg"];
+
+function hexToTriple(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+/** Wrap text in the named background color from the active palette. */
+export function bgToken(key: BgKey): StyleFn {
+  return (s: string): string => {
+    const hex = activePalette().semantic.bg[key];
+    const [r, g, b] = hexToTriple(hex);
+    return `\x1b[48;2;${r};${g};${b}m${s}\x1b[49m`;
+  };
 }

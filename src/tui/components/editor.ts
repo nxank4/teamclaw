@@ -8,7 +8,8 @@ import type { LayoutConfig } from "../layout/responsive.js";
 import { visibleWidth, charWidth } from "../utils/text-width.js";
 import { truncate } from "../utils/truncate.js";
 import { TextWrapper, type WrappedLine } from "../text/text-wrapper.js";
-import { defaultTheme, ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
+import { bold, dim } from "../core/ansi.js";
 import { renderScrollAbove, renderScrollBelow } from "../utils/scroll-indicators.js";
 import { handleVerticalNav } from "../core/navigation.js";
 import { wordBoundaryLeft, wordBoundaryRight } from "../keybindings/input-shortcuts.js";
@@ -69,7 +70,7 @@ export class EditorComponent implements Component {
   constructor(id: string, placeholder = "Ask anything...") {
     this.id = id;
     this.placeholder = placeholder;
-    this.borderColor = ctp.surface0;
+    this.borderColor = tokens.ui.editorBorder;
   }
 
   render(width: number): string[] {
@@ -93,10 +94,10 @@ export class EditorComponent implements Component {
         const item = visible[i]!;
         const globalIdx = start + i;
         const isSelected = globalIdx === this.acSelectedIndex;
-        const prefix = isSelected ? defaultTheme.primary("❯ ") : "  ";
-        let line = prefix + (isSelected ? defaultTheme.bold(item.label) : item.label);
+        const prefix = isSelected ? tokens.ui.editorPrompt("❯ ") : "  ";
+        let line = prefix + (isSelected ? bold(item.label) : item.label);
         if (item.description) {
-          line += "  " + defaultTheme.dim(item.description);
+          line += "  " + dim(item.description);
         }
         result.push(line);
       }
@@ -106,11 +107,11 @@ export class EditorComponent implements Component {
     }
 
     // Borderless layout: "─" separator + prompt lines (no box)
-    const promptSymbol = ctp.mauve("❯");
+    const promptSymbol = tokens.ui.editorPrompt("❯");
     const promptWidth = 2; // "❯ " = 2 visible chars
     const contentWidth = width - promptWidth - 1; // 1 char left margin
     const fileTags = this.attachedFiles.length > 0
-      ? this.attachedFiles.map((f) => ctp.blue(`[@${f.split("/").pop()}]`)).join(" ") + " "
+      ? this.attachedFiles.map((f) => tokens.ui.fileTag(`[@${f.split("/").pop()}]`)).join(" ") + " "
       : "";
     const fileTagsWidth = this.attachedFiles.length > 0 ? visibleWidth(fileTags) : 0;
     const textContentWidth = Math.max(1, contentWidth - fileTagsWidth);
@@ -130,7 +131,7 @@ export class EditorComponent implements Component {
     // Content lines
     if (isEmpty && !this.focused && this.attachedFiles.length === 0) {
       const truncatedPlaceholder = truncate(this.placeholder, contentWidth, "");
-      result.push(" " + promptSymbol + " " + ctp.overlay0(truncatedPlaceholder));
+      result.push(" " + promptSymbol + " " + tokens.ui.placeholder(truncatedPlaceholder));
     } else {
       const startVis = this.inputScrollOffset;
       const endVis = Math.min(totalVisual, startVis + this.maxVisibleLines);

@@ -4,9 +4,10 @@
  */
 
 import type { DiffResult, DiffLine } from "../../utils/diff.js";
-import { defaultTheme, ctp } from "../themes/default.js";
+import { tokens } from "../themes/tokens.js";
 import { ICONS } from "../constants/icons.js";
 import { renderMoreLines } from "../utils/scroll-indicators.js";
+import type { StyleFn } from "../themes/style-fn.js";
 
 export interface ToolCallViewState {
   executionId: string;
@@ -63,7 +64,7 @@ export class ToolCallView {
 
     // Diff counts (e.g., "(+45 -12)")
     const diffCountStr = diff && (diff.added > 0 || diff.removed > 0)
-      ? ` ${ctp.green(`+${diff.added}`)} ${ctp.red(`-${diff.removed}`)}`
+      ? ` ${tokens.diff.add(`+${diff.added}`)} ${tokens.diff.remove(`-${diff.removed}`)}`
       : "";
 
     // Determine if diff block is expandable
@@ -85,13 +86,13 @@ export class ToolCallView {
 
     // Error summary (failed state)
     if (status === "failed" && outputSummary) {
-      lines.push(`    ${defaultTheme.error(outputSummary.slice(0, width - 6))}`);
+      lines.push(`    ${tokens.tool.errorSummary(outputSummary.slice(0, width - 6))}`);
     }
 
     // Diff block (for file_write/file_edit)
     if (showDiff && diff) {
       for (const dl of diff.lines) {
-        lines.push(`  ${defaultTheme.dim("│")} ${renderDiffLine(dl)}`);
+        lines.push(`  ${tokens.tool.aborted("│")} ${renderDiffLine(dl)}`);
       }
     }
 
@@ -102,15 +103,15 @@ export class ToolCallView {
 
       if (outputLines.length <= maxVisible) {
         for (const line of outputLines) {
-          lines.push(`  ${defaultTheme.dim("│")} ${line}`);
+          lines.push(`  ${tokens.tool.aborted("│")} ${line}`);
         }
       } else {
         for (const line of outputLines.slice(0, 15)) {
-          lines.push(`  ${defaultTheme.dim("│")} ${line}`);
+          lines.push(`  ${tokens.tool.aborted("│")} ${line}`);
         }
-        lines.push(`  ${defaultTheme.dim("│")} ${renderMoreLines(outputLines.length - 20)}`);
+        lines.push(`  ${tokens.tool.aborted("│")} ${renderMoreLines(outputLines.length - 20)}`);
         for (const line of outputLines.slice(-5)) {
-          lines.push(`  ${defaultTheme.dim("│")} ${line}`);
+          lines.push(`  ${tokens.tool.aborted("│")} ${line}`);
         }
       }
     }
@@ -183,7 +184,7 @@ export class ToolCallView {
     const target = this.state.inputSummary.replace(/\s+/g, " ").trim().slice(0, 50);
     const { diff } = this.state;
     const diffStr = diff && (diff.added > 0 || diff.removed > 0)
-      ? ` ${ctp.green(`+${diff.added}`)} ${ctp.red(`-${diff.removed}`)}`
+      ? ` ${tokens.diff.add(`+${diff.added}`)} ${tokens.diff.remove(`-${diff.removed}`)}`
       : "";
     const dur = this.state.duration && this.state.duration > 100
       ? ` ${formatDuration(this.state.duration)}`
@@ -199,22 +200,19 @@ export class ToolCallView {
       // from "actually running".
       case "pending": return ICONS.hourglass;
       case "running": return SPINNER_FRAMES[this.spinnerFrame % SPINNER_FRAMES.length]!;
-      case "completed": return defaultTheme.symbols.success;
-      case "failed": return defaultTheme.symbols.error;
+      case "completed": return ICONS.success;
+      case "failed": return ICONS.error;
       case "aborted": return ICONS.aborted;
     }
   }
 
-  private getIconColor(): (s: string) => string {
+  private getIconColor(): StyleFn {
     switch (this.state.status) {
-      // Yellow tracks the approval-prompt color, signalling "user
-      // input expected" without competing with the active-running
-      // teal spinner.
-      case "pending": return ctp.yellow;
-      case "running": return ctp.teal;
-      case "completed": return ctp.green;
-      case "failed": return ctp.red;
-      case "aborted": return ctp.surface2;
+      case "pending": return tokens.tool.pending;
+      case "running": return tokens.tool.running;
+      case "completed": return tokens.tool.completed;
+      case "failed": return tokens.tool.failed;
+      case "aborted": return tokens.tool.aborted;
     }
   }
 
@@ -241,18 +239,18 @@ export class ToolCallView {
 function formatDuration(ms: number): string {
   // Tool calls show decimal seconds for precision
   const label = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
-  return defaultTheme.dim(`(${label})`);
+  return tokens.tool.durationLabel(`(${label})`);
 }
 
 function renderDiffLine(dl: DiffLine): string {
   switch (dl.type) {
     case "added":
-      return ctp.green(`+ ${dl.content}`);
+      return tokens.diff.add(`+ ${dl.content}`);
     case "removed":
-      return ctp.red(`- ${dl.content}`);
+      return tokens.diff.remove(`- ${dl.content}`);
     case "context":
-      return defaultTheme.dim(`  ${dl.content}`);
+      return tokens.diff.context(`  ${dl.content}`);
     case "collapsed":
-      return defaultTheme.dim(`  ... ${dl.content} ...`);
+      return tokens.diff.collapsed(`  ... ${dl.content} ...`);
   }
 }
